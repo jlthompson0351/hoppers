@@ -1,0 +1,1820 @@
+{% extends "base.html" %}
+{% block content %}
+{# Set default values for all config sections to avoid KeyError on missing keys #}
+{% set filter = cfg.get('filter', {}) %}
+{% set range_cfg = cfg.get('range', {}) %}
+{% set output = cfg.get('output', {}) %}
+{% set excitation = cfg.get('excitation', {}) %}
+{% set zero_tracking = cfg.get('zero_tracking', {}) %}
+{% set startup = cfg.get('startup', {}) %}
+{% set alarms = cfg.get('alarms', {}) %}
+{% set fault = cfg.get('fault', {}) %}
+{% set dump_detection = cfg.get('dump_detection', {}) %}
+{% set drift = cfg.get('drift', {}) %}
+{% set timing = cfg.get('timing', {}) %}
+{% set logging = cfg.get('logging', {}) %}
+{% set watchdog = cfg.get('watchdog', {}) %}
+{% set rs485 = cfg.get('rs485', {}) %}
+{% set onewire = cfg.get('onewire', {}) %}
+{% set leds = cfg.get('leds', {}) %}
+{% set display = cfg.get('display', {}) %}
+{% set daq24b8vin = cfg.get('daq24b8vin', {}) %}
+{% set i2c = cfg.get('i2c', {}) %}
+{% set ui = cfg.get('ui', {}) %}
+{% set megaind = cfg.get('megaind', {}) %}
+{% set megaind_io = cfg.get('megaind_io', {}) %}
+<style>
+  /* Tab Styles */
+  .tabs { display: flex; gap: 4px; border-bottom: 2px solid rgba(255,255,255,.1); margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 12px 18px; cursor: pointer; border-radius: 8px 8px 0 0; background: rgba(255,255,255,.03); color: var(--muted); font-size: 13px; font-weight: 600; transition: all .15s; }
+  .tab:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .tab.active { background: var(--card); color: var(--accent); border-bottom: 2px solid var(--accent); margin-bottom: -2px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  
+  /* Section Cards */
+  .section { background: var(--card); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .section-title .icon { font-size: 20px; }
+  
+  /* Form Elements */
+  .setting-row { display: grid; grid-template-columns: 1fr 200px; gap: 16px; align-items: start; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { font-weight: 600; font-size: 14px; }
+  .setting-help { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .setting-help strong { color: var(--accent); }
+  .setting-control { display: flex; flex-direction: column; gap: 4px; }
+  .setting-control input, .setting-control select { width: 100%; padding: 10px 12px; }
+  .setting-control input[type="checkbox"] { width: auto; }
+  .setting-unit { font-size: 11px; color: var(--muted); text-align: right; }
+  
+  /* Toggle Switch */
+  .toggle-wrapper { display: flex; align-items: center; gap: 12px; }
+  .toggle { position: relative; width: 50px; height: 26px; background: rgba(255,255,255,.1); border-radius: 13px; cursor: pointer; transition: background .2s; }
+  .toggle.on { background: var(--ok); }
+  .toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform .2s; }
+  .toggle.on::after { transform: translateX(24px); }
+  .toggle-label { font-size: 13px; color: var(--muted); }
+  
+  /* Warning Banner */
+  .warning-banner { background: rgba(255, 107, 107, .1); border: 1px solid rgba(255, 107, 107, .3); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 12px; }
+  .warning-banner .icon { font-size: 20px; flex-shrink: 0; }
+  .warning-banner .text { font-size: 13px; line-height: 1.5; }
+  .warning-banner .text strong { color: var(--bad); }
+  
+  /* Info Box */
+  .info-box { background: rgba(97, 218, 251, .08); border: 1px solid rgba(97, 218, 251, .2); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.5; }
+  .info-box strong { color: var(--accent); }
+  
+  /* Slider */
+  .slider-control { display: flex; align-items: center; gap: 12px; }
+  .slider-control input[type="range"] { flex: 1; height: 6px; -webkit-appearance: none; background: rgba(255,255,255,.1); border-radius: 3px; }
+  .slider-control input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; }
+  .slider-value { min-width: 60px; text-align: right; font-weight: 600; font-size: 14px; }
+  
+  /* DAQ Channel Table */
+  .channel-table { width: 100%; border-collapse: collapse; }
+  .channel-table th { text-align: left; padding: 10px; font-size: 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .channel-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .channel-table input, .channel-table select { padding: 8px 10px; font-size: 13px; }
+  
+  /* Save Bar */
+  .save-bar { position: sticky; bottom: 0; background: linear-gradient(transparent, var(--bg) 20%); padding: 20px 0; margin-top: 20px; }
+  .save-bar-inner { display: flex; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 16px 20px; }
+  .save-bar button { padding: 12px 32px; font-size: 15px; }
+  .save-bar .status { font-size: 13px; color: var(--muted); }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .setting-row { grid-template-columns: 1fr; }
+    .tabs { gap: 2px; }
+    .tab { padding: 10px 12px; font-size: 12px; }
+  }
+</style>
+
+<div class="tabs" id="settingsTabs">
+  <div class="tab active" data-tab="quick-setup">Quick Setup</div>
+  <div class="tab" data-tab="signal">Signal Tuning</div>
+  <div class="tab" data-tab="zero">Zero &amp; Scale</div>
+  <div class="tab" data-tab="output">Output Control</div>
+  <div class="tab" data-tab="alarms">Alarms &amp; Limits</div>
+  <div class="tab" data-tab="daq">DAQ Channels</div>
+  <div class="tab" data-tab="detection">Detection</div>
+  <div class="tab" data-tab="timing">Timing</div>
+  <div class="tab" data-tab="logging">Logging</div>
+  <div class="tab" data-tab="advanced">Advanced</div>
+  <div class="tab" data-tab="megaind">MegaIND I/O</div>
+  <div class="tab" data-tab="system">System</div>
+</div>
+
+<form id="settingsForm" method="post" action="{{ url_for('routes.settings_post') }}">
+  
+  <!-- ============== QUICK SETUP TAB ============== -->
+  <div class="tab-content active" id="tab-quick-setup">
+    <div class="info-box">
+      <strong>Start Here!</strong> These are the essential settings to get your scale up and running. 
+      Most installations only need to adjust these settings.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Weight Range</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Minimum Weight</div>
+          <div class="setting-help">The weight value that corresponds to <strong>0V</strong> (or 4mA) output. Usually set to 0 for most scales.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="range_min_lb" step="0.1" value="{{ range_cfg.get('min_lb', 0) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Maximum Weight</div>
+          <div class="setting-help">The weight value that corresponds to <strong>10V</strong> (or 20mA) output. Set this to your scale's full capacity.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="range_max_lb" step="0.1" value="{{ range_cfg.get('max_lb', 300) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">PLC Output</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Output Mode</div>
+          <div class="setting-help">Choose based on your PLC's analog input type. <strong>0-10V</strong> is most common for industrial PLCs. <strong>4-20mA</strong> is better for long cable runs.</div>
+        </div>
+        <div class="setting-control">
+          <select name="output_mode">
+            <option value="0_10V" {% if output.get('mode', '0_10V') == '0_10V' %}selected{% endif %}>0-10V (Voltage)</option>
+            <option value="4_20mA" {% if output.get('mode', '0_10V') == '4_20mA' %}selected{% endif %}>4-20mA (Current)</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Output Channel</div>
+          <div class="setting-help">Which MegaIND output channel is wired to your PLC. Check your wiring diagram.</div>
+        </div>
+        <div class="setting-control">
+          <select name="output_channel">
+            {% for ch in [1,2,3,4] %}
+            <option value="{{ ch }}" {% if output.get('ao_channel_v', 1) == ch %}selected{% endif %}>Channel {{ ch }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Safe Output Value</div>
+          <div class="setting-help">Output sent to PLC when there's a <strong>fault</strong> (sensor error, communication loss, etc.). Usually set to 0V or 4mA to indicate failure.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="safe_output" step="0.01" value="{{ output.get('safe_v', 0) if output.get('mode', '0_10V') == '0_10V' else output.get('safe_ma', 4) }}">
+          <div class="setting-unit">{{ 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' }}</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Excitation Monitoring</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Excitation Input Channel</div>
+          <div class="setting-help">Which MegaIND analog input monitors the load cell excitation voltage. This is used for <strong>ratiometric</strong> measurements.</div>
+        </div>
+        <div class="setting-control">
+          <select name="excitation_ai_channel">
+            {% for ch in [1,2,3,4] %}
+            <option value="{{ ch }}" {% if excitation.get('ai_channel', 1) == ch %}selected{% endif %}>Channel {{ ch }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Warning Voltage</div>
+          <div class="setting-help">Below this voltage, a <strong>warning</strong> is displayed but the scale continues operating.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="excitation_warn_v" step="0.1" value="{{ excitation.get('warn_v', 9.0) }}">
+          <div class="setting-unit">V</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Fault Voltage</div>
+          <div class="setting-help">Below this voltage, a <strong>fault</strong> is triggered and safe output is sent to PLC. This protects against power supply failure.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="excitation_fault_v" step="0.1" value="{{ excitation.get('fault_v', 8.0) }}">
+          <div class="setting-unit">V</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== SIGNAL TUNING TAB ============== -->
+  <div class="tab-content" id="tab-signal">
+    <div class="info-box">
+      <strong>Signal Processing</strong> These settings control how the raw signal from the load cells is filtered 
+      and processed. Proper tuning gives you a stable weight reading without sacrificing response time.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Filter Type</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Use Kalman Filter</div>
+          <div class="setting-help">
+            <strong>Recommended ON.</strong> Kalman filter provides <strong>zero-lag</strong> filtering - it responds instantly to real weight changes while removing noise. 
+            Turn OFF to use simple IIR filter instead (legacy mode).
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if filter.get('use_kalman', true) %}on{% endif %}" id="toggle_use_kalman" onclick="toggleSwitch(this, 'use_kalman')"></div>
+            <input type="hidden" name="use_kalman" id="use_kalman" value="{{ '1' if filter.get('use_kalman', true) else '0' }}">
+            <span class="toggle-label">{{ 'Kalman (Recommended)' if filter.get('use_kalman', true) else 'IIR (Legacy)' }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section" id="kalman-settings">
+      <div class="section-title">Kalman Filter Settings</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Process Noise (Q)</div>
+          <div class="setting-help">
+            How much the weight actually changes between readings.<br>
+            <strong>Lower (0.1-1.0):</strong> For stable loads like storage hoppers. Smoother reading.<br>
+            <strong>Higher (2.0-10.0):</strong> For dynamic loads with rapid changes. Faster response.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="slider-control">
+            <input type="range" name="kalman_process_noise" min="0.1" max="10" step="0.1" 
+                   value="{{ filter.get('kalman_process_noise', 1.0) }}" 
+                   oninput="updateSliderValue(this)">
+            <span class="slider-value">{{ filter.get('kalman_process_noise', 1.0) }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Measurement Noise (R)</div>
+          <div class="setting-help">
+            How noisy your sensor readings are.<br>
+            <strong>Lower (10-30):</strong> Trust the sensor more. Use with quality load cells and clean power.<br>
+            <strong>Higher (50-200):</strong> Filter more aggressively. Use in noisy environments with electrical interference.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="slider-control">
+            <input type="range" name="kalman_measurement_noise" min="1" max="200" step="1" 
+                   value="{{ filter.get('kalman_measurement_noise', 50) }}" 
+                   oninput="updateSliderValue(this)">
+            <span class="slider-value">{{ filter.get('kalman_measurement_noise', 50) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section" id="iir-settings">
+      <div class="section-title">IIR Filter Settings (Legacy)</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Filter Alpha</div>
+          <div class="setting-help">
+            Simple smoothing factor. Only used when Kalman is OFF.<br>
+            <strong>Lower (0.05-0.15):</strong> Heavy filtering, very smooth but slow to respond.<br>
+            <strong>Higher (0.3-0.8):</strong> Light filtering, faster response but more jitter.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="slider-control">
+            <input type="range" name="filter_alpha" min="0.01" max="1" step="0.01" 
+                   value="{{ filter.get('alpha', 0.18) }}" 
+                   oninput="updateSliderValue(this)">
+            <span class="slider-value">{{ filter.get('alpha', 0.18) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Stability Detection</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Stability Window</div>
+          <div class="setting-help">
+            Number of samples to analyze for stability. At 20Hz loop rate, 25 samples = ~1.25 seconds.<br>
+            <strong>Larger (40-100):</strong> More confident stability, but takes longer to show STABLE.<br>
+            <strong>Smaller (10-20):</strong> Faster stability detection, but may trigger on brief pauses.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="stability_window" min="5" max="100" step="1" value="{{ filter.get('stability_window', 25) }}">
+          <div class="setting-unit">samples</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Stability Stddev Threshold</div>
+          <div class="setting-help">
+            Maximum standard deviation of weight readings to be considered stable.<br>
+            <strong>Lower (0.2-0.5 lb):</strong> Stricter - requires very steady weight for STABLE.<br>
+            <strong>Higher (1.0-3.0 lb):</strong> More lenient - allows minor fluctuation as STABLE.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="stability_stddev_lb" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_stddev_lb', 0.8) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Stability Slope Threshold</div>
+          <div class="setting-help">
+            Maximum rate of change to be considered stable.<br>
+            <strong>Lower (0.2-0.5 lb/s):</strong> Weight must be nearly motionless.<br>
+            <strong>Higher (1.0-3.0 lb/s):</strong> Allows slow drift as STABLE.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="stability_slope_lbs" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_slope_lbs', 0.8) }}">
+          <div class="setting-unit">lb/s</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Weight Display</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Display Precision</div>
+          <div class="setting-help">
+            How many decimal places to show for weight readings on the dashboard.<br>
+            <strong>0 (Whole lbs):</strong> Shows "75 lb" - for rough measurements like hoppers.<br>
+            <strong>1 (0.1 lb):</strong> Shows "75.2 lb" - standard precision.<br>
+            <strong>2 (0.01 lb):</strong> Shows "75.24 lb" - for precision weighing.
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="weight_decimals">
+            <option value="0" {% if display.get('weight_decimals', 1) == 0 %}selected{% endif %}>0 - Whole pounds (75 lb)</option>
+            <option value="1" {% if display.get('weight_decimals', 1) == 1 %}selected{% endif %}>1 - One decimal (75.2 lb)</option>
+            <option value="2" {% if display.get('weight_decimals', 1) == 2 %}selected{% endif %}>2 - Two decimals (75.24 lb)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Advanced Noise Reduction</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Median Pre-Filter</div>
+          <div class="setting-help">
+            Applies a median filter <strong>before</strong> the main filter. Excellent for rejecting random spikes from electrical noise or interference.
+            The median filter picks the middle value from the last N samples, eliminating outliers.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if filter.get('median_enabled', false) %}on{% endif %}" id="toggle_median_enabled" onclick="toggleSwitch(this, 'median_enabled')"></div>
+            <input type="hidden" name="median_enabled" id="median_enabled" value="{{ '1' if filter.get('median_enabled', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if filter.get('median_enabled', false) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Median Window Size</div>
+          <div class="setting-help">
+            Must be an odd number. <strong>3</strong> = light spike rejection, <strong>7-11</strong> = heavy spike rejection (adds slight delay).
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="median_window">
+            {% for n in [3, 5, 7, 9, 11] %}
+            <option value="{{ n }}" {% if filter.get('median_window', 5) == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Notch Filter (Power Line)</div>
+          <div class="setting-help">
+            Removes power line interference (50Hz or 60Hz hum) from the signal. Turn ON if you see weight reading oscillating in sync with AC power.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if filter.get('notch_enabled', false) %}on{% endif %}" id="toggle_notch_enabled" onclick="toggleSwitch(this, 'notch_enabled')"></div>
+            <input type="hidden" name="notch_enabled" id="notch_enabled" value="{{ '1' if filter.get('notch_enabled', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if filter.get('notch_enabled', false) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Notch Frequency</div>
+          <div class="setting-help">
+            <strong>60 Hz:</strong> North America, parts of South America, Asia<br>
+            <strong>50 Hz:</strong> Europe, Australia, most of Asia, Africa
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="notch_freq">
+            <option value="60" {% if filter.get('notch_freq', 60) == 60 %}selected{% endif %}>60 Hz (US/Canada)</option>
+            <option value="50" {% if filter.get('notch_freq', 60) == 50 %}selected{% endif %}>50 Hz (Europe/Asia)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== ZERO & SCALE TAB ============== -->
+  <div class="tab-content" id="tab-zero">
+    <div class="info-box">
+      <strong>⚖️ Zero Management</strong> Configure how the scale maintains its zero point over time.
+      Zero tracking is essential for industrial scales that experience temperature changes and mechanical settling.
+      <br><br>
+      <strong>Understanding ZERO vs TARE:</strong><br>
+      • <strong>ZERO:</strong> Adjusts the calibration baseline (signal offset). Use this to fix drift from temperature, aging, etc.<br>
+      • <strong>TARE:</strong> Subtracts a weight offset (for containers). Doesn't fix drift, just hides weight.<br>
+      • <strong>Zero Tracking:</strong> Automatically adjusts ZERO when the scale is empty, compensating for drift over time.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Zero Tracking (Auto-Zero)</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Zero Tracking</div>
+          <div class="setting-help">
+            <strong>Recommended ON.</strong> Automatically maintains zero when the scale is empty. 
+            Compensates for temperature drift and mechanical settling. Disables while weight is present.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if zero_tracking.get('enabled', false) %}on{% endif %}" id="toggle_zero_tracking_enabled" onclick="toggleSwitch(this, 'zero_tracking_enabled')"></div>
+            <input type="hidden" name="zero_tracking_enabled" id="zero_tracking_enabled" value="{{ '1' if zero_tracking.get('enabled', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if zero_tracking.get('enabled', false) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Range</div>
+          <div class="setting-help">
+            Zero tracking only activates when weight is within this range of zero. Prevents tracking when there's actual weight on the scale.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_range" min="0.1" max="10" step="0.1" value="{{ zero_tracking.get('range_lb', 0.5) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Rate</div>
+          <div class="setting-help">
+            How fast zero drift is corrected. <strong>Lower (0.01-0.05 lb/s):</strong> Slow, subtle corrections. 
+            <strong>Higher (0.1-0.5 lb/s):</strong> Faster correction but may be visible.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_rate" min="0.01" max="1" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.1) }}">
+          <div class="setting-unit">lb/s</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Power-Up Behavior</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Auto-Zero on Startup</div>
+          <div class="setting-help">
+            Automatically zero the scale when the system powers up. <strong>Only enable if the scale will always be empty at startup.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if startup.get('auto_zero', false) %}on{% endif %}" id="toggle_startup_auto_zero" onclick="toggleSwitch(this, 'startup_auto_zero')"></div>
+            <input type="hidden" name="startup_auto_zero" id="startup_auto_zero" value="{{ '1' if startup.get('auto_zero', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if startup.get('auto_zero', false) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Startup Delay</div>
+          <div class="setting-help">
+            Wait this long after power-up before sending valid output. Allows load cells to settle and filters to initialize. <strong>Recommended: 5-10 seconds.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="startup_delay_s" min="0" max="120" step="1" value="{{ startup.get('delay_s', 5) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Startup Output Value</div>
+          <div class="setting-help">
+            What output to send during the startup delay. Usually 0V/4mA to indicate "not ready" to the PLC.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="startup_output" min="0" max="20" step="0.1" value="{{ startup.get('output_value', 0) }}">
+          <div class="setting-unit">{{ 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' }}</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- NOTE: Ratiometric mode removed - system always uses raw mV -->
+  </div>
+  
+  <!-- ============== OUTPUT CONTROL TAB ============== -->
+  <div class="tab-content" id="tab-output">
+    <div class="info-box">
+      <strong>Advanced Output Settings</strong> Fine-tune how the analog output behaves. 
+      These settings help achieve clean, stable signals to your PLC.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Output Dead Band</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Output Dead Band</div>
+          <div class="setting-help">
+            <strong>Recommended ON.</strong> Prevents the output from jittering when weight is stable. 
+            The output only updates when weight changes by more than the dead band value.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if output.get('deadband_enabled', true) %}on{% endif %}" id="toggle_deadband_enabled" onclick="toggleSwitch(this, 'deadband_enabled')"></div>
+            <input type="hidden" name="deadband_enabled" id="deadband_enabled" value="{{ '1' if output.get('deadband_enabled', true) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if output.get('deadband_enabled', true) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Dead Band Value</div>
+          <div class="setting-help">
+            Minimum weight change required to update the output.<br>
+            <strong>Lower (0.1-0.3 lb):</strong> More responsive, may see slight jitter.<br>
+            <strong>Higher (0.5-2.0 lb):</strong> Very stable output, but misses small changes.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="deadband_lb" min="0.05" max="10" step="0.05" value="{{ output.get('deadband_lb', 0.5) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Output Ramping</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Output Ramping</div>
+          <div class="setting-help">
+            Limits how fast the output can change. Prevents sudden jumps that might upset PLC control loops.
+            Useful when the scale feeds into a closed-loop control system.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if output.get('ramp_enabled', false) %}on{% endif %}" id="toggle_ramp_enabled" onclick="toggleSwitch(this, 'ramp_enabled')"></div>
+            <input type="hidden" name="ramp_enabled" id="ramp_enabled" value="{{ '1' if output.get('ramp_enabled', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if output.get('ramp_enabled', false) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Max Ramp Rate (Voltage)</div>
+          <div class="setting-help">
+            Maximum rate of output change when in 0-10V mode.<br>
+            <strong>Higher (5-10 V/s):</strong> Fast transitions, nearly instant.<br>
+            <strong>Lower (0.5-2 V/s):</strong> Smooth transitions over several seconds.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="ramp_rate_v" min="0.1" max="50" step="0.1" value="{{ output.get('ramp_rate_v', 5.0) }}">
+          <div class="setting-unit">V/s</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Max Ramp Rate (Current)</div>
+          <div class="setting-help">
+            Maximum rate of output change when in 4-20mA mode.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="ramp_rate_ma" min="0.1" max="50" step="0.1" value="{{ output.get('ramp_rate_ma', 8.0) }}">
+          <div class="setting-unit">mA/s</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Auto-Arm Behavior</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Auto-Arm on Startup</div>
+          <div class="setting-help">
+            Automatically enable outputs after the startup delay. <strong>Only enable for unattended operation.</strong>
+            If disabled, outputs must be manually armed after each restart.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if startup.get('auto_arm', false) %}on{% endif %}" id="toggle_startup_auto_arm" onclick="toggleSwitch(this, 'startup_auto_arm')"></div>
+            <input type="hidden" name="startup_auto_arm" id="startup_auto_arm" value="{{ '1' if startup.get('auto_arm', false) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if startup.get('auto_arm', false) else 'Disabled (Manual arm required)' }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== ALARMS & LIMITS TAB ============== -->
+  <div class="tab-content" id="tab-alarms">
+    <div class="info-box">
+      <strong>🚨 Protection & Alarms</strong> Configure limits and alarms to protect your equipment 
+      and alert operators to abnormal conditions.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Overload Protection</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Overload Threshold</div>
+          <div class="setting-help">
+            Weight above this value triggers an OVERLOAD fault. Set slightly above your maximum expected weight 
+            to protect load cells from damage. <strong>Leave blank to disable.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="overload_threshold_lb" min="0" step="1" value="{{ alarms.get('overload_lb', '') or '' }}" placeholder="Disabled">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Overload Action</div>
+          <div class="setting-help">
+            What to do when overload is detected.<br>
+            <strong>Alarm Only:</strong> Display warning but continue outputting.<br>
+            <strong>Safe Output:</strong> Switch to safe output value.<br>
+            <strong>Lock Output:</strong> Freeze output until manually cleared.
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="overload_action">
+            <option value="alarm" {% if alarms.get('overload_action', 'alarm') == 'alarm' %}selected{% endif %}>Alarm Only</option>
+            <option value="safe" {% if alarms.get('overload_action', 'alarm') == 'safe' %}selected{% endif %}>Safe Output</option>
+            <option value="lock" {% if alarms.get('overload_action', 'alarm') == 'lock' %}selected{% endif %}>Lock Output</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Underload / Negative Weight</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Allow Negative Weight</div>
+          <div class="setting-help">
+            Allow weight readings below zero. Useful for net weight applications or when tare exceeds gross.
+            <strong>If disabled, negative readings are clamped to zero.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if alarms.get('allow_negative', false) %}on{% endif %}" id="toggle_allow_negative" onclick="toggleSwitch(this, 'allow_negative')"></div>
+            <input type="hidden" name="allow_negative" id="allow_negative" value="{{ '1' if alarms.get('allow_negative', false) else '0' }}">
+            <span class="toggle-label">{{ 'Allowed' if alarms.get('allow_negative', false) else 'Clamped to 0' }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Underload Threshold</div>
+          <div class="setting-help">
+            Weight below this value triggers an UNDERLOAD warning. Only applies if negative weight is allowed.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="underload_threshold_lb" step="1" value="{{ alarms.get('underload_lb', -5) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Weight Alarms</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">High Weight Alarm</div>
+          <div class="setting-help">
+            Trigger an alarm when weight exceeds this value. Useful for alerting when a hopper is nearly full.
+            <strong>Leave blank to disable.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="alarm_high_lb" min="0" step="1" value="{{ alarms.get('high_lb', '') or '' }}" placeholder="Disabled">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Low Weight Alarm</div>
+          <div class="setting-help">
+            Trigger an alarm when weight drops below this value. Useful for alerting when a hopper needs refill.
+            <strong>Leave blank to disable.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="alarm_low_lb" min="0" step="1" value="{{ alarms.get('low_lb', '') or '' }}" placeholder="Disabled">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Rate-of-Change Alarm</div>
+          <div class="setting-help">
+            Trigger an alarm if weight is changing faster than this rate. May indicate a broken load cell, 
+            loose connection, or uncontrolled material flow. <strong>Leave blank to disable.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="alarm_rate_lbs" min="0" step="1" value="{{ alarms.get('rate_lbs', '') or '' }}" placeholder="Disabled">
+          <div class="setting-unit">lb/s</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Fault Handling</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Fault Delay</div>
+          <div class="setting-help">
+            How long a fault condition must persist before triggering. Prevents false alarms from brief glitches.
+            <strong>0:</strong> Instant fault detection.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="fault_delay_s" min="0" max="60" step="0.5" value="{{ fault.get('delay_s', 2.0) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Fault Recovery Mode</div>
+          <div class="setting-help">
+            <strong>Auto:</strong> Fault clears automatically when condition is fixed.<br>
+            <strong>Manual:</strong> Fault stays latched until manually acknowledged by operator.
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="fault_recovery">
+            <option value="auto" {% if fault.get('recovery', 'auto') == 'auto' %}selected{% endif %}>Auto (Clear when fixed)</option>
+            <option value="manual" {% if fault.get('recovery', 'auto') == 'manual' %}selected{% endif %}>Manual (Requires acknowledgment)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== DAQ CHANNELS TAB ============== -->
+  <div class="tab-content" id="tab-daq">
+    <div class="info-box">
+      <strong>📡 DAQ Channel Configuration</strong> Configure the 8 analog input channels on the 24b8vin board.
+      Enable only the channels connected to load cells and set the appropriate gain for your signal level.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">DAQ Board Settings</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Stack Level</div>
+          <div class="setting-help">
+            I2C address offset for the 24b8vin board. Usually 0 unless you have multiple DAQ boards stacked.
+            Address = 0x31 + Stack Level
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="daq_stack_level">
+            {% for s in range(8) %}
+            <option value="{{ s }}" {% if daq24b8vin.get('stack_level', 0) == s %}selected{% endif %}>{{ s }} (0x{{ '%02X' | format(0x31 + s) }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Hardware Sample Averaging</div>
+          <div class="setting-help">
+            Number of hardware samples to average per reading. <strong>Higher:</strong> Less noise but slower.
+            <strong>Lower:</strong> Faster but noisier. Most installations use 2-4.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="daq_average_samples" min="1" max="20" step="1" value="{{ daq24b8vin.get('average_samples', 2) }}">
+          <div class="setting-unit">samples</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Channel Configuration</div>
+      
+      <table class="channel-table">
+        <thead>
+          <tr>
+            <th>Ch</th>
+            <th>Enabled</th>
+            <th>Role</th>
+            <th>Gain Code</th>
+            <th>Input Range</th>
+            <th>Live Reading</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td><strong>{{ row.ch_display }}</strong></td>
+            <td>
+              <input type="checkbox" name="ch_enabled_{{ row.idx }}" {% if row.enabled %}checked{% endif %}>
+            </td>
+            <td>
+              <select name="ch_role_{{ row.idx }}" style="min-width: 140px;">
+                {% for role in roles %}
+                <option value="{{ role }}" {% if row.role == role %}selected{% endif %}>{{ role }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <select name="ch_gain_{{ row.idx }}">
+                {% for code, label in gain_labels.items() %}
+                <option value="{{ code }}" {% if row.gain_code == code %}selected{% endif %}>{{ code }}: {{ label }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="small">{{ gain_labels[row.gain_code] | default('Unknown') }}</td>
+            <td>
+              {% if row.polled %}
+                <span style="color: var(--accent);">{{ "%.4f" | format(row.raw_v) }} V</span>
+              {% else %}
+                <span style="color: var(--muted);">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      
+      <div class="info-box" style="margin-top: 16px;">
+        <strong>Gain Code Guide for Load Cells:</strong><br>
+        Most load cells output ~3mV/V at full scale. With 10V excitation = 30mV full scale signal.<br>
+        • Use <strong>Gain 7 (±0.18V)</strong> for best resolution on small signals<br>
+        • Use <strong>Gain 6 (±0.37V)</strong> if signal clips with Gain 7<br>
+        • Use <strong>Gain 5 (±0.75V)</strong> for higher output load cells or summed signals
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== DETECTION TAB ============== -->
+  <div class="tab-content" id="tab-detection">
+    <div class="info-box">
+      <strong>🔍 Detection Algorithms</strong> Configure how the system detects dumps (material discharges) 
+      and load cell drift (sensor degradation).
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Dump Detection</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Drop Threshold</div>
+          <div class="setting-help">
+            Minimum weight drop to count as a dump. Set based on your typical batch size.<br>
+            <strong>Example:</strong> If you typically dump 50 lb batches, set to 25-40 lb to catch partial dumps.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="dump_drop_threshold_lb" min="1" step="1" value="{{ dump_detection.get('drop_threshold_lb', 25) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Minimum Previous Stable Weight</div>
+          <div class="setting-help">
+            Weight must be at least this amount (and stable) before a drop counts as a dump.
+            Prevents false dumps when scale is nearly empty or during zeroing.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="dump_min_prev_stable_lb" min="1" step="1" value="{{ dump_detection.get('min_prev_stable_lb', 10) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Drift Detection</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Ratio Threshold</div>
+          <div class="setting-help">
+            Maximum allowed deviation in load cell contribution ratios. Each load cell should contribute 
+            roughly equal signal. A drifting cell will show abnormal ratio.<br>
+            <strong>Lower (0.05-0.08):</strong> Very sensitive, may false alarm.<br>
+            <strong>Higher (0.15-0.25):</strong> Only catches major drift.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="drift_ratio_threshold" min="0.01" max="0.5" step="0.01" value="{{ drift.get('ratio_threshold', 0.12) }}">
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">EMA Alpha</div>
+          <div class="setting-help">
+            Smoothing factor for drift tracking. Lower = slower to react but more stable.
+            Higher = faster detection but more prone to false alarms.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="drift_ema_alpha" min="0.001" max="0.2" step="0.001" value="{{ drift.get('ema_alpha', 0.02) }}">
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Consecutive Required</div>
+          <div class="setting-help">
+            Number of consecutive readings exceeding threshold before alarming.
+            Prevents single-sample glitches from triggering drift warnings.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="drift_consecutive" min="1" max="100" step="1" value="{{ drift.get('consecutive_required', 20) }}">
+          <div class="setting-unit">readings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== TIMING TAB ============== -->
+  <div class="tab-content" id="tab-timing">
+    <div class="info-box">
+      <strong>⏱️ Timing & Performance</strong> Configure loop rates and communication parameters.
+      Higher rates give faster response but use more CPU.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Acquisition Loop</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Target Loop Rate</div>
+          <div class="setting-help">
+            Target frequency for the main acquisition loop. Actual rate may be lower due to I2C timing.
+            <strong>Recommended:</strong> 20 Hz for most applications.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="loop_rate_hz" min="1" max="100" step="1" value="{{ timing.get('loop_rate_hz', 20) }}">
+          <div class="setting-unit">Hz</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Config Refresh Interval</div>
+          <div class="setting-help">
+            How often to reload configuration from database. Allows UI changes to take effect without restart.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="config_refresh_s" min="0.5" max="60" step="0.5" value="{{ timing.get('config_refresh_s', 2.0) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Communication</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">I2C Retry Count</div>
+          <div class="setting-help">
+            Number of times to retry a failed I2C communication before declaring board offline.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="i2c_retry_count" min="0" max="10" step="1" value="{{ timing.get('i2c_retry_count', 3) }}">
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Board Offline Threshold</div>
+          <div class="setting-help">
+            Time without successful communication before a board is marked offline.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="board_offline_s" min="1" max="60" step="1" value="{{ timing.get('board_offline_s', 5) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">UI Updates</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Dashboard Poll Rate</div>
+          <div class="setting-help">
+            How often the dashboard refreshes data from the server. Lower = faster updates but more network traffic.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="ui_poll_rate_ms" min="100" max="5000" step="100" value="{{ ui.get('poll_rate_ms', 500) }}">
+          <div class="setting-unit">ms</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== LOGGING TAB ============== -->
+  <div class="tab-content" id="tab-logging">
+    <div class="info-box">
+      <strong>📝 Data Logging</strong> Configure what data is logged and how long it's retained.
+      Logs are stored in the SQLite database.
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Trend Logging</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log Interval</div>
+          <div class="setting-help">
+            How often to log weight and output values to the trends table. <strong>1 second</strong> = detailed history, 
+            <strong>60 seconds</strong> = summary history.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="log_interval_s" min="1" max="3600" step="1" value="{{ logging.get('interval_s', 1) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log Retention</div>
+          <div class="setting-help">
+            Automatically delete logs older than this. Prevents database from growing indefinitely.
+            <strong>0</strong> = keep forever (not recommended).
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="log_retention_days" min="0" max="365" step="1" value="{{ logging.get('retention_days', 30) }}">
+          <div class="setting-unit">days</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">What to Log</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log Raw Signal</div>
+          <div class="setting-help">Include raw mV (or mV/V) signal in trend logs. Useful for diagnosing calibration issues.</div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if logging.get('log_raw', false) %}on{% endif %}" id="toggle_log_raw" onclick="toggleSwitch(this, 'log_raw')"></div>
+            <input type="hidden" name="log_raw" id="log_raw" value="{{ '1' if logging.get('log_raw', false) else '0' }}">
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log Filtered Weight</div>
+          <div class="setting-help">Include filtered weight value in trend logs. <strong>Recommended ON.</strong></div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if logging.get('log_weight', true) %}on{% endif %}" id="toggle_log_weight" onclick="toggleSwitch(this, 'log_weight')"></div>
+            <input type="hidden" name="log_weight" id="log_weight" value="{{ '1' if logging.get('log_weight', true) else '0' }}">
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log Output Value</div>
+          <div class="setting-help">Include analog output value (V or mA) in trend logs.</div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if logging.get('log_output', true) %}on{% endif %}" id="toggle_log_output" onclick="toggleSwitch(this, 'log_output')"></div>
+            <input type="hidden" name="log_output" id="log_output" value="{{ '1' if logging.get('log_output', true) else '0' }}">
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Log on Events Only</div>
+          <div class="setting-help">
+            Only log when something happens (dump, alarm, fault) instead of at fixed intervals. 
+            Greatly reduces database size but loses continuous history.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if logging.get('event_only', false) %}on{% endif %}" id="toggle_log_event_only" onclick="toggleSwitch(this, 'log_event_only')"></div>
+            <input type="hidden" name="log_event_only" id="log_event_only" value="{{ '1' if logging.get('event_only', false) else '0' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== ADVANCED TAB ============== -->
+  <div class="tab-content" id="tab-advanced">
+    <div class="warning-banner">
+      <div class="text">
+        <strong>Advanced Settings</strong><br>
+        These settings can affect system stability and safety. Only modify if you understand the implications.
+        Incorrect settings may cause the Raspberry Pi to reboot unexpectedly or become unreachable.
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Watchdog Timer (24b8vin)</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Watchdog</div>
+          <div class="setting-help">
+            When enabled, the 24b8vin board will power-cycle the Raspberry Pi if the application stops responding.
+            <strong>Only enable after confirming the application reliably pets the watchdog.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if watchdog.get('daq_enabled', false) %}on{% endif %}" id="toggle_daq_wdt_enabled" onclick="toggleSwitch(this, 'daq_wdt_enabled')"></div>
+            <input type="hidden" name="daq_wdt_enabled" id="daq_wdt_enabled" value="{{ '1' if watchdog.get('daq_enabled', false) else '0' }}">
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Watchdog Period</div>
+          <div class="setting-help">Pi will be reset if not petted within this time. Set longer than worst-case application pause.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="daq_wdt_period_s" min="10" max="65000" step="1" value="{{ watchdog.get('daq_period_s', 120) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Watchdog Timer (MegaIND)</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Watchdog</div>
+          <div class="setting-help">
+            Similar to DAQ watchdog. MegaIND can also power-cycle the Pi on hang.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if watchdog.get('megaind_enabled', false) %}on{% endif %}" id="toggle_megaind_wdt_enabled" onclick="toggleSwitch(this, 'megaind_wdt_enabled')"></div>
+            <input type="hidden" name="megaind_wdt_enabled" id="megaind_wdt_enabled" value="{{ '1' if watchdog.get('megaind_enabled', false) else '0' }}">
+          </div>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Watchdog Period</div>
+          <div class="setting-help">MegaIND watchdog timeout period.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="megaind_wdt_period_s" min="10" max="65000" step="1" value="{{ watchdog.get('megaind_period_s', 120) }}">
+          <div class="setting-unit">seconds</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">RS485 / MODBUS</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable RS485</div>
+          <div class="setting-help">
+            Enable RS485 MODBUS communication for external SCADA/PLC integration.
+            <strong>Requires physical jumper configuration on MegaIND board.</strong>
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if rs485.get('enabled', false) %}on{% endif %}" id="toggle_rs485_enabled" onclick="toggleSwitch(this, 'rs485_enabled')"></div>
+            <input type="hidden" name="rs485_enabled" id="rs485_enabled" value="{{ '1' if rs485.get('enabled', false) else '0' }}">
+            <span class="toggle-label">Disabled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Temperature Sensors (One-Wire)</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable One-Wire Bus</div>
+          <div class="setting-help">
+            Enable scanning for DS18B20 temperature sensors on the MegaIND one-wire bus.
+            Useful for monitoring ambient or equipment temperature.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if onewire.get('enabled', false) %}on{% endif %}" id="toggle_onewire_enabled" onclick="toggleSwitch(this, 'onewire_enabled')"></div>
+            <input type="hidden" name="onewire_enabled" id="onewire_enabled" value="{{ '1' if onewire.get('enabled', false) else '0' }}">
+            <span class="toggle-label">Disabled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">LED Indicators</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable LED Control</div>
+          <div class="setting-help">
+            Allow software control of onboard LEDs for status indication.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if leds.get('enabled', false) %}on{% endif %}" id="toggle_leds_enabled" onclick="toggleSwitch(this, 'leds_enabled')"></div>
+            <input type="hidden" name="leds_enabled" id="leds_enabled" value="{{ '1' if leds.get('enabled', false) else '0' }}">
+            <span class="toggle-label">Disabled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== MEGAIND I/O TAB ============== -->
+  <div class="tab-content" id="tab-megaind">
+    <div class="info-box">
+      <strong>MegaIND I/O (Simple + Practical)</strong> This tab is for using the MegaIND as a straightforward industrial I/O card:
+      read a voltage input or opto input, and drive a 0–10V output without PLC ladder logic.
+      <br><br>
+      <strong>Important:</strong> the main PLC output signal is still controlled by the acquisition loop. By default this tab will <strong>not</strong> override that channel.
+    </div>
+
+    <div class="warning-banner">
+      <div class="text">
+        <strong>Physical Jumper Note</strong><br>
+        MegaIND analog input range selection (0–10V vs ±10V) is set by <strong>PHYSICAL JUMPERS</strong> on the board. This UI currently reads inputs as <strong>0–10V</strong>.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Board &amp; Safety</div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">MegaIND Stack Level</div>
+          <div class="setting-help">I2C stack ID (0..7). Stack 0 = address 0x50. Changing this affects hardware detection.</div>
+        </div>
+        <div class="setting-control">
+          <select name="megaind_stack_level">
+            {% for s in range(8) %}
+            <option value="{{ s }}" {% if megaind.get('stack_level', 0) == s %}selected{% endif %}>{{ s }} (0x{{ '%02X' | format(0x50 + s) }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">ARM MegaIND Extra Outputs</div>
+          <div class="setting-help">
+            Safety interlock for the <strong>extra</strong> outputs on this tab. When disarmed, any enabled extra outputs are forced to a safe value.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if megaind_io.get('armed', false) %}on{% endif %}" id="toggle_megaind_io_armed" onclick="toggleSwitch(this, 'megaind_io_armed')"></div>
+            <input type="hidden" name="megaind_io_armed" id="megaind_io_armed" value="{{ '1' if megaind_io.get('armed', false) else '0' }}">
+            <span class="toggle-label">{{ 'ARMED' if megaind_io.get('armed', false) else 'DISARMED' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Safe Value (0–10V)</div>
+          <div class="setting-help">Value used for enabled extra 0–10V outputs when disarmed.</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="megaind_io_safe_v" min="0" max="10" step="0.01" value="{{ megaind_io.get('safe_v', 0.0) }}">
+          <div class="setting-unit">V</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Allow Override of PLC Output Channel</div>
+          <div class="setting-help">
+            <strong>Not recommended.</strong> If enabled, the rules/outputs here may write to the same channel used for PLC output.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if megaind_io.get('allow_plc_channel', false) %}on{% endif %}" id="toggle_megaind_io_allow_plc" onclick="toggleSwitch(this, 'megaind_io_allow_plc_channel')"></div>
+            <input type="hidden" name="megaind_io_allow_plc_channel" id="megaind_io_allow_plc_channel" value="{{ '1' if megaind_io.get('allow_plc_channel', false) else '0' }}">
+            <span class="toggle-label">{{ 'Allowed' if megaind_io.get('allow_plc_channel', false) else 'Blocked (Recommended)' }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Live Inputs</div>
+
+      <table class="channel-table">
+        <thead>
+          <tr>
+            <th>Ch</th>
+            <th>Analog In (0–10V)</th>
+            <th>Opto In</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set mi_ai = snap.get('megaind_ai_v', {}) %}
+          {% set mi_di = snap.get('megaind_di', {}) %}
+          {% for ch in [1,2,3,4] %}
+          <tr>
+            <td><strong>{{ ch }}</strong></td>
+            <td>
+              <span id="mi_ai_v_{{ ch }}" style="color: var(--accent);">
+                {% if mi_ai.get(ch) is not none %}
+                  {{ "%.3f" | format(mi_ai.get(ch, 0.0)) }} V
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+            </td>
+            <td>
+              <span id="mi_di_{{ ch }}" class="pill {% if mi_di.get(ch, false) %}ok{% else %}bad{% endif %}">
+                {{ 'ON' if mi_di.get(ch, false) else 'OFF' }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="setting-help" style="margin-top: 10px;">
+        Tip: opto inputs are great for checking if 120V devices are ON/OFF (through proper opto wiring). Use them as simple “buttons” to trigger an output action.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Extra 0–10V Outputs (Channels 1–4)</div>
+      <div class="setting-help" style="margin-bottom: 10px;">
+        These outputs are separate from the main PLC weight output. If a channel matches the PLC Output Channel (currently <strong>Channel {{ output.get('ao_channel_v', 1) }}</strong>),
+        it will be skipped unless you enable “Allow Override of PLC Output Channel”.
+      </div>
+
+      {% set ao_v = megaind_io.get('ao_v', []) %}
+      {% for ch in [1,2,3,4] %}
+      {% set item = ao_v[ch-1] if ao_v|length >= ch else {} %}
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Voltage Output Channel {{ ch }}</div>
+          <div class="setting-help">
+            Enable and set a fixed output voltage. Great for testing a PLC analog input or driving a reference signal.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input type="checkbox" name="mi_ao_v_enabled_{{ ch }}" {% if item.get('enabled', false) %}checked{% endif %}>
+            <input type="number" name="mi_ao_v_value_{{ ch }}" min="0" max="10" step="0.01" value="{{ item.get('value_v', 0.0) }}" style="width: 120px;">
+            <span class="setting-unit">V</span>
+          </div>
+          <div class="setting-help" style="margin-top: 6px;">
+            Commanded (last write): <span id="mi_ao_v_cmd_{{ ch }}" style="color: var(--muted);">—</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Internal Board Calibration (Advanced)</div>
+      <div class="warning-banner">
+        <div class="text">
+          <strong>⚠️ Technicians Only</strong><br>
+          This tool calibrates the MegaIND board hardware itself using the Sequent CLI. Use a precision meter.
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">CLI Calibration Type</div>
+          <div class="setting-help">Select the output type to calibrate on the board.</div>
+        </div>
+        <div class="setting-control">
+          <select id="cli-cal-type-settings">
+            <option value="uoutcal">0-10V Output</option>
+            <option value="ioutcal">4-20mA Output</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Board Calibration Steps</div>
+          <div class="setting-help">Use the <strong>Calibration Hub</strong> nudge slider to set values, then capture them here.</div>
+        </div>
+        <div class="setting-control">
+          <div style="display: grid; gap: 8px;">
+            <button type="button" class="btn" style="background: #333;" onclick="captureCliSettings(1)">Capture Point 1 (Low)</button>
+            <button type="button" class="btn" style="background: #333;" onclick="captureCliSettings(2)">Capture Point 2 (High)</button>
+            <button type="button" class="btn" style="background: var(--bad);" onclick="resetCliSettings()">Reset Board to Factory</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== SYSTEM TAB ============== -->
+  <div class="tab-content" id="tab-system">
+    <!-- I/O Status Banner -->
+    {% if snap.io_live %}
+    <div class="warning-banner" style="background: linear-gradient(135deg, #0a3d0a 0%, #0d4d0d 100%); border-left-color: #22c55e;">
+      <div class="text">
+        <strong style="color: #22c55e; font-size: 18px;">I/O LIVE</strong><br>
+        Real hardware is connected and operational. All readings and outputs are from actual hardware.
+      </div>
+    </div>
+    {% else %}
+    <div class="warning-banner" style="background: linear-gradient(135deg, #4a1c1c 0%, #5a2020 100%); border-left-color: #ef4444;">
+      <div class="text">
+        <strong style="color: #ef4444; font-size: 18px;">I/O OFFLINE</strong><br>
+        Hardware is not connected or not responding. Outputs are forced to safe values. System will automatically retry.
+        {% if snap.daq_error %}<br>DAQ: {{ snap.daq_error }}{% endif %}
+        {% if snap.megaind_error %}<br>MegaIND: {{ snap.megaind_error }}{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    
+    <div class="section">
+      <div class="section-title">I/O Hardware Status</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">DAQ (24b8vin)</div>
+          <div class="setting-help">8-channel 24-bit ADC for load cell signals.</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span class="pill {% if snap.daq_online %}ok{% else %}fault{% endif %}">{{ 'ONLINE' if snap.daq_online else 'OFFLINE' }}</span>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">MegaIND (Industrial I/O)</div>
+          <div class="setting-help">Analog outputs for PLC, excitation monitoring.</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span class="pill {% if snap.megaind_online %}ok{% else %}fault{% endif %}">{{ 'ONLINE' if snap.megaind_online else 'OFFLINE' }}</span>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Last DAQ Communication</div>
+          <div class="setting-help">Timestamp of last successful DAQ read.</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span style="font-size: 12px; color: var(--text-dim);">{{ snap.last_daq_comm_utc | default('Never') }}</span>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Last MegaIND Communication</div>
+          <div class="setting-help">Timestamp of last successful MegaIND read/write.</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span style="font-size: 12px; color: var(--text-dim);">{{ snap.last_megaind_comm_utc | default('Never') }}</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">I2C Configuration</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">I2C Bus</div>
+          <div class="setting-help">
+            I2C bus number. Usually 1 on Raspberry Pi. Only change if you have a custom setup.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="i2c_bus" min="0" max="10" step="1" value="{{ i2c.get('bus', 1) }}">
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Maintenance UI</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Maintenance UI</div>
+          <div class="setting-help">
+            Show additional maintenance pages and options. These are hidden from normal operators.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if ui.get('maintenance_enabled', false) %}on{% endif %}" id="toggle_maintenance_enabled" onclick="toggleSwitch(this, 'maintenance_enabled')"></div>
+            <input type="hidden" name="maintenance_enabled" id="maintenance_enabled" value="{{ '1' if ui.get('maintenance_enabled', false) else '0' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">System Information</div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Loop Rate</div>
+          <div class="setting-help">Current acquisition loop rate (actual, not target).</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span style="font-size: 18px; font-weight: 700; color: var(--accent);">{{ "%.1f" | format(snap.loop_hz | default(0)) }} Hz</span>
+        </div>
+      </div>
+      
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">I/O Status</div>
+          <div class="setting-help">Overall hardware connection status.</div>
+        </div>
+        <div class="setting-control" style="text-align: right;">
+          <span class="pill {% if snap.io_live %}ok{% else %}fault{% endif %}" style="font-size: 14px; padding: 6px 16px;">{{ 'LIVE' if snap.io_live else 'OFFLINE' }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ============== SAVE BAR ============== -->
+  <div class="save-bar">
+    <div class="save-bar-inner">
+      <div class="status" id="saveStatus">Changes will be saved when you click Save Settings</div>
+      <button type="submit">Save Settings</button>
+    </div>
+  </div>
+  
+</form>
+
+<script>
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', function() {
+    // Remove active from all tabs and contents
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    // Activate clicked tab and corresponding content
+    this.classList.add('active');
+    const tabId = 'tab-' + this.dataset.tab;
+    document.getElementById(tabId).classList.add('active');
+
+    // MegaIND live polling only when MegaIND tab is visible
+    if (this.dataset.tab === 'megaind') {
+      startMegaIndPolling();
+    } else {
+      stopMegaIndPolling();
+    }
+  });
+});
+
+let _megaindPollTimer = null;
+function startMegaIndPolling() {
+  if (_megaindPollTimer) return;
+  const pollMsRaw = {{ ui.get('poll_rate_ms', 1000) }};
+  const pollMs = Math.max(200, Math.min(5000, Number(pollMsRaw) || 1000));
+  const tick = async () => {
+    try {
+      const r = await fetch('{{ url_for("routes.api_snapshot") }}', { cache: 'no-store' });
+      const data = await r.json();
+      const mi = (data && data.megaindIO) ? data.megaindIO : {};
+      const ai = mi.ai_v || {};
+      const di = mi.di || {};
+      const aoCmd = mi.ao_v_cmd || {};
+      [1,2,3,4].forEach((ch) => {
+        const aiEl = document.getElementById(`mi_ai_v_${ch}`);
+        if (aiEl && ai[ch] !== undefined) {
+          const v = Number(ai[ch]);
+          aiEl.textContent = Number.isFinite(v) ? `${v.toFixed(3)} V` : '—';
+        }
+        const diEl = document.getElementById(`mi_di_${ch}`);
+        if (diEl && di[ch] !== undefined) {
+          const on = !!di[ch];
+          diEl.textContent = on ? 'ON' : 'OFF';
+          diEl.classList.toggle('ok', on);
+          diEl.classList.toggle('bad', !on);
+        }
+        const aoEl = document.getElementById(`mi_ao_v_cmd_${ch}`);
+        if (aoEl && aoCmd[ch] !== undefined) {
+          const v = Number(aoCmd[ch]);
+          aoEl.textContent = Number.isFinite(v) ? `${v.toFixed(3)} V` : '—';
+        }
+      });
+    } catch (e) {
+      // ignore polling errors
+    }
+  };
+  tick();
+  _megaindPollTimer = setInterval(tick, pollMs);
+}
+
+function stopMegaIndPolling() {
+  if (_megaindPollTimer) {
+    clearInterval(_megaindPollTimer);
+    _megaindPollTimer = null;
+  }
+}
+
+// Toggle switch
+function toggleSwitch(el, inputId) {
+  el.classList.toggle('on');
+  const input = document.getElementById(inputId);
+  input.value = el.classList.contains('on') ? '1' : '0';
+  
+  // Update label if present
+  const label = el.nextElementSibling?.nextElementSibling;
+  if (label && label.classList.contains('toggle-label')) {
+    // Update based on context
+    if (inputId === 'use_kalman') {
+      label.textContent = el.classList.contains('on') ? 'Kalman (Recommended)' : 'IIR (Legacy)';
+    } else if (inputId === 'ratiometric_removed') { // Ratiometric removed
+      label.textContent = el.classList.contains('on') ? 'mV/V (Ratiometric)' : 'mV (Absolute)';
+    } else if (inputId === 'megaind_io_armed') {
+      label.textContent = el.classList.contains('on') ? 'ARMED' : 'DISARMED';
+    } else if (inputId === 'megaind_io_allow_plc_channel') {
+      label.textContent = el.classList.contains('on') ? 'Allowed' : 'Blocked (Recommended)';
+    } else {
+      label.textContent = el.classList.contains('on') ? 'Enabled' : 'Disabled';
+    }
+  }
+}
+
+// Slider value display
+function updateSliderValue(slider) {
+  const valueSpan = slider.parentElement.querySelector('.slider-value');
+  if (valueSpan) {
+    valueSpan.textContent = slider.value;
+  }
+}
+
+// Form change detection
+let formChanged = false;
+
+window.captureCliSettings = function(point) {
+  const type = document.getElementById('cli-cal-type-settings').value;
+  const channel = {{ (cfg.get('output') or {}).get('ao_channel_v', 1) }};
+  // Get nudge value from state snapshot
+  fetch('/api/snapshot').then(r => r.json()).then(data => {
+    const val = data.plcOutput.nudge_value;
+    fetch('/api/output/calibrate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: type, channel: channel, value: val, point: point})
+    }).then(() => alert('Point ' + point + ' captured at ' + val));
+  });
+};
+
+window.resetCliSettings = function() {
+  if (!confirm('Reset board to factory?')) return;
+  const type = document.getElementById('cli-cal-type-settings').value.replace('cal', 'calrst');
+  const channel = {{ (cfg.get('output') or {}).get('ao_channel_v', 1) }};
+  fetch('/api/output/calibrate/reset', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({type: type, channel: channel})
+  }).then(() => alert('Board reset to factory.'));
+};
+
+document.getElementById('settingsForm').addEventListener('change', function() {
+  formChanged = true;
+  document.getElementById('saveStatus').textContent = '⚠️ You have unsaved changes';
+  document.getElementById('saveStatus').style.color = 'var(--warn)';
+});
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', function(e) {
+  if (formChanged) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// Clear warning on submit
+document.getElementById('settingsForm').addEventListener('submit', function() {
+  formChanged = false;
+});
+</script>
+
+{% endblock %}

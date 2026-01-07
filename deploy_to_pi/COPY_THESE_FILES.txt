@@ -1,0 +1,63 @@
+QUICK DEPLOYMENT GUIDE - Copy to Pi
+=====================================
+
+All the updated files are in this folder (deploy_to_pi)
+
+METHOD 1 - Using WinSCP (EASIEST):
+----------------------------------
+1. Open WinSCP
+2. Connect to: 172.16.190.15 (user: pi)
+3. Navigate to: /home/pi/hoppers/
+4. Copy these files:
+
+   FROM deploy_to_pi folder          TO Pi location:
+   -------------------               ---------------
+   routes.py          -->   /home/pi/hoppers/src/app/routes.py
+   acquisition.py     -->   /home/pi/hoppers/src/services/acquisition.py
+   repo.py            -->   /home/pi/hoppers/src/db/repo.py
+   dashboard.html     -->   /home/pi/hoppers/src/app/templates/dashboard.html
+   settings.html      -->   /home/pi/hoppers/src/app/templates/settings.html
+   scale_settings.html-->   /home/pi/hoppers/src/app/templates/scale_settings.html
+
+5. After copying, open PuTTY or SSH and run:
+   ssh pi@172.16.190.15
+   sudo systemctl restart loadcell-transmitter
+
+6. Check it worked:
+   sudo systemctl status loadcell-transmitter
+
+
+METHOD 2 - Using PowerShell (if SSH keys set up):
+-------------------------------------------------
+Just run: .\deploy.ps1
+
+
+METHOD 3 - Manual SCP Commands:
+-------------------------------
+cd C:\Users\jthompson\Desktop\hoppers\deploy_to_pi
+
+scp routes.py pi@172.16.190.15:/home/pi/hoppers/src/app/
+scp acquisition.py pi@172.16.190.15:/home/pi/hoppers/src/services/
+scp repo.py pi@172.16.190.15:/home/pi/hoppers/src/db/
+scp dashboard.html pi@172.16.190.15:/home/pi/hoppers/src/app/templates/
+scp settings.html pi@172.16.190.15:/home/pi/hoppers/src/app/templates/
+scp scale_settings.html pi@172.16.190.15:/home/pi/hoppers/src/app/templates/
+
+ssh pi@172.16.190.15 "sudo systemctl restart loadcell-transmitter"
+
+
+AFTER DEPLOYMENT:
+----------------
+1. Go to http://172.16.190.15:8080
+2. Press Ctrl+Shift+R to hard refresh
+3. Click ZERO button when stable
+4. Verify "Zero Offset:" changes (not "Tare:")
+5. Enable zero tracking in Settings > Zero & Scale
+
+
+WHAT THIS FIXES:
+---------------
+✓ ZERO now updates calibration baseline (signal offset)
+✓ ZERO no longer does the same thing as TARE
+✓ Zero tracking feature now works automatically
+✓ Fixes your 7 lb overnight drift problem!

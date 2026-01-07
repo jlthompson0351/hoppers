@@ -1,0 +1,549 @@
+# TODAY: Unified Calibration Hub + Hand-in-Hand PLC Mapping + Conflict Guard
+
+**Date**: January 6, 2026  
+**Status**: ✅ **UNFUCKED CALIBRATION HUB DEPLOYED** + **HAND-IN-HAND MAPPING ACTIVE** + **PROPORTIONAL PWL OUTPUT** + **CLEAN SPLIT SETUP/TRAINING**
+
+---
+
+## Major Upgrades (January 6, 2026)
+
+### 1. Unified Calibration Hub (The "One-Stop Shop")
+**Problem**: PLC output settings were scattered across hidden pages and fighting with the scale calibration logic.
+**Solution**: Merged everything into `calibration.html`.
+- **Top**: Live Weight Monitor (0-600 lb visual bar).
+- **Middle**: Scale mV Calibration.
+- **Bottom**: PLC Output Mapping (The "Training Center").
+
+### 2. Hand-in-Hand PLC Mapping (The "Nudge & Match")
+**Problem**: Technicians had to do math to map weight to voltage (e.g. 150lb = 5V).
+**Solution**: Interactive nudging.
+- Tech puts weight on scale.
+- Tech nudges Pi output via UI slider until PLC display matches true weight.
+- Tech hits **ADD MATCH POINT**.
+- **Math**: System uses Piece-wise Linear (PWL) interpolation to "bend" the signal for perfect accuracy across the entire range.
+
+### 3. Clean Split Logic (Setup vs Training)
+**Decision**: Keep setup in Settings and training in Calibration.
+- **Settings -> Quick Setup**: Configure physical wiring (Channel 1-4) and Mode (0-10V/4-20mA).
+- **Calibration Hub**: Just train the signal. No redundant dropdowns to accidentally change.
+- **Status Bar**: Hub displays "Active Port: 0-10V on Channel 1 (Set in Settings)" so the tech knows exactly what they are working on.
+
+### 4. Conflict Guard & Safety
+- **Pin Watcher**: UI flashes **RED** if a technician tries to use a pin for PLC Output that is already being used by a Logic Rule.
+- **Freeze Mode**: While nudging the slider, normal weight-based logic is suspended to provide a rock-solid steady signal for calibration.
+- **Arm Override**: The nudge slider now works immediately on the Calibration page even if the global ARM toggle is off (Maintenance bypass).
+
+### 5. Hardware Driver Extensions
+- Added support for **Relays** and **Open-Drain PWM** outputs to the MegaIND driver, preparing for custom ladder logic and buttons.
+
+---
+
+## Bug Fixes (December 19, 2025 - Late PM)
+
+### Excitation Monitoring Fix (Dec 19, 2025 Late PM)
+
+**Problem**: Excitation voltage showed **0.00V** on the Dashboard even when correctly wired to MegaIND analog input.
+
+**Root Causes**:
+1. **Code issue**: Excitation was only read when `ratiometric` mode was enabled. If ratiometric was OFF, excitation reading was skipped entirely.
+2. **Config issue**: User had cycled through channels in Settings and left it on Channel 4, but excitation was wired to Channel 1.
+
+**Fixes Applied**:
+
+1. **`src/services/acquisition.py`**: Now ALWAYS reads excitation voltage regardless of ratiometric setting
+   - Excitation monitoring works for fault detection even in raw mV mode
+   - Added try/except with proper error handling for read failures
+   - Status values: `OK`, `WARN`, `FAULT`, `NOT_READ`, `READ_ERROR`
+
+2. **Config fix**: Changed `excitation.ai_channel` from 4 back to 1
+
+**How Excitation Monitoring Now Works**:
+- Excitation is **always read** (for display and fault detection)
+- Excitation is only **used for math** when ratiometric mode is ON
+- Users can monitor excitation health even when using simple raw mV mode
+
+**Verification**: Dashboard now shows `Excitation: 10.15V OK`
+
+---
+
+## Bug Fixes (December 19, 2025 - AM/Early PM)
+
+### Calibration Extrapolation Fix (CRITICAL)
+
+**Problem**: When the load cell signal exceeded the highest calibration point, the weight display would **clamp** at the highest calibrated weight instead of extrapolating.
+
+**Example**: User calibrated 0-75 lb range, but stepping on scale (signal ~10.3 mV) only showed 75 lb instead of the actual ~184 lb.
+
+**Root Cause**: The piecewise-linear interpolation function (`src/core/pwl.py`) was designed to clamp values at the endpoints instead of extrapolating.
+
+**Fix Applied** (`src/core/pwl.py`):
+- Added `extrapolate` parameter (default: `True`)
+- When signal is **below** the lowest calibration point: extrapolates using the slope from the first two points
+- When signal is **above** the highest calibration point: extrapolates using the slope from the last two points
+- Clamping behavior still available via `extrapolate=False` if needed
+
+**Impact**: Both calibration curves and PLC profile curves now extrapolate beyond their defined ranges, which is the expected industrial behavior.
+
+### Multiple Load Cell Signal Handling (Confirmed Working)
+
+**Question**: How does the system handle multiple load cells?
+
+**Answer**: Signals are **summed together** (industry standard for hopper/vessel scales):
+- Each load cell channel is read individually (raw mV)
+- If ratiometric mode is on, each is divided by excitation voltage (mV → mV/V)
+- All load cell signals are added to produce `total_signal`
+- Calibration curve converts `total_signal` → weight in lbs
+
+This is correct for multi-point suspension scales where each load cell carries a fraction of the total weight.
+
+### Ratiometric Mode (Confirmed Optional)
+
+Users can run in either mode:
+- **Ratiometric (mV/V)**: Compensates for excitation voltage drift
+- **Raw mV**: Simpler, works fine if excitation supply is stable
+
+**Excitation monitoring is now independent of ratiometric mode** (fixed Dec 19 late PM):
+- Excitation voltage is **always read and displayed** for fault monitoring
+- Ratiometric setting only controls whether the math uses mV/V or raw mV
+- System automatically falls back to raw mV if excitation reads <0.5V
+
+**Settings locations**:
+- **Excitation channel**: Settings > Quick Setup > Excitation Input Channel (1-4)
+- **Ratiometric toggle**: Settings > Zero & Scale > Use Ratiometric Measurement
+
+### Weight-Side Bulletproofing (Dec 19, 2025)
+
+**Goal**: Make sure nothing in Settings is “UI-only” and that the Pi is truly running real hardware.
+
+✅ **Verified real hardware**:
+- `i2cdetect` shows **0x31** (24b8vin) and **0x50** (MegaIND)
+- `/api/snapshot` reports **hw_mode: real** and **Boards Online: 2/2**
+
+✅ **Settings are now real (no simulation leftovers):**
+- **DAQ**: `average_samples` is applied, and per-channel `gain_code` is applied automatically when config changes.
+- **Timing**: `loop_rate_hz` controls the actual acquisition loop timing (best-effort).
+- **Output safety**: when **outputs are NOT armed**, the system forces the configured **safe output** (no more “still writing” when disarmed).
+- **Output shaping**: deadband + ramp settings are active.
+- **Logging/DB**: `logging.interval_s`, `logging.event_only`, and `logging.retention_days` are enforced (trend tables get periodic cleanup).
+
+**Note on `i2cdetect`**: on some images `i2cdetect` is installed at `/usr/sbin/i2cdetect`. If `i2cdetect` says “command not found”, use:\n`sudo /usr/sbin/i2cdetect -y 1`
+
+---
+
+## For Tomorrow: Settings Tweaks Needed
+
+Before testing with the conveyor/hopper:
+
+1. **Go to Settings > DAQ Channels** - Enable Channel 1 (first row)
+2. **Go to Settings > Signal Tuning** - Set these values:
+   - Stability Window: **25** samples
+   - Kalman Process Noise: **10** (for dynamic filling)
+   - Kalman Measurement Noise: **25**
+3. **Go to Settings > System** - Verify Hardware Mode is **Real**
+4. **Save Settings**
+
+---
+
+## Important: How Stability Works
+
+| Component | Affected by UNSTABLE? |
+|-----------|----------------------|
+| Weight reading | ❌ NO - always updates |
+| Weight display | ❌ NO - always updates |
+| PLC output | ❌ NO - always sends |
+| ZERO button | ✅ YES - blocked when unstable |
+| TARE button | ✅ YES - blocked when unstable |
+| Add calibration point | ✅ YES - blocked when unstable |
+
+**For conveyor/hopper filling:** The scale WILL show UNSTABLE while parts are dropping in - this is NORMAL and doesn't affect weight reading or PLC output!
+
+---
+
+## Bug Fixes & Improvements (Dec 18, 2025 Late PM)
+
+### Stability Detector Fix (CRITICAL)
+**Problem**: Scale was flickering between STABLE/UNSTABLE constantly.
+
+**Root Cause**: The `StabilityDetector` was being **re-instantiated** on every config refresh (every 2-30 seconds), which reset its internal sample buffer. The detector could never accumulate enough samples to determine stability.
+
+**Fix Applied** (`src/services/acquisition.py`):
+- Now only updates `stddev_threshold` and `slope_threshold` directly on the existing detector
+- Only re-creates the detector if `window` size changes (rare)
+- Buffer is preserved across config reloads
+
+### Weight Display Precision Setting (NEW)
+Added configurable decimal places for weight display:
+
+| Setting | Display |
+|---------|---------|
+| 0 | 75 lb (whole pounds) |
+| 1 | 75.2 lb (one decimal - default) |
+| 2 | 75.24 lb (two decimals) |
+
+**Location**: Settings > Signal Tuning > Weight Display
+
+### Emoji Removal
+All emoji icons removed from settings.html for encoding compatibility when deploying via SCP/PSCP. Tabs now show plain text:
+- Quick Setup, Signal Tuning, Zero & Scale, etc.
+
+### Kalman Filter Tuning
+Recommended settings for faster response:
+- `kalman_process_noise`: 5.0 (was 1.0)
+- `kalman_measurement_noise`: 25 (was 50)
+
+### Tare Offset Fix
+Cleared accidental tare offset that was causing 22 lb error in weight readings.
+
+---
+
+## UI REDESIGN COMPLETED (Dec 18, 2025 PM)
+
+### Pages Redesigned
+
+| Page | Status | Key Features |
+|------|--------|--------------|
+| **Dashboard** | ✅ Complete | Large weight display, Zero/Tare buttons, PLC output panel, status indicators |
+| **Calibration** | ✅ Complete | Live signal display, add/delete points, clear all |
+| **PLC Output** | ✅ Complete | ARM toggle, test output toggle, output config, calibration, correction curve |
+| **Settings** | ✅ Complete | Tabbed technician settings, helper text, safe defaults, DAQ channel table |
+
+### New UI Routes Added
+
+- `GET /settings` - Render the tabbed technician Settings page
+- `POST /settings` - Save Settings page form to SQLite config
+
+### Config Backwards-Compatibility Fix (Important)
+
+- Older SQLite configs may be missing new nested keys (like `logging`, `zero_tracking`, etc.)
+- `AppRepository.get_latest_config()` now **deep-merges the saved config onto `default_config()`**, so new pages don’t 500 and new settings appear with safe defaults.
+
+### New API Endpoints Added
+
+- `POST /api/zero` - Zero the scale
+- `POST /api/tare` - Tare the scale
+- `POST /api/tare/clear` - Clear tare offset
+- `POST /api/calibration/add` - Add calibration point
+- `POST /api/calibration/delete/<id>` - Delete calibration point
+- `POST /api/calibration/clear` - Clear all points
+- `POST /api/output/arm` - Arm/disarm outputs
+- `POST /api/output/config` - Save output configuration
+- `POST /api/output/test` - Start/stop test output (toggle)
+- `POST /api/output/calibrate` - Capture calibration point
+- `POST /api/output/calibrate/reset` - Reset to factory
+- `POST /api/plc-profile/delete/<id>` - Delete PLC profile point
+
+### Test Output Feature
+
+- **Toggle behavior**: Click START → stays on until STOP clicked
+- UI turns red with "TEST OUTPUT ACTIVE" indicator
+- Test value input disabled while active
+- Overrides weight-based output completely
+
+### Files Modified
+
+- `src/app/routes.py` - New API endpoints
+- `src/app/templates/dashboard.html` - Complete redesign
+- `src/app/templates/calibration.html` - Complete redesign
+- `src/app/templates/plc_profile.html` - Complete redesign
+- `src/app/templates/settings.html` - New tabbed Settings page
+- `src/app/templates/base.html` - Nav updated (Settings link, Config hidden unless maintenance enabled)
+- `src/services/acquisition.py` - Test mode support + ratiometric fallback for calibration + config refresh improvements + **Dec 19 late PM**: excitation always read regardless of ratiometric setting
+- `src/hw/sequent_megaind_stub.py` - Simulation improvements
+- `src/db/repo.py` - Expanded defaults + deep-merge for older configs
+- `src/core/pwl.py` - **Dec 19**: Added extrapolation support for calibration curves (was clamping)
+
+---
+
+## Calibration / Signal Work (Dec 18, 2025 late PM)
+
+### What was changed
+
+- **Ratiometric fallback for calibration**: If ratiometric is enabled but excitation reads ~0V (not wired / missing), the acquisition loop now **falls back to raw mV** so calibration signal is not forced to 0.
+- **Calibration UI shows units**: Calibration page now shows **mV/V vs mV** based on effective ratiometric mode.
+- **Output channels default to 1**: Default MegaIND analog I/O channels are treated as 1-indexed.
+- **Config refresh interval honored**: Acquisition loop refreshes config using `timing.config_refresh_s` (instead of hardcoded 2s).
+- **Filter parameter updates without state reset**: On config refresh, filter parameters are updated while trying to preserve filter state.
+
+### Known issue (RESOLVED)
+
+- **Filtered weight does not match calibrated raw weight** - **FIXED**: Was caused by an accidental tare offset being applied. Cleared via `/api/tare/clear`.
+- **Stability flickering** - **FIXED**: Stability detector was being reset on config refresh. Fixed by preserving buffer across reloads.
+
+## 🎯 LIVE DASHBOARD
+
+# 👉 http://172.16.190.15:8080
+
+Open in any browser to view live load cell readings.
+
+---
+
+## ✅ System Deployed (December 18, 2025)
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Flask Service** | ✅ Running | Auto-starts on boot |
+| **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4, 8 channels |
+| **MegaIND I/O** | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **Hardware Mode** | ✅ REAL | Live load cell readings |
+
+### Quick Commands (SSH to Pi)
+```bash
+sudo systemctl status loadcell-transmitter   # Check status
+sudo journalctl -u loadcell-transmitter -f   # View logs
+sudo systemctl restart loadcell-transmitter  # Restart
+```
+
+---
+
+## What's Been Prepared
+
+### 📚 Documentation Created
+
+1. **`HardwareTestReadiness_TODAY.md`** — Complete runbook (2.5-3.5 hour timeline)
+   - Phase 1: Bootstrap (SSH → Running Dashboard)
+   - Phase 2: Hardware Smoke Tests (I2C scan, board detection)
+   - Phase 3: Calibration + Real Testing (multi-point calibration)
+   - Phase 4: Analog Output Verification (0-10V/4-20mA testing)
+   - Phase 5: Final Checklist
+   - Full troubleshooting guide
+
+2. **`QUICK_START_HARDWARE_TEST.md`** — One-page quick reference
+   - Copy-paste commands
+   - Quick troubleshooting
+   - Essential checklist
+
+### 🛠️ Test Scripts Created
+
+Located in `scripts/`:
+
+1. **`setup_test_scripts.sh`** — Make all scripts executable (run once on Pi)
+2. **`test_hardware_basic.sh`** — Automated I2C scan + board detection
+3. **`test_24b8vin_channels.sh`** — Read all 8 DAQ channels
+4. **`test_megaind_output.sh`** — Interactive voltage sweep test (with multimeter)
+5. **`verify_calibration.py`** — Interactive calibration verification helper
+6. **`analog_output_test_log.py`** — Automated output test with pass/fail report
+
+### ✅ Existing Dashboard Features (Already Implemented)
+
+- **Board Discovery**: Dashboard shows "Boards Online: X/Y" with DAQ and IO pills
+- **I2C Health Check**: Automatic detection at startup
+- **Calibration UI**: Multi-point piecewise-linear calibration
+- **Stability Detection**: STABLE/UNSTABLE indicator
+- **Analog Output**: 0-10V and 4-20mA modes
+- **Fault-Safe Behavior**: Safe output on excitation fault
+- **Systemd Service**: Auto-start on boot with restart on failure
+
+---
+
+## Justin's Pre-Test Checklist
+
+### Hardware Assembly
+- [ ] Raspberry Pi 4B with fresh Raspberry Pi OS installed
+- [ ] SSH enabled (provide IP address to team)
+- [ ] Hardware stack order verified: **Pi → MegaIND (bottom) → 24b8vin (top)**
+- [ ] 40-pin GPIO connectors fully seated on all boards
+- [ ] 24V power connected to MegaIND and Super Watchdog
+- [ ] Pi powered from Super Watchdog (NOT USB-C)
+
+### Wiring
+- [ ] Load cells connected to 24b8vin channels 1-4 (SIG+/SIG-)
+- [ ] SlimPak excitation wired to load cells (EXC+/EXC-)
+- [ ] Excitation monitoring: EXC+ → MegaIND AI (0-10V input)
+- [ ] PLC analog output wiring ready (AO+ / AO-)
+
+### Test Equipment
+- [ ] Multimeter (for voltage verification)
+- [ ] Known calibration weights available:
+  - 0 lb (empty scale)
+  - 25 lb weight
+  - 50 lb weight (or similar)
+  - 100 lb weight (or similar)
+  - 150 lb or max capacity weight
+
+---
+
+## Testing Day Workflow
+
+### Step 1: Initial Access (5 min)
+```powershell
+# From Windows machine
+ssh pi@<IP>
+# Change default password immediately
+```
+
+### Step 2: Bootstrap (30-45 min)
+Follow: `HardwareTestReadiness_TODAY.md` Phase 1
+- OS updates
+- I2C enable + reboot
+- Install packages
+- Copy repo via scp
+- Install Python deps
+- Configure systemd service (verify `LCS_HW_MODE=real`; repo service file defaults to real)
+- Start service
+- Verify dashboard accessible
+
+### Step 3: Hardware Smoke Tests (15-30 min)
+Follow: `HardwareTestReadiness_TODAY.md` Phase 2
+
+**Critical STOP POINT**: Run `sudo i2cdetect -y 1` (or `sudo /usr/sbin/i2cdetect -y 1` if command not found) and send screenshot
+- Expected: **0x31** (24b8vin DAQ) and **0x50** (MegaIND). **0x30** appears only if Super Watchdog is installed.
+
+Run automated tests:
+```bash
+cd /opt/loadcell-transmitter
+bash scripts/setup_test_scripts.sh
+./scripts/test_hardware_basic.sh
+./scripts/test_24b8vin_channels.sh
+./scripts/test_megaind_output.sh
+```
+
+Dashboard should show: **"Boards Online: 2/2"** with green DAQ and IO pills
+
+### Step 4: Calibration (45-60 min)
+Follow: `HardwareTestReadiness_TODAY.md` Phase 3
+- Configure channels (enable 1-4)
+- Verify excitation (~10V)
+- Tune stability settings
+- Zero capture (empty scale)
+- Multi-point calibration (25, 50, 100, 150 lb)
+- Verify readings
+- Test reboot persistence
+
+Helper script:
+```bash
+python3 scripts/verify_calibration.py
+```
+
+### Step 5: Analog Output Test (30-45 min)
+Follow: `HardwareTestReadiness_TODAY.md` Phase 4
+- Configure output mode (0-10V)
+- Set scale range (0-150 lb)
+- Test 0%, 25%, 50%, 75%, 100% points
+- Verify with multimeter (within ±0.2V)
+- Test fault-safe output
+
+Automated test:
+```bash
+python3 scripts/analog_output_test_log.py
+```
+
+### Step 6: Final Verification (15-30 min)
+Follow: `HardwareTestReadiness_TODAY.md` Phase 5
+- Run through final checklist
+- Backup database
+- Document results
+
+---
+
+## Success Criteria
+
+### ✅ Dashboard Must Show:
+- **Boards Online**: 2/2 (green DAQ and IO pills)
+- **Excitation**: ~10.0V (green status)
+- **Stability**: Toggles between STABLE/UNSTABLE correctly
+- **Weight**: Matches known test weights within ±2 lb
+- **Output**: Tracks weight correctly (within ±0.2V or ±0.5mA)
+- **Fault Behavior**: Safe output (0V or 4mA) when excitation fails
+
+### ✅ System Must:
+- Start automatically on boot
+- Survive reboot without losing calibration
+- Run for 10+ minutes without crashes
+- Log events correctly
+- Respond to live weight changes
+
+---
+
+## Quick Command Reference
+
+```bash
+# Service management
+sudo systemctl status loadcell-transmitter
+sudo systemctl restart loadcell-transmitter
+sudo journalctl -u loadcell-transmitter -f
+
+# Hardware diagnostics
+sudo i2cdetect -y 1  # if command not found: sudo /usr/sbin/i2cdetect -y 1
+./scripts/test_hardware_basic.sh
+./scripts/test_24b8vin_channels.sh
+./scripts/test_megaind_output.sh
+
+# Calibration verification
+python3 scripts/verify_calibration.py
+python3 scripts/analog_output_test_log.py
+
+# Database backup
+cp /var/lib/loadcell-transmitter/app.sqlite3 ~/backup-$(date +%Y%m%d-%H%M%S).sqlite3
+```
+
+---
+
+## STOP POINTS — Send These Outputs
+
+1. **After Bootstrap**: Dashboard screenshot showing "Boards Online: 2/2"
+2. **After I2C Scan**: Output of `sudo i2cdetect -y 1` (or `sudo /usr/sbin/i2cdetect -y 1`)
+3. **After Channel Test**: Output of `./scripts/test_24b8vin_channels.sh`
+4. **After Voltage Test**: Multimeter readings from `./scripts/test_megaind_output.sh`
+5. **After Calibration**: Screenshot of calibration points table
+6. **After Output Test**: Output of `python3 scripts/analog_output_test_log.py`
+
+---
+
+## Troubleshooting Quick Hits
+
+| Issue | Quick Fix |
+|-------|-----------|
+| "Boards Online: 0/2" or "I/O OFFLINE" | Check `sudo i2cdetect -y 1` (or `/usr/sbin/i2cdetect`), verify wiring, restart service. System auto-retries every 5s. |
+| Can't add calibration point | Wait for STABLE, increase stability threshold |
+| Output voltage wrong | Verify scale range config, check calibration loaded |
+| Excitation low | Check SlimPak output, verify wiring |
+| **Excitation shows 0.00V** | 1) Check Settings > Quick Setup > Excitation Input Channel matches your wiring (1-4). 2) Test with `megaind 0 uinrd 1` to verify hardware. 3) Update to latest `acquisition.py` if ratiometric is OFF. |
+| Dashboard not accessible | Check service status, verify port 8080 binding |
+| Weight stuck at max calibrated value | Fixed Dec 19 - update `src/core/pwl.py` and restart service |
+| Weight shows ~47 lb with 1 cal point | Need at least 2 calibration points; with 1 point system uses fallback formula (mV × 10) |
+| Added load cell, weight doubled | Expected - signals are summed. Clear calibration and recalibrate with new configuration |
+
+---
+
+## Timeline Estimate
+
+| Phase | Time |
+|-------|------|
+| Bootstrap | 30-45 min |
+| Hardware Tests | 15-30 min |
+| Calibration | 45-60 min |
+| Output Verification | 30-45 min |
+| Final Checks | 15-30 min |
+| **Total** | **~2.5-3.5 hours** |
+
+Add 30-60 min buffer for troubleshooting/unexpected issues.
+
+---
+
+## Files to Reference
+
+- **Full Runbook**: `docs/HardwareTestReadiness_TODAY.md`
+- **Quick Start**: `docs/QUICK_START_HARDWARE_TEST.md`
+- **Test Scripts**: `scripts/test_*.sh`, `scripts/*_test_log.py`
+- **Existing Docs**: 
+  - `docs/WiringAndCommissioning.md`
+  - `docs/CalibrationProcedure.md`
+  - `docs/TestPlan.md`
+
+---
+
+## Contact / Support
+
+- All scripts are copy-paste ready
+- Every command includes working directory context
+- Stop points prevent cascading failures
+- Troubleshooting section covers common issues
+
+---
+
+**You're ready for real hardware testing TODAY!**
+
+Follow the runbook, send outputs at STOP POINTS, and document results.
+
+**Good luck!**

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="grid">
+    <div class="card span-12">
+      <div class="k">Config (JSON)</div>
+      <form method="post" action="{{ url_for('routes.config_post') }}" style="margin-top:10px;">
+        <textarea name="cfg_json" rows="18" spellcheck="false">{{ cfg_json }}</textarea>
+        <div class="row" style="margin-top:10px; justify-content:space-between;">
+          <div class="small">
+            Stored in SQLite as versioned JSON. This scaffold ships with safe defaults.
+          </div>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
+
+

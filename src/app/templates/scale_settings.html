@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* Local styles for smooth tech UI */
+  .tech-section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .tech-section:last-child { border-bottom: none; }
+  .help-icon {
+    display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center;
+    border-radius: 50%; background: var(--muted); color: var(--bg); font-weight: bold; font-size: 11px;
+    cursor: help; margin-left: 6px;
+  }
+  .help-icon:hover::after {
+    content: attr(data-tip); position: absolute; background: #222; color: #fff; padding: 6px 10px;
+    font-size: 12px; border-radius: 4px; white-space: nowrap; z-index: 100; margin-left: 10px;
+    border: 1px solid var(--muted);
+  }
+  .advanced-area { border: 1px solid var(--bad); background: rgba(255, 107, 107, 0.05); padding: 16px; border-radius: 8px; margin-top: 16px; display: none; }
+  .advanced-area.show { display: block; }
+  .toggle-adv { cursor: pointer; color: var(--bad); font-size: 12px; text-decoration: underline; margin-top: 10px; display: inline-block; }
+  dialog {
+    background: var(--card); color: var(--text); border: 1px solid var(--muted); border-radius: 8px;
+    padding: 20px; max-width: 400px;
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.6); }
+</style>
+
+<div class="grid">
+  <!-- Header / Status -->
+  <div class="card span-12">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <div>
+        <div class="k">Scale Hardware Settings</div>
+        <div class="small" style="margin-top:4px;">Stack: Pi → MegaIND (bottom) → 24b8vin (top)</div>
+      </div>
+      <div class="small" style="text-align:right;">
+        DAQ Comm: <span style="color: {{ 'var(--ok)' if snap.last_daq_comm_utc else 'var(--muted)' }}">{{ snap.last_daq_comm_utc or "None" }}</span><br/>
+        MegaIND Comm: <span style="color: {{ 'var(--ok)' if snap.last_megaind_comm_utc else 'var(--muted)' }}">{{ snap.last_megaind_comm_utc or "None" }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- I2C Discovery / Board Status -->
+  <div class="card span-12 tech-section">
+    <div class="k">I2C Hardware Discovery</div>
+    <div class="row" style="margin-top:12px; gap: 24px; align-items: flex-start;">
+      <!-- Boards Online Status -->
+      <div style="flex: 1; min-width: 200px;">
+        <div style="font-size: 20px; font-weight: bold;">
+          Boards Online: {{ snap.boards_online_count or 0 }}/{{ snap.boards_expected_count or 2 }}
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          {% if snap.boards_online and snap.boards_online.get('daq24b8vin') %}
+            <span class="pill ok">24b8vin</span>
+          {% else %}
+            <span class="pill bad">24b8vin</span>
+          {% endif %}
+          {% if snap.boards_online and snap.boards_online.get('megaind') %}
+            <span class="pill ok">MegaIND</span>
+          {% else %}
+            <span class="pill bad">MegaIND</span>
+          {% endif %}
+        </div>
+        <div class="small" style="margin-top: 8px;">
+          I2C Bus: {{ snap.i2c_bus or 1 }}<br/>
+          Hardware Mode: <b>{{ snap.hw_mode or "sim" }}</b>
+        </div>
+      </div>
+
+      <!-- Expected Configuration -->
+      <div style="flex: 1; min-width: 200px;">
+        <label class="small" style="color: var(--accent);">Expected Configuration</label>
+        <div class="small" style="margin-top: 4px;">
+          {% if snap.boards_expected %}
+            {% for board, stack_id in snap.boards_expected.items() %}
+              <div>{{ board }}: Stack {{ stack_id }}</div>
+            {% endfor %}
+          {% else %}
+            <div>No boards configured</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Detected Boards -->
+      <div style="flex: 1; min-width: 200px;">
+        <label class="small" style="color: var(--accent);">Detected on I2C Bus</label>
+        <div class="small" style="margin-top: 4px;">
+          {% if snap.boards_detected %}
+            {% for board in snap.boards_detected %}
+              <div>{{ board.type }} @ {{ board.address }} (Stack {{ board.stack_id }})</div>
+            {% endfor %}
+          {% else %}
+            <div style="opacity: 0.5;">No boards detected (non-Linux or scan failed)</div>
+          {% endif %}
+        </div>
+        <div class="small" style="margin-top: 4px; opacity: 0.7;">
+          All I2C addresses: {{ snap.i2c_addresses|join(", ") or "none" }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. Load Cell Inputs (24b8vin) -->
+  <div class="card span-12 tech-section">
+    <div class="k">1. Load Cell Inputs (24b8vin)</div>
+    <form method="post" action="{{ url_for('routes.scale_settings_post') }}">
+      <input type="hidden" name="action" value="save_daq">
+      
+      <div class="row" style="margin-top:16px; gap: 24px;">
+        <div>
+          <label class="small">Board Stack Level</label>
+          <input name="daq_stack_level" type="number" min="0" max="7" value="{{ (cfg.get('daq24b8vin') or {}).get('stack_level', 0) }}" style="width: 60px;">
+          <span class="help-icon" data-tip="Match the DIP switch on the top board. Default is 0.">?</span>
+        </div>
+        <div style="flex-grow: 1;"></div>
+        <button type="submit">Save Channel Config</button>
+      </div>
+
+      <table style="margin-top:16px;">
+        <thead>
+          <tr>
+            <th style="width: 40px;">#</th>
+            <th style="width: 60px;">Active</th>
+            <th>Role</th>
+            <th>Sensitivity (Range)</th>
+            <th>Live Reading</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td>{{ r.ch_display }}</td>
+              <td>
+                <!-- Toggle Switch -->
+                <input type="checkbox" name="ch_enabled_{{ r.idx }}" {% if r.enabled %}checked{% endif %}>
+              </td>
+              <td>
+                <select name="ch_role_{{ r.idx }}" style="width: 100%;">
+                  {% for role in roles %}
+                    <option value="{{ role }}" {% if role == r.role %}selected{% endif %}>{{ role }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <select name="ch_gain_{{ r.idx }}" style="width: 100%;">
+                  {% for code, label in gain_labels.items() %}
+                    <option value="{{ code }}" {% if code == r.gain_code %}selected{% endif %}>{{ label }} (Code {{ code }})</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td style="font-family: monospace;">
+                {% if r.polled %}
+                  {{ "%.5f"|format(r.raw_v) }} V
+                {% else %}
+                  <span class="small" style="opacity:0.5">--</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="small" style="margin-top:8px; opacity: 0.7;">
+        * Only "Active" channels with "Load Cell" role are summed into total weight.
+      </div>
+    </form>
+
+    <!-- Tare / Zero Tools -->
+    <div class="row" style="margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px;">
+      <div style="flex:1;">
+        <div class="k">Quick Tare</div>
+        <div class="small">Tare offset: <b>{{ "%.2f"|format(snap.tare_offset_lbs or 0.0) }} lb</b></div>
+        <div class="small">Zero offset: <b>{{ "%.6f"|format(snap.zero_offset_signal or 0.0) }} signal</b></div>
+        <div class="small" style="color: var(--muted); margin-top: 8px;">
+          Note: Use the ZERO button on the dashboard to adjust calibration baseline.<br>
+          TARE is for container weights. ZERO is for drift compensation.
+        </div>
+      </div>
+      <div class="row">
+        <form method="post" action="{{ url_for('routes.scale_settings_post') }}" style="margin:0;">
+          <input type="hidden" name="action" value="tare_clear">
+          <button type="submit" style="background: transparent; border: 1px solid var(--muted);">Clear Tare</button>
+        </form>
+        <form method="post" action="{{ url_for('routes.scale_settings_post') }}" style="margin:0;">
+          <input type="hidden" name="action" value="tare_zero">
+          <button type="submit">Set Tare</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. PLC Output & Excitation (MegaIND) -->
+  <div class="card span-12 tech-section">
+    <div class="k">2. PLC Output & Excitation (MegaIND)</div>
+    
+    <div class="row" style="gap: 32px; margin-top: 16px; align-items: flex-start;">
+      <!-- Excitation Monitor -->
+      <div style="flex: 1; min-width: 250px;">
+        <label class="small" style="color: var(--accent);">Excitation Voltage Monitor</label>
+        <div style="font-size: 24px; font-weight: bold; margin-top: 4px;">
+          {{ "%.2f"|format(snap.excitation_v or 0.0) }} V
+        </div>
+        <div class="small" style="margin-top:4px;">
+          Status: 
+          {% if snap.excitation_status == "OK" %}<span style="color: var(--ok)">OK</span>
+          {% elif snap.excitation_status == "WARN" %}<span style="color: var(--warn)">LOW</span>
+          {% else %}<span style="color: var(--bad)">FAULT</span>{% endif %}
+        </div>
+        <div class="small" style="margin-top: 8px; opacity: 0.7;">
+          Wired to MegaIND Analog Input #1 (0-10V).<br>
+          Signal Mode: <b>Raw mV</b>
+        </div>
+      </div>
+
+      <!-- Analog Output Config -->
+      <div style="flex: 1; min-width: 250px;">
+        <form method="post" action="{{ url_for('routes.scale_settings_post') }}">
+          <input type="hidden" name="action" value="save_output">
+          
+          <label class="small">PLC Output Mode</label>
+          <select name="output_mode" style="margin-bottom: 12px;">
+            <option value="0_10V" {% if (cfg.get('output') or {}).get('mode') == "0_10V" %}selected{% endif %}>0–10V Voltage</option>
+            <option value="4_20mA" {% if (cfg.get('output') or {}).get('mode') == "4_20mA" %}selected{% endif %}>4–20mA Current</option>
+          </select>
+
+          <label class="small">Physical Channel on MegaIND</label>
+          <div class="row">
+            <input type="number" name="ao_channel_v" min="1" max="4" value="{{ (cfg.get('output') or {}).get('ao_channel_v', 1) }}" title="Channel for 0-10V" style="width: 60px;">
+            <span class="small" style="align-self: center;">(if 0-10V)</span>
+            
+            <input type="number" name="ao_channel_ma" min="1" max="4" value="{{ (cfg.get('output') or {}).get('ao_channel_ma', 1) }}" title="Channel for 4-20mA" style="width: 60px; margin-left: 12px;">
+            <span class="small" style="align-self: center;">(if 4-20mA)</span>
+          </div>
+
+          <button type="submit" style="margin-top: 12px; width: 100%;">Save PLC Config</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Advanced / Hardware Tools -->
+  <div class="card span-12" style="border: 1px solid rgba(255,255,255,0.1);">
+    <div class="row" style="justify-content: space-between; cursor: pointer;" onclick="document.getElementById('adv-tools').classList.toggle('show')">
+      <div class="k" style="color: var(--muted);">Advanced / Diagnostic Tools (Click to expand)</div>
+      <div class="small">▼</div>
+    </div>
+
+    <div id="adv-tools" class="advanced-area">
+      <div class="k" style="color: var(--bad); margin-bottom: 8px;">⚠️ Advanced Hardware Operations</div>
+      <p class="small">These operations interact directly with the board registers. Do not use during production.</p>
+      
+      <div class="row" style="margin-top: 16px;">
+        <button type="button" onclick="confirmAction('read_gain_codes', 'This will overwrite your channel gain settings with what is currently stored on the 24b8vin board memory. Continue?')" style="background: #333;">
+          Read Gains from Board
+        </button>
+        <button type="button" onclick="confirmAction('apply_gain_codes', 'This will force-write the current UI gain settings to the 24b8vin board registers. Continue?')" style="background: #333;">
+          Write Gains to Board
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Confirmation Dialog -->
+<dialog id="confirmDialog">
+  <div class="k">Please Confirm</div>
+  <p id="confirmMsg" class="small" style="margin: 16px 0; line-height: 1.5;"></p>
+  <form method="post" action="{{ url_for('routes.scale_settings_post') }}">
+    <input type="hidden" name="action" id="confirmActionInput">
+    <div class="row" style="justify-content: flex-end; gap: 12px;">
+      <button type="button" onclick="document.getElementById('confirmDialog').close()" style="background: transparent; border: 1px solid var(--muted);">Cancel</button>
+      <button type="submit" style="background: var(--bad);">Yes, I am sure</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  function confirmAction(actionName, msg) {
+    document.getElementById('confirmActionInput').value = actionName;
+    document.getElementById('confirmMsg').textContent = msg;
+    document.getElementById('confirmDialog').showModal();
+  }
+</script>
+{% endblock %}

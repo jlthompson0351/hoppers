@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+{% set weight_decimals = (display.get('weight_decimals', 1) if display else 1)|int %}
+{% block content %}
+<style>
+  .weight-display {
+    text-align: center;
+    padding: 30px 20px;
+  }
+  .weight-value {
+    font-size: 72px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    line-height: 1;
+    margin-bottom: 16px;
+  }
+  .status-row {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 2px solid;
+  }
+  .status-pill.ok { color: var(--ok); border-color: var(--ok); background: rgba(46, 204, 113, 0.1); }
+  .status-pill.warn { color: var(--warn); border-color: var(--warn); background: rgba(255, 204, 102, 0.1); }
+  .status-pill.bad { color: var(--bad); border-color: var(--bad); background: rgba(255, 107, 107, 0.1); }
+
+  .action-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  .action-btn {
+    padding: 14px 32px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-width: 140px;
+  }
+  .action-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .action-btn:active { transform: translateY(0); }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .action-btn.zero { background: #3498db; color: white; }
+  .action-btn.tare { background: #9b59b6; color: white; }
+  .action-btn.clear { background: #7f8c8d; color: white; }
+
+  .tare-info {
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .tare-info.active { color: var(--warn); font-weight: 600; }
+
+  .info-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 700px) {
+    .info-section { grid-template-columns: 1fr; }
+    .weight-value { font-size: 48px; }
+  }
+
+  .info-card {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .info-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 14px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .label { color: var(--muted); }
+  .info-row .value { font-weight: 600; }
+
+  .status-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    padding: 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+    margin-top: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .status-bar .indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-bar .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .status-bar .dot.ok { background: var(--ok); }
+  .status-bar .dot.bad { background: var(--bad); }
+
+  .fault-banner {
+    background: rgba(255, 107, 107, 0.15);
+    border: 1px solid var(--bad);
+    color: var(--bad);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    text-align: center;
+    font-weight: 600;
+    display: none;
+  }
+  .fault-banner.visible { display: block; }
+
+  .feedback-msg {
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    display: none;
+  }
+  .feedback-msg.success { display: block; background: rgba(46, 204, 113, 0.15); color: var(--ok); }
+  .feedback-msg.error { display: block; background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+</style>
+
+<div id="fault-banner" class="fault-banner">
+  <span id="fault-text"></span>
+</div>
+
+<div id="feedback" class="feedback-msg"></div>
+
+<div class="weight-display card">
+  <div class="weight-value" id="weight-value">{% if weight_decimals == 0 %}{{ "%.0f"|format(snap.total_weight_lbs or 0.0) }}{% elif weight_decimals == 2 %}{{ "%.2f"|format(snap.total_weight_lbs or 0.0) }}{% else %}{{ "%.1f"|format(snap.total_weight_lbs or 0.0) }}{% endif %} lb</div>
+  
+  <div class="status-row">
+    <span class="status-pill" id="stable-pill">
+      {{ 'STABLE' if snap.stable else 'UNSTABLE' }}
+    </span>
+    <span class="status-pill" id="fault-pill">
+      {{ 'FAULT' if snap.fault else 'OK' }}
+    </span>
+  </div>
+
+  <div class="action-buttons">
+    <button class="action-btn zero" id="btn-zero" onclick="doZero()">ZERO</button>
+    <button class="action-btn tare" id="btn-tare" onclick="doTare()">TARE</button>
+    <button class="action-btn clear" id="btn-clear" onclick="doClearTare()">CLEAR TARE</button>
+  </div>
+
+  <div class="tare-info" id="tare-info">
+    Tare: 0.0 lb
+  </div>
+  <div class="tare-info" id="zero-info" style="margin-top: 5px;">
+    Zero Offset: 0.000000 signal
+  </div>
+</div>
+
+<div class="info-section">
+  <div class="info-card">
+    <h3>PLC Output</h3>
+    <div class="info-row">
+      <span class="label">Mode</span>
+      <span class="value" id="output-mode">{{ snap.output_mode or '0_10V' }}</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Output Value</span>
+      <span class="value" id="output-value">{{ "%.3f"|format(snap.output_command or 0.0) }} {{ snap.output_units or 'V' }}</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Scale Range</span>
+      <span class="value" id="scale-range">0 - 300 lb</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Output Range</span>
+      <span class="value" id="output-range">0 - 10 V</span>
+    </div>
+  </div>
+
+  <div class="info-card">
+    <h3>Raw Data</h3>
+    <div class="info-row">
+      <span class="label">Raw Signal</span>
+      <span class="value" id="raw-signal">0.000 mV</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Excitation</span>
+      <span class="value" id="excitation">{{ "%.2f"|format(snap.excitation_v or 0.0) }} V</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Signal for Cal</span>
+      <span class="value" id="signal-cal">{{ "%.6f"|format(snap.signal_for_cal or 0.0) }}</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Cal Points</span>
+      <span class="value" id="cal-points">0</span>
+    </div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="indicator">
+    <span class="dot" id="daq-dot"></span>
+    <span>DAQ</span>
+  </div>
+  <div class="indicator">
+    <span class="dot" id="io-dot"></span>
+    <span>I/O</span>
+  </div>
+  <div class="indicator">
+    <span>Loop: <span id="loop-hz">0.0</span> Hz</span>
+  </div>
+  <div class="indicator">
+    <span>Updated: <span id="last-update">--</span></span>
+  </div>
+</div>
+
+<script>
+(function() {
+  const POLL_INTERVAL_MS = {{ poll_rate_ms | default(500) | int }};
+  const WEIGHT_DECIMALS = {{ weight_decimals }};
+  let pollTimer = null;
+  let lastStable = false;
+
+  function updateDashboard(data) {
+    // Weight display
+    const weight = data.weight.total_lbs;
+    document.getElementById('weight-value').textContent = weight.toFixed(WEIGHT_DECIMALS) + ' lb';
+
+    // Stable pill
+    const stablePill = document.getElementById('stable-pill');
+    const isStable = data.weight.stable;
+    stablePill.textContent = isStable ? 'STABLE' : 'UNSTABLE';
+    stablePill.className = 'status-pill ' + (isStable ? 'ok' : 'warn');
+    lastStable = isStable;
+
+    // Fault pill
+    const faultPill = document.getElementById('fault-pill');
+    const hasFault = data.system.fault;
+    faultPill.textContent = hasFault ? 'FAULT' : 'OK';
+    faultPill.className = 'status-pill ' + (hasFault ? 'bad' : 'ok');
+
+    // Fault banner
+    const faultBanner = document.getElementById('fault-banner');
+    if (hasFault && data.system.fault_reason) {
+      document.getElementById('fault-text').textContent = data.system.fault_reason;
+      faultBanner.classList.add('visible');
+    } else {
+      faultBanner.classList.remove('visible');
+    }
+
+    // Enable/disable buttons based on stability
+    document.getElementById('btn-zero').disabled = !isStable;
+    document.getElementById('btn-tare').disabled = !isStable;
+
+    // Tare info
+    const tareOffset = data.weight.tare_offset_lbs || 0;
+    const tareInfo = document.getElementById('tare-info');
+    if (Math.abs(tareOffset) > 0.01) {
+      tareInfo.textContent = 'Tare: -' + tareOffset.toFixed(1) + ' lb';
+      tareInfo.className = 'tare-info active';
+    } else {
+      tareInfo.textContent = 'Tare: 0.0 lb';
+      tareInfo.className = 'tare-info';
+    }
+
+    // Zero offset info
+    const zeroOffset = data.weight.zero_offset_signal || 0;
+    const zeroInfo = document.getElementById('zero-info');
+    if (Math.abs(zeroOffset) > 0.000001) {
+      zeroInfo.textContent = 'Zero Offset: ' + zeroOffset.toFixed(6) + ' signal';
+      zeroInfo.className = 'tare-info active';
+    } else {
+      zeroInfo.textContent = 'Zero Offset: 0.000000 signal';
+      zeroInfo.className = 'tare-info';
+    }
+
+    // PLC Output
+    const mode = data.plcOutput.mode || '0_10V';
+    const modeDisplay = mode === '4_20mA' ? '4-20mA' : '0-10V';
+    document.getElementById('output-mode').textContent = modeDisplay;
+    document.getElementById('output-value').textContent = 
+      data.plcOutput.command.toFixed(3) + ' ' + data.plcOutput.units;
+    
+    // Output range based on mode
+    if (mode === '4_20mA') {
+      document.getElementById('output-range').textContent = '4 - 20 mA';
+    } else {
+      document.getElementById('output-range').textContent = '0 - 10 V';
+    }
+
+    // Raw data
+    const channels = data.channels || [];
+    let totalRawMv = 0;
+    channels.forEach(function(ch) {
+      if (ch.enabled && ch.polled) {
+        totalRawMv += ch.raw_mV || 0;
+      }
+    });
+    document.getElementById('raw-signal').textContent = totalRawMv.toFixed(3) + ' mV';
+    document.getElementById('excitation').textContent = data.excitation.voltage_v.toFixed(2) + ' V';
+    document.getElementById('signal-cal').textContent = data.weight.signal_for_cal.toFixed(6);
+    document.getElementById('cal-points').textContent = data.weight.cal_points_used || 0;
+
+    // Status bar
+    const daqOnline = data.boards.online.daq24b8vin;
+    const ioOnline = data.boards.online.megaind;
+    document.getElementById('daq-dot').className = 'dot ' + (daqOnline ? 'ok' : 'bad');
+    document.getElementById('io-dot').className = 'dot ' + (ioOnline ? 'ok' : 'bad');
+    document.getElementById('loop-hz').textContent = data.system.loop_hz.toFixed(1);
+    
+    const updateTime = data.system.last_update_utc;
+    if (updateTime) {
+      const timePart = updateTime.split('T')[1] || updateTime;
+      document.getElementById('last-update').textContent = timePart.replace('+00:00', '');
+    }
+  }
+
+  function showFeedback(message, isError) {
+    const fb = document.getElementById('feedback');
+    fb.textContent = message;
+    fb.className = 'feedback-msg ' + (isError ? 'error' : 'success');
+    setTimeout(function() {
+      fb.className = 'feedback-msg';
+    }, 3000);
+  }
+
+  window.doZero = function() {
+    if (!lastStable) {
+      showFeedback('Cannot zero: scale not stable', true);
+      return;
+    }
+    fetch('/api/zero', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          showFeedback('✓ Calibration baseline updated (zero set)', false);
+        } else {
+          showFeedback(data.error || 'Zero failed', true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('Zero failed: ' + err.message, true);
+      });
+  };
+
+  window.doTare = function() {
+    if (!lastStable) {
+      showFeedback('Cannot tare: scale not stable', true);
+      return;
+    }
+    fetch('/api/tare', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          showFeedback('Tare set successfully', false);
+        } else {
+          showFeedback(data.error || 'Tare failed', true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('Tare failed: ' + err.message, true);
+      });
+  };
+
+  window.doClearTare = function() {
+    fetch('/api/tare/clear', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          showFeedback('Tare cleared', false);
+        } else {
+          showFeedback(data.error || 'Clear tare failed', true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('Clear tare failed: ' + err.message, true);
+      });
+  };
+
+  function poll() {
+    fetch('/api/snapshot')
+      .then(function(response) { return response.json(); })
+      .then(function(data) {
+        updateDashboard(data);
+      })
+      .catch(function(err) {
+        console.error('Poll failed:', err);
+      });
+  }
+
+  // Initial poll
+  poll();
+  
+  // Start polling
+  pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+
+  // Clean up on page unload
+  window.addEventListener('beforeunload', function() {
+    if (pollTimer) clearInterval(pollTimer);
+  });
+})();
+</script>
+{% endblock %}

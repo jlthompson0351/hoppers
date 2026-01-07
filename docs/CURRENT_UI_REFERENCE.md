@@ -1,0 +1,447 @@
+# Current UI Reference
+
+**Document Version:** 2.1  
+**Date:** December 18, 2025  
+**Purpose:** Document current UI state after redesign and stability fixes
+
+---
+
+## Table of Contents
+
+1. [Page Overview](#page-overview)
+2. [Dashboard Page](#dashboard-page)
+3. [Calibration Page](#calibration-page)
+4. [PLC Output Configuration Page](#plc-output-configuration-page)
+5. [Settings Page](#settings-page)
+6. [Config Page (Raw)](#config-page-raw)
+7. [Logs Page](#logs-page)
+8. [API Endpoints](#api-endpoints)
+9. [Template Structure](#template-structure)
+10. [CSS Variables](#css-variables)
+
+---
+
+## Page Overview
+
+| Page | URL | Purpose | Requires Maintenance Mode |
+|------|-----|---------|---------------------------|
+| Dashboard | `/` | Live weight, Zero/Tare, status | No |
+| Calibration Hub | `/calibration` | Unified Weight and PLC output mapping | No |
+| Settings | `/settings` | All system configuration and advanced tools | No |
+| Config (Raw) | `/config` | Raw JSON config editor (maintenance) | **Yes** |
+| Logs | `/logs` | Event log viewer | No |
+
+---
+
+## Dashboard Page
+
+**URL:** `/`  
+**Template:** `templates/dashboard.html`  
+**Route:** `routes.dashboard()`
+
+### Layout (Redesigned)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Load Cell Scale Transmitter                    [Nav Links]     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│                    ┌─────────────────────┐                      │
+│                    │      25.0 lb        │  ← Large weight      │
+│                    │   [STABLE] [OK]     │  ← Status pills      │
+│                    └─────────────────────┘                      │
+│                                                                 │
+│        [ ZERO ]  [ TARE ]  [ CLEAR TARE ]                       │
+│                                                                 │
+├───────────────────────────────┬─────────────────────────────────┤
+│      PLC OUTPUT               │      RAW DATA                   │
+│      0.833 V (0-10V)          │      Signal: 0.002500           │
+│      Channel 1                │      Raw mV: 0.625              │
+│      [■■■■■░░░░░] 27.7%      │      Loop Hz: 14.1              │
+├───────────────────────────────┴─────────────────────────────────┤
+│      DAQ [●] Online     MegaIND [●] Online     Excitation: OK   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+1. **Large Weight Display** - Prominent total weight in lbs (always updates, even when UNSTABLE)
+2. **Status Pills** - STABLE/UNSTABLE, OK/FAULT indicators
+3. **Zero Button** - Sets current weight as zero reference (requires STABLE)
+4. **Tare Button** - Adds current weight to tare offset (requires STABLE)
+5. **Clear Tare** - Removes tare offset (always available)
+6. **PLC Output Panel** - Shows commanded output, mode, channel, scale bar (always updates)
+7. **Raw Data Panel** - Signal for calibration, raw mV, loop Hz
+8. **System Status Bar** - Board online status, excitation status
+
+### Stability Indicator Behavior
+
+| What | Affected by UNSTABLE? | Notes |
+|------|----------------------|-------|
+| Weight display | NO | Always updates at ~17Hz |
+| PLC output | NO | Always sent to PLC |
+| Zero button | YES | Blocked when unstable |
+| Tare button | YES | Blocked when unstable |
+| Clear Tare | NO | Always available |
+
+**For dynamic filling applications** (conveyor dropping parts): The scale will show UNSTABLE while weight is changing rapidly. This is NORMAL and does not affect weight reading or PLC output.
+
+### JavaScript Polling
+
+- Polls `/api/snapshot` at the configured poll rate (`ui.poll_rate_ms` in Settings → Timing → Dashboard Poll Rate; default 500ms)
+- Updates all values via DOM manipulation
+- Handles Zero/Tare/Clear via POST to API endpoints
+
+### API Calls
+
+| Action | Endpoint | Method |
+|--------|----------|--------|
+| Zero | `/api/zero` | POST |
+| Tare | `/api/tare` | POST |
+| Clear Tare | `/api/tare/clear` | POST |
+| Snapshot | `/api/snapshot` | GET |
+
+---
+
+## Calibration Page
+
+**URL:** `/calibration`  
+**Template:** `templates/calibration.html`  
+**Routes:** `routes.calibration_get()`
+
+### Layout (Redesigned)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Scale Calibration                            │
+│                                                                 │
+│    ┌───────────────┐     ┌───────────────┐                      │
+│    │   25.0 lb     │     │  0.002500     │                      │
+│    │ Current Weight│     │ Current Signal│                      │
+│    │   [STABLE]    │     │               │                      │
+│    └───────────────┘     └───────────────┘                      │
+│                                                                 │
+│    How to Calibrate:                                            │
+│    1. Place known weight on scale                               │
+│    2. Wait for STABLE indicator                                 │
+│    3. Enter weight value and click Add Point                    │
+│                                                                 │
+│    ┌─────────────────────────────────────────────────────────┐  │
+│    │  Known Weight: [______] lb    [ Add Calibration Point ] │  │
+│    └─────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│    Saved Calibration Points:                                    │
+│    ┌─────────────────────────────────────────────────────────┐  │
+│    │ # │ Weight (lb) │ Signal    │ Time     │ Action         │  │
+│    │ 1 │ 0.00        │ 0.000000  │ 10:30:00 │ [Delete]       │  │
+│    │ 2 │ 25.00       │ 0.002500  │ 10:35:00 │ [Delete]       │  │
+│    │ 3 │ 50.00       │ 0.005000  │ 10:40:00 │ [Delete]       │  │
+│    └─────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│    [ Clear All Points ]                                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+1. **Live Weight & Signal Display** - Shows current values for reference (signal shows units: mV/V or mV)
+2. **Stability Indicator** - Shows STABLE/UNSTABLE badge
+3. **Add Calibration Point** - Form to add known weight
+4. **Points Table** - List of saved calibration points with delete buttons
+5. **Clear All Points** - Button to remove all calibration data
+
+### Signal Units / Ratiometric Behavior
+
+- If excitation monitoring is available and >~0.5V, calibration uses **ratiometric mV/V** (signal divided by excitation).
+- If excitation is missing/0V, the acquisition loop falls back to **raw mV** so calibration still works (and the UI shows `mV`).
+
+### API Calls
+
+| Action | Endpoint | Method |
+|--------|----------|--------|
+| Add Point | `/api/calibration/add` | POST |
+| Delete Point | `/api/calibration/delete/<id>` | POST |
+| Clear All | `/api/calibration/clear` | POST |
+
+---
+
+## PLC Output Configuration Page
+
+**URL:** `/plc-profile`  
+**Template:** `templates/plc_profile.html`  
+**Routes:** `routes.plc_profile_get()`
+
+### Layout (Redesigned)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 PLC Output Configuration                        │
+│         Configure analog output to PLC and correction curve     │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  ⚠️ OUTPUTS DISARMED          [ ARM OUTPUTS ]            │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  ✓ OUTPUTS ARMED              [ DISARM OUTPUTS ]         │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────┐  ┌─────────────────────────────┐   │
+│  │   📊 LIVE OUTPUT        │  │   ⚙️ OUTPUT CONFIGURATION   │   │
+│  │                         │  │                             │   │
+│  │      0.833 V            │  │   Mode: [0-10V ▼]           │   │
+│  │   Commanded Output      │  │   Channel: [1 ▼]            │   │
+│  │                         │  │   Min Weight: [0.0]         │   │
+│  │   25.0    0.833 V  27%  │  │   Max Weight: [300.0]       │   │
+│  │  Weight   Readback  %   │  │   Safe Output: [0.000]      │   │
+│  │                         │  │   [ Save Configuration ]    │   │
+│  │  ├──────────■─────────┤ │  │                             │   │
+│  │  0 lb            300 lb │  ├─────────────────────────────┤   │
+│  └─────────────────────────┘  │   📡 MEGAIND STATUS         │   │
+│                               │   Board: ✓ Online           │   │
+│  ┌─────────────────────────┐  │   Firmware: 4.8             │   │
+│  │   🔧 TEST OUTPUT        │  │   Power: 24.1 V             │   │
+│  │   ⚠️ Test overrides     │  │   Readback: 0.833 V         │   │
+│  │                         │  └─────────────────────────────┘   │
+│  │   Value: [5.000]        │                                    │
+│  │   [ START TEST OUTPUT ] │  ← Toggle button                   │
+│  │   [ STOP TEST OUTPUT ]  │  ← Changes when active             │
+│  └─────────────────────────┘                                    │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │   🎯 OUTPUT CALIBRATION (MegaIND)                        │   │
+│  │   Two-point calibration for accurate analog output       │   │
+│  │                                                          │   │
+│  │   Type: [0-10V ▼]   Channel: [1 ▼]   Status: Not Cal'd   │   │
+│  │                                                          │   │
+│  │   [1] Low Ref: [0.5] V    [ Capture Point 1 ]            │   │
+│  │   [2] High Ref: [9.5] V   [ Capture Point 2 ]            │   │
+│  │   [✓]                     [ Reset to Factory ]           │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │   📈 PLC CORRECTION CURVE                                │   │
+│  │   Fine-tune if PLC has scaling errors                    │   │
+│  │                                                          │   │
+│  │   [0-10V] [4-20mA]                                       │   │
+│  │                                                          │   │
+│  │   Output: [___] V   PLC Shows: [___] lb   [ Add Point ]  │   │
+│  │                                                          │   │
+│  │   # │ Output (V) │ PLC Shows (lb) │ Time     │ Action    │   │
+│  │   1 │ 0.000      │ 0.00           │ 10:30:00 │ [Delete]  │   │
+│  │   2 │ 5.000      │ 150.00         │ 10:35:00 │ [Delete]  │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+1. **ARM/DISARM Toggle** - Safety control for enabling outputs
+2. **Live Output Monitor** - Real-time commanded output, weight, readback, percentage
+3. **Output Configuration** - Mode (0-10V/4-20mA), channel, weight range, safe output
+4. **MegaIND Status** - Board online, firmware, power supply, output readback
+5. **Test Output Toggle** - Starts/stops manual test output (stays on until stopped)
+6. **Output Calibration** - Two-point calibration for MegaIND analog outputs
+7. **PLC Correction Curve** - Add/delete points to correct PLC scaling errors
+
+### Test Output Behavior
+
+- Click **START TEST OUTPUT** → Output stays at test value until stopped
+- UI changes to red "TEST OUTPUT ACTIVE" state
+- Button changes to **STOP TEST OUTPUT**
+- Test value input is disabled while active
+- Click **STOP TEST OUTPUT** → Returns to weight-based output
+
+### API Calls
+
+| Action | Endpoint | Method | Body |
+|--------|----------|--------|------|
+| Arm/Disarm | `/api/output/arm` | POST | `{armed: true/false}` |
+| Save Config | `/api/output/config` | POST | FormData |
+| Test Output | `/api/output/test` | POST | `{action: "start"/"stop", value: 5.0}` |
+| Calibrate | `/api/output/calibrate` | POST | `{type, channel, value, point}` |
+| Reset Cal | `/api/output/calibrate/reset` | POST | `{type, channel}` |
+| Add Profile | `/plc-profile/add` | POST | FormData |
+| Delete Profile | `/api/plc-profile/delete/<id>` | POST | - |
+
+---
+
+## Settings Page
+
+**URL:** `/settings`  
+**Template:** `templates/settings.html`  
+**Routes:** `routes.settings_get()`, `routes.settings_post()`
+
+### Purpose
+
+The Settings page consolidates the previously hidden settings concepts into a single technician-facing page with:
+
+- Quick Setup at the top (range, PLC output basics, excitation monitoring)
+- Tabs for signal filtering, zero behavior, output behavior, alarms, DAQ channels, detection, timing, logging, advanced, and system
+- Plain-language helper text on each setting (“what it does” + “what happens if you increase/decrease it”)
+
+### Tab Overview
+
+| Tab | Contents |
+|-----|----------|
+| Quick Setup | Weight range, PLC output mode/channel, excitation monitoring |
+| Signal Tuning | Kalman/IIR filter, stability detection, **weight display precision** |
+| Zero & Scale | Zero tracking, power-up behavior, ratiometric mode |
+| Output Control | Dead band, ramping, auto-arm |
+| Alarms & Limits | Overload, underload, weight alarms, fault handling |
+| DAQ Channels | Channel enable/disable, roles, gain codes |
+| Detection | Dump detection, drift detection |
+| Timing | Acquisition loop rate, config refresh, I2C retries |
+| Logging | Trend logging interval, retention, what to log |
+| Advanced | Watchdog timers, RS485, temperature sensors, LEDs |
+| System | Hardware mode (real/sim), maintenance UI toggle |
+
+### Weight Display Precision (New in v2.1)
+
+Located in **Signal Tuning** tab under "Weight Display":
+
+| Setting | Description |
+|---------|-------------|
+| 0 - Whole pounds | Shows "75 lb" - for rough measurements |
+| 1 - One decimal | Shows "75.2 lb" - standard precision (default) |
+| 2 - Two decimals | Shows "75.24 lb" - for precision weighing |
+
+### Important Behavior
+
+- The app configuration stored in SQLite can be older than the current code.
+- The repository layer now **deep-merges the stored config onto the current defaults**, so new settings appear with safe defaults instead of causing missing-key errors.
+- **Emojis removed** (v2.1): All emoji icons replaced with plain text for encoding compatibility.
+
+---
+
+## Config Page (Raw)
+
+**URL:** `/config`  
+**Template:** `templates/config.html`  
+**Routes:** `routes.config_get()`, `routes.config_post()`
+
+### Current Implementation
+
+Simple JSON textarea editor (unchanged). This page is intended for advanced maintenance use only.
+
+```html
+<form method="post" action="/config">
+  <textarea name="cfg_json" rows="18">
+    {JSON config here}
+  </textarea>
+  <button type="submit">Save</button>
+</form>
+```
+
+---
+
+---
+
+## Logs Page
+
+**URL:** `/logs`  
+**Template:** `templates/logs.html`  
+**Route:** `routes.logs_get()`
+
+Displays recent system events (unchanged).
+
+---
+
+## API Endpoints
+
+### Dashboard APIs
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/snapshot` | GET | Unified JSON snapshot for polling |
+| `/api/zero` | POST | Zero the scale |
+| `/api/tare` | POST | Tare the scale |
+| `/api/tare/clear` | POST | Clear tare offset |
+
+### Calibration APIs
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/calibration/add` | POST | Add calibration point |
+| `/api/calibration/delete/<id>` | POST | Delete calibration point |
+| `/api/calibration/clear` | POST | Clear all calibration points |
+
+### PLC Output APIs
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/output/arm` | POST | Arm/disarm outputs |
+| `/api/output/config` | POST | Save output configuration |
+| `/api/output/test` | POST | Start/stop test output |
+| `/api/output/calibrate` | POST | Capture calibration point |
+| `/api/output/calibrate/reset` | POST | Reset to factory calibration |
+| `/api/plc-profile/delete/<id>` | POST | Delete PLC profile point |
+
+### Snapshot Response Schema (Updated)
+
+```json
+{
+  "schema_version": 1,
+  "timestamp": "2025-12-18T18:00:00+00:00",
+  "system": { ... },
+  "boards": { ... },
+  "excitation": { ... },
+  "weight": {
+    "total_lbs": 25.0,
+    "raw_lbs": 25.1,
+    "stable": true,
+    "tare_offset_lbs": 0.0,
+    "signal_for_cal": 0.0025,
+    "cal_points_used": 3
+  },
+  "channels": [ ... ],
+  "plcOutput": {
+    "mode": "0_10V",
+    "command": 0.833,
+    "units": "V",
+    "armed": true,
+    "test_mode": false,
+    "test_value": 0.0
+  },
+  "production": { ... },
+  "events": []
+}
+```
+
+---
+
+## Template Structure
+
+### Template Files
+
+| File | Purpose |
+|------|---------|
+| `base.html` | Base layout with header/nav |
+| `dashboard.html` | Live weight, Zero/Tare buttons |
+| `calibration.html` | Calibration point management |
+| `plc_profile.html` | PLC output configuration |
+| `settings.html` | Technician-friendly settings UI (tabbed) |
+| `config.html` | JSON config editor (maintenance) |
+| `scale_settings.html` | Legacy hidden settings page (deprecated) |
+| `logs.html` | Event log viewer |
+
+---
+
+## CSS Variables
+
+```css
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --text: #e6edf3;
+  --muted: #7d8590;
+  --accent: #61dafb;
+  --ok: #2ecc71;
+  --warn: #ffcc66;
+  --bad: #ff6b6b;
+}
+```
+
+---
+
+**Document Created:** December 18, 2025  
+**Last Updated:** December 18, 2025 (v2.1 - Stability fixes, display precision setting, emoji removal)

@@ -1,0 +1,435 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "24b8vin Settings Schema",
+  "description": "Settings schema for Sequent Microsystems 24b8vin (8-channel 24-bit analog input DAQ). This schema separates hardware-controllable settings, physical-only settings (DIP switches), and app-level settings.",
+  "type": "object",
+  "properties": {
+    "hardware_settings": {
+      "type": "object",
+      "description": "Settings that can be controlled via I2C/Python API",
+      "properties": {
+        "i2c_bus": {
+          "type": "integer",
+          "default": 1,
+          "description": "I2C bus number (typically 1 for /dev/i2c-1)"
+        },
+        "stack_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7,
+          "default": 0,
+          "description": "Board stack ID (set by DIP switches ID2/ID1/ID0). Software must match physical DIP setting."
+        },
+        "expected_i2c_address": {
+          "type": "string",
+          "pattern": "^0x3[1-8]$",
+          "default": "0x31",
+          "description": "Calculated I2C address (0x31 + stack_id). Read-only, derived from stack_id."
+        },
+        "channels": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "description": "Configuration for all 8 analog input channels",
+          "items": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "APP-LEVEL ONLY: Hardware cannot disable channels. Software ignores disabled channels in processing."
+              },
+              "gain_code": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7,
+                "default": 0,
+                "description": "Gain code: 0=±24V, 1=±12V, 2=±6V, 3=±3V, 4=±1.5V, 5=±0.75V, 6=±0.37V, 7=±0.18V"
+              },
+              "gain_range_volts": {
+                "type": "string",
+                "enum": ["±24V", "±12V", "±6V", "±3V", "±1.5V", "±0.75V", "±0.37V", "±0.18V"],
+                "description": "Human-readable gain range. Read-only, derived from gain_code."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 64,
+                "default": "",
+                "description": "User-assigned channel label (e.g., 'Load Cell Front-Left')"
+              },
+              "notes": {
+                "type": "string",
+                "maxLength": 256,
+                "default": "",
+                "description": "Technical notes for maintenance (e.g., 'Wired to terminal TB1-3/4')"
+              }
+            },
+            "required": ["channel", "enabled", "gain_code"]
+          }
+        },
+        "leds": {
+          "type": "object",
+          "description": "8 onboard LEDs (hardware-controllable)",
+          "properties": {
+            "led_1": {"type": "boolean", "default": false},
+            "led_2": {"type": "boolean", "default": false},
+            "led_3": {"type": "boolean", "default": false},
+            "led_4": {"type": "boolean", "default": false},
+            "led_5": {"type": "boolean", "default": false},
+            "led_6": {"type": "boolean", "default": false},
+            "led_7": {"type": "boolean", "default": false},
+            "led_8": {"type": "boolean", "default": false},
+            "all_leds_bitmask": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255,
+              "default": 0,
+              "description": "Bitmask for all 8 LEDs (bit 0=LED1, bit 7=LED8). Can set all at once via set_all_leds()."
+            }
+          }
+        },
+        "rtc": {
+          "type": "object",
+          "description": "Real-time clock (hardware battery-backed)",
+          "properties": {
+            "current_time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Read-only. Fetched via get_rtc() and formatted as ISO 8601."
+            },
+            "last_sync_to_system": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp of last 'sync RTC to system' action"
+            }
+          }
+        },
+        "watchdog": {
+          "type": "object",
+          "description": "Hardware watchdog timer (power-cycles Pi if not reloaded)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable watchdog. When enabled, period must be <65000. To disable, set period=65000 (special value)."
+            },
+            "period_seconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 65000,
+              "default": 120,
+              "description": "Watchdog period in seconds. App must call wdt_reload() before period expires. 65000=disabled."
+            },
+            "init_period_seconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 64999,
+              "default": 180,
+              "description": "Initial period loaded after Pi power-on. Must be long enough for boot + app startup."
+            },
+            "off_period_seconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 4147200,
+              "default": 10,
+              "description": "How long to keep Pi powered off after watchdog timeout (max ~48 days)."
+            },
+            "reset_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Read-only. Number of Pi re-powers performed by watchdog. Fetch via wdt_get_reset_count()."
+            },
+            "last_reload_time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp of last wdt_reload() call (app-level tracking)"
+            }
+          }
+        },
+        "firmware_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Read-only. Firmware version (e.g., '1.1'). Fetch via get_version()."
+        },
+        "diagnostics": {
+          "type": "object",
+          "description": "Read-only diagnostic values (some require direct I2C read)",
+          "properties": {
+            "board_temperature_c": {
+              "type": "number",
+              "description": "Board temperature in Celsius. Requires direct I2C read from register 43. NOT in Python API."
+            },
+            "pi_voltage_v": {
+              "type": "number",
+              "description": "Raspberry Pi 5V rail voltage. Requires direct I2C read from register 44-45. NOT in Python API."
+            },
+            "board_online": {
+              "type": "boolean",
+              "description": "True if board responds to I2C. Checked at startup via SM24b8vin initialization."
+            },
+            "i2c_errors_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "App-level counter of I2C communication errors"
+            }
+          }
+        }
+      },
+      "required": ["i2c_bus", "stack_id", "channels"]
+    },
+    "physical_settings": {
+      "type": "object",
+      "description": "Physical DIP switch settings. UI CANNOT CHANGE THESE. UI can only display expected values and warn if mismatch detected.",
+      "properties": {
+        "dip_switches": {
+          "type": "object",
+          "properties": {
+            "stack_id_dip": {
+              "type": "object",
+              "description": "Stack ID DIP switches (ID2, ID1, ID0). Set BEFORE power-on.",
+              "properties": {
+                "id2": {"type": "boolean", "default": false, "description": "DIP switch ID2 (MSB)"},
+                "id1": {"type": "boolean", "default": false, "description": "DIP switch ID1"},
+                "id0": {"type": "boolean", "default": false, "description": "DIP switch ID0 (LSB)"},
+                "calculated_stack_id": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 7,
+                  "description": "Read-only. Calculated from DIP switches: stack_id = 4*id2 + 2*id1 + id0"
+                },
+                "calculated_i2c_address": {
+                  "type": "string",
+                  "pattern": "^0x3[1-8]$",
+                  "description": "Read-only. Calculated I2C address: 0x31 + calculated_stack_id"
+                },
+                "mismatch_warning": {
+                  "type": "boolean",
+                  "description": "True if hardware_settings.stack_id != calculated_stack_id (DIP mismatch)"
+                }
+              }
+            },
+            "rs485_termination": {
+              "type": "object",
+              "description": "RS485 120Ω termination resistor DIP switch",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable termination on last device on RS485 bus"
+                },
+                "note": {
+                  "type": "string",
+                  "default": "120Ω termination resistor. Enable on last device on RS485 bus."
+                }
+              }
+            },
+            "rs485_tx_rx_source": {
+              "type": "object",
+              "description": "RS485 transceiver source select DIP switch (mapping UNKNOWN; check board silkscreen)",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "default": "unknown",
+                  "description": "DIP switch value. Consult board silkscreen for mapping."
+                },
+                "note": {
+                  "type": "string",
+                  "default": "Consult board silkscreen or hardware user guide for DIP mapping."
+                }
+              }
+            }
+          }
+        },
+        "rs485_modbus": {
+          "type": "object",
+          "description": "RS485/MODBUS configuration (software via CLI: 24b8vin <id> cfg485wr)",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["disabled", "modbus_rtu"],
+              "default": "disabled",
+              "description": "RS485 mode: disabled=0, modbus_rtu=1"
+            },
+            "slave_address_offset": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255,
+              "default": 1,
+              "description": "Modbus slave address = stack_id + offset"
+            },
+            "baudrate": {
+              "type": "integer",
+              "enum": [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200],
+              "default": 9600,
+              "description": "RS485 baudrate (bps)"
+            },
+            "stop_bits": {
+              "type": "integer",
+              "enum": [1, 2],
+              "default": 1,
+              "description": "Stop bits"
+            },
+            "parity": {
+              "type": "string",
+              "enum": ["none", "even", "odd"],
+              "default": "none",
+              "description": "Parity: none=0, even=1, odd=2"
+            },
+            "calculated_modbus_address": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255,
+              "description": "Read-only. Modbus slave address = stack_id + slave_address_offset"
+            },
+            "cli_command": {
+              "type": "string",
+              "description": "Read-only. CLI command to configure RS485: 24b8vin <id> cfg485wr <mode> <offset> <baud> <stop> <parity>"
+            }
+          }
+        }
+      }
+    },
+    "app_settings": {
+      "type": "object",
+      "description": "Application-level settings (not hardware features)",
+      "properties": {
+        "ui_refresh_rate_hz": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10.0,
+          "default": 2.0,
+          "description": "How often UI polls board for updates (Hz)"
+        },
+        "read_units": {
+          "type": "string",
+          "enum": ["volts", "millivolts"],
+          "default": "volts",
+          "description": "Display units for analog inputs"
+        },
+        "sampling_config": {
+          "type": "object",
+          "properties": {
+            "acquisition_loop_rate_hz": {
+              "type": "number",
+              "minimum": 1.0,
+              "maximum": 1000.0,
+              "default": 10.0,
+              "description": "Background thread acquisition rate (Hz)"
+            },
+            "adc_sample_rate_code": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5,
+              "default": 0,
+              "description": "ADC sample rate code: 0=250sps, 1=500sps, 2=1Ksps, 3=2Ksps, 4=4Ksps, 5=8Ksps. Control is available via CLI: 24b8vin <id> srrd (read) / srwr <code> (write)."
+            },
+            "adc_sample_rate_sps": {
+              "type": "integer",
+              "enum": [250, 500, 1000, 2000, 4000, 8000],
+              "default": 250,
+              "description": "Read-only. Human-readable ADC sample rate (samples per second). Derived from adc_sample_rate_code."
+            },
+            "note": {
+              "type": "string",
+              "default": "ADC sample rate control exists (I2C register 43) and is available via CLI: 24b8vin <id> srrd and 24b8vin <id> srwr <code>. Not exposed in Python API."
+            }
+          }
+        },
+        "channel_display": {
+          "type": "object",
+          "properties": {
+            "show_disabled_channels": {
+              "type": "boolean",
+              "default": false,
+              "description": "Show disabled channels in UI (grayed out)"
+            },
+            "show_gain_ranges": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show gain range (±24V, ±12V, etc.) next to each channel"
+            },
+            "show_raw_adc_counts": {
+              "type": "boolean",
+              "default": false,
+              "description": "Show raw ADC counts (NOT AVAILABLE; board outputs floating-point volts only)"
+            }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "properties": {
+            "log_gain_changes": {
+              "type": "boolean",
+              "default": true,
+              "description": "Log every gain code change to events table"
+            },
+            "log_led_changes": {
+              "type": "boolean",
+              "default": false,
+              "description": "Log LED state changes (typically disabled; too noisy)"
+            },
+            "log_watchdog_reloads": {
+              "type": "boolean",
+              "default": false,
+              "description": "Log every watchdog reload (typically disabled; too noisy)"
+            },
+            "log_i2c_errors": {
+              "type": "boolean",
+              "default": true,
+              "description": "Log I2C communication errors"
+            }
+          }
+        }
+      }
+    },
+    "commissioning": {
+      "type": "object",
+      "description": "Commissioning record (filled out by technician during setup)",
+      "properties": {
+        "installation_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "installed_by": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "physical_location": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Equipment location (e.g., 'Hopper #3, Panel A')"
+        },
+        "dip_switch_photo": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL or file path to photo of DIP switches for reference"
+        },
+        "wiring_notes": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Wiring details (terminal blocks, cable colors, etc.)"
+        },
+        "verified_channels": {
+          "type": "array",
+          "description": "List of channels verified during commissioning",
+          "items": {
+            "type": "object",
+            "properties": {
+              "channel": {"type": "integer", "minimum": 1, "maximum": 8},
+              "test_voltage_applied": {"type": "number"},
+              "measured_voltage": {"type": "number"},
+              "pass": {"type": "boolean"},
+              "notes": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["hardware_settings", "physical_settings", "app_settings"]
+}

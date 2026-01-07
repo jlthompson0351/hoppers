@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="grid">
+    <div class="card span-12">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <div>
+          <div class="k">Recent events</div>
+          <div class="small">Tip: download JSON at <a style="color:var(--accent)" href="{{ url_for('routes.export_events_json') }}">events.json</a></div>
+        </div>
+      </div>
+      <table style="margin-top:10px;">
+        <thead>
+          <tr>
+            <th>UTC</th>
+            <th>Level</th>
+            <th>Code</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in events %}
+            <tr>
+              <td>{{ e.ts }}</td>
+              <td>{{ e.level }}</td>
+              <td>{{ e.code }}</td>
+              <td>{{ e.message }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+
+

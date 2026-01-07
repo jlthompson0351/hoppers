@@ -1,0 +1,908 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .cal-header {
+    text-align: center;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .cal-header h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+  }
+  .cal-header .subtitle {
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .live-panel {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .live-weight {
+    font-size: 48px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .live-signal {
+    font-size: 18px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .live-status {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+  .status-badge {
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 2px solid;
+  }
+  .status-badge.stable { color: var(--ok); border-color: var(--ok); background: rgba(46, 204, 113, 0.1); }
+  .status-badge.unstable { color: var(--warn); border-color: var(--warn); background: rgba(255, 204, 102, 0.1); }
+  .status-badge.ok { color: var(--ok); border-color: var(--ok); background: rgba(46, 204, 113, 0.1); }
+  .status-badge.fault { color: var(--bad); border-color: var(--bad); background: rgba(255, 107, 107, 0.1); }
+
+  /* Visual Weight Bar */
+  .scale-visual {
+    background: #0d1526;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .scale-bar {
+    height: 48px;
+    background: linear-gradient(90deg, #1a2a4a 0%, var(--accent) 100%);
+    border-radius: 8px;
+    position: relative;
+    margin: 24px 0;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+  }
+  .scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .scale-pointer {
+    position: absolute;
+    top: -10px;
+    width: 6px;
+    height: 68px;
+    background: white;
+    border-radius: 3px;
+    transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 15px rgba(255,255,255,0.5);
+    z-index: 10;
+  }
+  .scale-pointer::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: -7px;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid white;
+  }
+
+  /* ARM Toggle */
+  .arm-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    transition: all 0.3s;
+  }
+  .arm-panel.disarmed {
+    background: rgba(255, 107, 107, 0.05);
+    border: 2px solid rgba(255, 107, 107, 0.2);
+  }
+  .arm-panel.armed {
+    background: rgba(46, 204, 113, 0.05);
+    border: 2px solid rgba(46, 204, 113, 0.2);
+  }
+  .arm-status {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+  }
+  .arm-panel.disarmed .arm-status { color: var(--bad); }
+  .arm-panel.armed .arm-status { color: var(--ok); }
+  
+  .big-toggle {
+    width: 80px;
+    height: 40px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 20px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  .big-toggle.on { background: var(--ok); }
+  .big-toggle::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+  }
+  .big-toggle.on::after { transform: translateX(40px); }
+
+  .add-point-panel {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .add-point-panel h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .add-point-form {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .form-group {
+    flex: 1;
+    min-width: 200px;
+  }
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 18px;
+    font-weight: 600;
+    background: #0d1526;
+    border: 2px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: var(--text);
+  }
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .add-btn {
+    padding: 14px 32px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--ok);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .add-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .add-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .instructions {
+    background: rgba(97, 218, 251, 0.1);
+    border: 1px solid rgba(97, 218, 251, 0.3);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .instructions h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: var(--accent);
+  }
+  .instructions ol {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .instructions li { margin-bottom: 4px; }
+
+  .points-panel {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .points-panel h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .point-count {
+    background: var(--accent);
+    color: #000;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .points-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .points-table th {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 2px solid rgba(255,255,255,0.1);
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .points-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 14px;
+  }
+  .points-table tr:hover { background: rgba(255,255,255,0.02); }
+  .delete-btn {
+    background: rgba(255, 107, 107, 0.2);
+    color: var(--bad);
+    border: 1px solid var(--bad);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .delete-btn:hover { background: rgba(255, 107, 107, 0.4); }
+
+  .no-points {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+  .no-points-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+
+  .clear-all-btn {
+    background: rgba(255, 107, 107, 0.2);
+    color: var(--bad);
+    border: 1px solid var(--bad);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .clear-all-btn:hover { background: rgba(255, 107, 107, 0.4); }
+
+  /* PLC Output Cal Styles */
+  .plc-section {
+    margin-top: 40px;
+    border-top: 2px solid rgba(255,255,255,0.05);
+    padding-top: 40px;
+  }
+  .nudge-panel {
+    background: linear-gradient(135deg, #1a2a4a 0%, #0d1526 100%);
+    border: 2px solid rgba(97, 218, 251, 0.3);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .nudge-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+  }
+  .nudge-value-display {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--accent);
+    font-family: monospace;
+  }
+  .nudge-slider-wrapper {
+    width: 100%;
+    max-width: 600px;
+  }
+  .nudge-slider {
+    width: 100%;
+    height: 12px;
+    -webkit-appearance: none;
+    background: rgba(255,255,255,0.1);
+    border-radius: 6px;
+    outline: none;
+  }
+  .nudge-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  }
+  .nudge-buttons {
+    display: flex;
+    gap: 12px;
+  }
+  .nudge-btn {
+    padding: 10px 20px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--text);
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .nudge-btn:hover { background: rgba(255,255,255,0.1); }
+  
+  .conflict-warning {
+    background: rgba(255, 107, 107, 0.15);
+    border: 2px solid var(--bad);
+    color: var(--bad);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    font-weight: 600;
+  }
+  
+  .cal-mode-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background: var(--bad);
+    color: white;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 10px;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+  }
+
+  /* Maintenance Drawer */
+  .maintenance-drawer {
+    margin-top: 24px;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .drawer-header {
+    padding: 16px 24px;
+    background: rgba(255,255,255,0.02);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .drawer-header:hover { background: rgba(255,255,255,0.04); }
+  .drawer-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .drawer-content {
+    padding: 24px;
+    display: none;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .drawer-content.open { display: block; }
+  
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 24px;
+  }
+  .tool-card {
+    background: rgba(0,0,0,0.2);
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .tool-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  .feedback-msg {
+    text-align: center;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    display: none;
+  }
+  .feedback-msg.success { display: block; background: rgba(46, 204, 113, 0.15); color: var(--ok); }
+  .feedback-msg.error { display: block; background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+</style>
+
+<div class="cal-header">
+  <h1>Scale Calibration</h1>
+  <div class="subtitle">Add known weight points to calibrate the scale</div>
+</div>
+
+<div id="feedback" class="feedback-msg"></div>
+
+<!-- TIER 1: LIVE MONITORING -->
+<div class="scale-visual">
+  <div class="scale-labels">
+    <span id="scale-min-text">{{ (cfg.get('range') or {}).get('min_lb', 0.0) | int }} lb</span>
+    <span style="color: var(--accent);">LIVE WEIGHT MONITOR</span>
+    <span id="scale-max-text">{{ (cfg.get('range') or {}).get('max_lb', 300.0) | int }} lb</span>
+  </div>
+  <div class="scale-bar">
+    <div class="scale-pointer" id="scale-pointer" style="left: 0%;"></div>
+  </div>
+  <div class="live-status" style="margin-top: 10px;">
+    <div class="live-weight" id="live-weight" style="font-size: 32px; margin: 0;">{{ "%.1f"|format(snap.total_weight_lbs or 0.0) }} lb</div>
+    <div style="flex-grow: 1;"></div>
+    <span class="status-badge {{ 'stable' if snap.stable else 'unstable' }}" id="stable-badge">
+      {{ 'STABLE' if snap.stable else 'UNSTABLE' }}
+    </span>
+  </div>
+</div>
+
+<div class="live-panel" style="display: none;">
+  <div class="live-weight" id="live-weight-hidden">{{ "%.1f"|format(snap.total_weight_lbs or 0.0) }} lb</div>
+  <div class="live-signal">
+    Signal (<span id="signal-unit">mV</span>):
+    <span id="live-signal">{{ "%.6f"|format(snap.signal_for_cal or 0.0) }}</span>
+  </div>
+  <div class="live-status">
+    <span class="status-badge {{ 'stable' if snap.stable else 'unstable' }}" id="stable-badge">
+      {{ 'STABLE' if snap.stable else 'UNSTABLE' }}
+    </span>
+    <span class="status-badge {{ 'ok' if not snap.fault else 'fault' }}" id="fault-badge">
+      {{ 'FAULT' if snap.fault else 'OK' }}
+    </span>
+  </div>
+</div>
+
+<div class="instructions">
+  <h3>📋 How to Calibrate</h3>
+  <ol>
+    <li><strong>Start empty</strong> - Remove all weight from the scale</li>
+    <li><strong>Add 0 lb point</strong> - Enter 0 in the field below and click "Add Point"</li>
+    <li><strong>Add known weights</strong> - Place a known weight on the scale, wait for STABLE, enter the weight and click "Add Point"</li>
+    <li><strong>Repeat</strong> - Add 3-5 points across your operating range for best accuracy</li>
+  </ol>
+</div>
+
+<div class="add-point-panel">
+  <h2>Add Calibration Point</h2>
+  <form class="add-point-form" id="add-point-form" onsubmit="return addPoint(event)">
+    <div class="form-group">
+      <label>Known Weight (lb)</label>
+      <input type="number" id="known-weight" step="0.1" value="0.0" placeholder="Enter known weight...">
+    </div>
+    <button type="submit" class="add-btn" id="add-btn">ADD POINT</button>
+  </form>
+  <div class="small" style="margin-top: 12px; color: var(--muted);">
+    Point will be captured with current signal value. Scale must be STABLE.
+  </div>
+</div>
+
+<div class="points-panel">
+  <h2>
+    <span>Saved Calibration Points</span>
+    <span class="point-count" id="point-count">{{ points|length }}</span>
+  </h2>
+  
+  {% if points|length > 0 %}
+  <table class="points-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Weight (lb)</th>
+        <th>Signal</th>
+        <th>Time</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="points-tbody">
+      {% for p in points %}
+      <tr data-id="{{ p.id }}">
+        <td>{{ loop.index }}</td>
+        <td style="font-weight: 600;">{{ "%.1f"|format(p.known_weight_lbs) }}</td>
+        <td style="font-family: monospace;">{{ "%.6f"|format(p.signal) }}</td>
+        <td style="color: var(--muted); font-size: 12px;">{{ p.ts.split('T')[1].split('+')[0] if 'T' in p.ts else p.ts }}</td>
+        <td>
+          <button class="delete-btn" onclick="deletePoint({{ p.id }})">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top: 16px; text-align: right;">
+    <button class="clear-all-btn" onclick="clearAllPoints()">Clear All Points</button>
+  </div>
+  {% else %}
+  <div class="no-points">
+    <div class="no-points-icon">⚖️</div>
+    <div>No calibration points yet</div>
+    <div style="margin-top: 8px; font-size: 12px;">Add points above to calibrate the scale</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============== PLC OUTPUT CALIBRATION ============== -->
+<div class="plc-section">
+  <div class="cal-header">
+    <h1>PLC Output Mapping</h1>
+    <div class="subtitle">Nudge the Pi output until the PLC display matches the scale weight</div>
+  </div>
+
+  <div class="info-box" style="text-align: center; margin-bottom: 20px; border-color: var(--accent);">
+    <strong style="color: var(--accent);">Active Port:</strong> 
+    <span id="active-port-label" style="font-weight: 700;">{{ (cfg.get('output') or {}).get('mode', '0_10V') }} on Channel {{ (cfg.get('output') or {}).get('ao_channel_v', 1) }}</span>
+    <div class="small" style="margin-top: 4px;">To change the port or mode, go to the <strong>Settings</strong> page.</div>
+  </div>
+
+  <!-- TIER 2: ARM & NUDGE (Tech Priority) -->
+  <div class="arm-panel {{ 'armed' if (cfg.get('output') or {}).get('armed') else 'disarmed' }}" id="arm-panel">
+    <div class="arm-status" id="arm-status">{{ '✓ OUTPUTS ARMED' if (cfg.get('output') or {}).get('armed') else '⚠️ OUTPUTS DISARMED' }}</div>
+    <div class="big-toggle {{ 'on' if (cfg.get('output') or {}).get('armed') }}" id="arm-toggle" onclick="toggleArm()"></div>
+  </div>
+
+  <div class="conflict-warning" id="io-conflict-msg">
+    <span>⚠️ WARNING:</span>
+    <span id="conflict-reason">Channel is shared with another function</span>
+  </div>
+
+  <div class="nudge-panel">
+    <div style="text-align: center;">
+      <div class="cal-mode-badge" id="cal-mode-status" style="display: none;">LIVE LINK ACTIVE</div>
+    </div>
+    <div class="nudge-controls">
+      <div class="nudge-value-display" id="nudge-display">0.000 V</div>
+      
+      <div class="nudge-slider-wrapper">
+        <input type="range" class="nudge-slider" id="nudge-slider" min="0" max="10" step="0.001" value="0" oninput="onNudgeInput(this.value)">
+      </div>
+
+      <div class="nudge-buttons">
+        <button class="nudge-btn" onclick="nudgeOutput(-0.1)">-0.1</button>
+        <button class="nudge-btn" onclick="nudgeOutput(-0.01)">-0.01</button>
+        <button class="nudge-btn" onclick="nudgeOutput(-0.001)">-0.001</button>
+        <button class="nudge-btn" onclick="nudgeOutput(0.001)">+0.001</button>
+        <button class="nudge-btn" onclick="nudgeOutput(0.01)">+0.01</button>
+        <button class="nudge-btn" onclick="nudgeOutput(0.1)">+0.1</button>
+      </div>
+
+      <button class="add-btn" id="match-btn" style="background: var(--accent); margin-top: 10px;" onclick="saveMatchPoint()">
+        ADD MATCH POINT (at <span id="match-weight">0.0</span> lb)
+      </button>
+    </div>
+  </div>
+
+  <div class="points-panel">
+    <h2>Saved Output Mapping ({{ '0-10V' if (cfg.get('output') or {}).get('mode', '0_10V') == '0_10V' else '4-20mA' }})</h2>
+    
+    {% if (cfg.get('output') or {}).get('mode', '0_10V') == '0_10V' %}
+    <div id="plc-points-0_10V">
+      <table class="points-table">
+        <thead>
+          <tr>
+            <th>Weight (lb)</th>
+            <th>Output (V)</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="plc-tbody-v">
+          {% for p in points_v %}
+          <tr>
+            <td>{{ "%.1f"|format(p.plc_displayed_lbs) }}</td>
+            <td style="font-family: monospace;">{{ "%.3f"|format(p.analog_value) }} V</td>
+            <td><button class="delete-btn" onclick="deletePlcPoint({{ p.id }})">Delete</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div id="plc-points-4_20mA">
+      <table class="points-table">
+        <thead>
+          <tr>
+            <th>Weight (lb)</th>
+            <th>Output (mA)</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="plc-tbody-ma">
+          {% for p in points_ma %}
+          <tr>
+            <td>{{ "%.1f"|format(p.plc_displayed_lbs) }}</td>
+            <td style="font-family: monospace;">{{ "%.3f"|format(p.analog_value) }} mA</td>
+            <td><button class="delete-btn" onclick="deletePlcPoint({{ p.id }})">Delete</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function() {
+  const POLL_INTERVAL_MS = {{ poll_rate_ms | default(500) | int }};
+  let pollTimer = null;
+  let isStable = {{ 'true' if snap.stable else 'false' }};
+
+  function updateLive(data) {
+    const weight = data.weight.total_lbs;
+    document.getElementById('live-weight').textContent = weight.toFixed(1) + ' lb';
+    document.getElementById('match-weight').textContent = weight.toFixed(1);
+    document.getElementById('live-signal').textContent = data.weight.signal_for_cal.toFixed(6);
+    // Always raw mV now (ratiometric removed)
+    document.getElementById('signal-unit').textContent = 'mV';
+    
+    // Update visual bar
+    const minWeight = {{ (cfg.get('range') or {}).get('min_lb', 0.0) }};
+    const maxWeight = {{ (cfg.get('range') or {}).get('max_lb', 300.0) }};
+    const pct = Math.max(0, Math.min(100, ((weight - minWeight) / (maxWeight - minWeight)) * 100));
+    document.getElementById('scale-pointer').style.left = pct + '%';
+
+    isStable = data.weight.stable;
+    const stableBadge = document.getElementById('stable-badge');
+    stableBadge.textContent = isStable ? 'STABLE' : 'UNSTABLE';
+    stableBadge.className = 'status-badge ' + (isStable ? 'stable' : 'unstable');
+
+    const faultBadge = document.getElementById('fault-badge');
+    const hasFault = data.system.fault;
+    faultBadge.textContent = hasFault ? 'FAULT' : 'OK';
+    faultBadge.className = 'status-badge ' + (hasFault ? 'fault' : 'ok');
+
+    document.getElementById('add-btn').disabled = !isStable;
+    
+    // ARM UI Sync
+    const isArmed = data.plcOutput.armed;
+    const panel = document.getElementById('arm-panel');
+    const status = document.getElementById('arm-status');
+    const toggle = document.getElementById('arm-toggle');
+    
+    panel.className = 'arm-panel ' + (isArmed ? 'armed' : 'disarmed');
+    status.textContent = isArmed ? '✓ OUTPUTS ARMED' : '⚠️ OUTPUTS DISARMED';
+    toggle.className = 'big-toggle ' + (isArmed ? 'on' : '');
+
+    // Sync nudge UI if active
+    if (data.plcOutput.calibration_active) {
+      const mode = data.plcOutput.mode;
+      const unit = mode === '4_20mA' ? 'mA' : 'V';
+      document.getElementById('nudge-display').textContent = data.plcOutput.nudge_value.toFixed(3) + ' ' + unit;
+      document.getElementById('cal-mode-status').style.display = 'inline-block';
+      
+      // Update the active port label in case it changed in settings
+      document.getElementById('active-port-label').textContent = mode + ' on Channel ' + (mode === '4_20mA' ? data.plcOutput.ao_channel_ma : data.plcOutput.ao_channel_v);
+    } else {
+      document.getElementById('cal-mode-status').style.display = 'none';
+    }
+  }
+
+  window.toggleArm = function() {
+    const panel = document.getElementById('arm-panel');
+    const isArmed = panel.classList.contains('armed');
+    
+    fetch('/api/output/arm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({armed: !isArmed})
+    })
+    .then(r => r.json())
+    .then(data => {
+      showFeedback(data.armed ? 'Outputs ARMED' : 'Outputs DISARMED', false);
+    });
+  };
+
+  // PLC Nudge Logic
+  let _lastNudgeTime = 0;
+  window.onNudgeInput = function(val) {
+    const unit = "{{ 'mA' if (cfg.get('output') or {}).get('mode', '0_10V') == '4_20mA' else 'V' }}";
+    document.getElementById('nudge-display').textContent = parseFloat(val).toFixed(3) + ' ' + unit;
+    
+    // Throttle nudge API calls
+    const now = Date.now();
+    if (now - _lastNudgeTime > 100) {
+      _lastNudgeTime = now;
+      sendNudge(val);
+    }
+  };
+
+  window.nudgeOutput = function(delta) {
+    const slider = document.getElementById('nudge-slider');
+    const newVal = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), parseFloat(slider.value) + delta));
+    slider.value = newVal;
+    onNudgeInput(newVal);
+    sendNudge(newVal);
+  };
+
+  function sendNudge(val) {
+    fetch('/api/output/nudge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({value: parseFloat(val), active: true})
+    });
+  }
+
+  window.saveMatchPoint = function() {
+    const weight = document.getElementById('match-weight').textContent;
+    const value = document.getElementById('nudge-slider').value;
+    const mode = "{{ (cfg.get('output') or {}).get('mode', '0_10V') }}";
+    
+    const formData = new FormData();
+    formData.append('output_mode', mode);
+    formData.append('analog_value', value);
+    formData.append('plc_displayed_lbs', weight);
+    
+    fetch('/plc-profile/add', { method: 'POST', body: formData })
+    .then(() => {
+      showFeedback('Match point saved: ' + weight + ' lb = ' + value + (mode === '4_20mA' ? 'mA' : 'V'), false);
+      setTimeout(() => location.reload(), 1000);
+    })
+    .catch(err => showFeedback(err.message, true));
+  };
+
+  window.deletePlcPoint = function(id) {
+    if (!confirm('Delete this match point?')) return;
+    fetch('/api/plc-profile/delete/' + id, { method: 'POST' })
+    .then(() => location.reload());
+  };
+
+  window.updateConflictCheck = function() {
+    fetch('/api/io/conflicts')
+    .then(r => r.json())
+    .then(data => {
+      const mode = "{{ (cfg.get('output') or {}).get('mode', '0_10V') }}";
+      const ch = {{ (cfg.get('output') or {}).get('ao_channel_v', 1) if (cfg.get('output') or {}).get('mode') == '0_10V' else (cfg.get('output') or {}).get('ao_channel_ma', 1) }};
+      const conflict = data.conflicts.find(c => c.pin === ('AO' + ch));
+      const msg = document.getElementById('io-conflict-msg');
+      if (conflict) {
+        msg.style.display = 'flex';
+        document.getElementById('conflict-reason').textContent = conflict.reason;
+      } else {
+        msg.style.display = 'none';
+      }
+    });
+  };
+
+  // Turn off nudge mode on leave
+  window.addEventListener('beforeunload', function() {
+    fetch('/api/output/nudge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({active: false})
+    });
+    if (pollTimer) clearInterval(pollTimer);
+  });
+
+  updateConflictCheck();
+
+  function showFeedback(message, isError) {
+    const fb = document.getElementById('feedback');
+    fb.textContent = message;
+    fb.className = 'feedback-msg ' + (isError ? 'error' : 'success');
+    setTimeout(function() {
+      fb.className = 'feedback-msg';
+    }, 4000);
+  }
+
+  window.addPoint = function(e) {
+    e.preventDefault();
+    if (!isStable) {
+      showFeedback('Cannot add point: scale not stable', true);
+      return false;
+    }
+    
+    const weight = document.getElementById('known-weight').value;
+    const formData = new FormData();
+    formData.append('known_weight_lbs', weight);
+    
+    fetch('/api/calibration/add', {
+      method: 'POST',
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Calibration point added: ' + weight + ' lb', false);
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        showFeedback(data.error || 'Failed to add point', true);
+      }
+    })
+    .catch(err => {
+      showFeedback('Error: ' + err.message, true);
+    });
+    
+    return false;
+  };
+
+  window.deletePoint = function(id) {
+    if (!confirm('Delete this calibration point?')) return;
+    
+    fetch('/api/calibration/delete/' + id, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Point deleted', false);
+        setTimeout(() => location.reload(), 500);
+      } else {
+        showFeedback(data.error || 'Failed to delete', true);
+      }
+    })
+    .catch(err => {
+      showFeedback('Error: ' + err.message, true);
+    });
+  };
+
+  window.clearAllPoints = function() {
+    if (!confirm('Delete ALL calibration points? This cannot be undone.')) return;
+    
+    fetch('/api/calibration/clear', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('All points cleared', false);
+        setTimeout(() => location.reload(), 500);
+      } else {
+        showFeedback(data.error || 'Failed to clear', true);
+      }
+    })
+    .catch(err => {
+      showFeedback('Error: ' + err.message, true);
+    });
+  };
+
+  function poll() {
+    fetch('/api/snapshot')
+      .then(r => r.json())
+      .then(data => updateLive(data))
+      .catch(err => console.error('Poll failed:', err));
+  }
+
+  poll();
+  pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+
+  window.addEventListener('beforeunload', function() {
+    if (pollTimer) clearInterval(pollTimer);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,896 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .page-header {
+    text-align: center;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .page-header h1 { margin: 0; font-size: 24px; font-weight: 700; }
+  .page-header .subtitle { color: var(--muted); margin-top: 8px; }
+
+  .section {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .section h2 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section h2 .icon { font-size: 18px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .form-group input, .form-group select {
+    width: 100%;
+    padding: 12px;
+    background: #0d1526;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 16px;
+  }
+  .form-group input:focus, .form-group select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .live-panel {
+    background: linear-gradient(135deg, #1a2a4a 0%, #0d1526 100%);
+    border: 2px solid rgba(97, 218, 251, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .live-value {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .live-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+  }
+  .live-row {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .live-item { text-align: center; }
+  .live-item .value { font-size: 24px; font-weight: 700; }
+  .live-item .label { font-size: 11px; color: var(--muted); }
+
+  .arm-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+  }
+  .arm-toggle.disarmed {
+    background: rgba(255, 107, 107, 0.1);
+    border: 2px solid var(--bad);
+  }
+  .arm-toggle.armed {
+    background: rgba(46, 204, 113, 0.1);
+    border: 2px solid var(--ok);
+  }
+  .arm-toggle .status {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .arm-toggle.disarmed .status { color: var(--bad); }
+  .arm-toggle.armed .status { color: var(--ok); }
+  .arm-btn {
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 700;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .arm-btn.arm { background: var(--ok); color: #000; }
+  .arm-btn.disarm { background: var(--bad); color: #fff; }
+
+  .scale-visual {
+    background: #0d1526;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 16px;
+  }
+  .scale-bar {
+    height: 40px;
+    background: linear-gradient(90deg, #2c3e50 0%, var(--accent) 100%);
+    border-radius: 8px;
+    position: relative;
+    margin: 20px 0;
+  }
+  .scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .scale-pointer {
+    position: absolute;
+    top: -8px;
+    width: 4px;
+    height: 56px;
+    background: var(--warn);
+    border-radius: 2px;
+    transition: left 0.3s ease;
+  }
+
+  .points-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+  }
+  .points-table th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 2px solid rgba(255,255,255,0.1);
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .points-table td {
+    padding: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 14px;
+  }
+  .points-table tr:hover { background: rgba(255,255,255,0.02); }
+
+  .btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-danger { background: var(--bad); color: #fff; }
+  .btn-secondary { background: rgba(255,255,255,0.1); color: var(--text); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .delete-btn {
+    background: rgba(255, 107, 107, 0.2);
+    color: var(--bad);
+    border: 1px solid var(--bad);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .warning-banner {
+    background: rgba(255, 204, 102, 0.1);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+
+  .test-output-panel {
+    background: #0d1526;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+  .test-output-panel h3 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .test-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+  }
+
+  .calibration-panel {
+    background: #0d1526;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .calibration-panel h3 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .cal-steps {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+  }
+  .cal-step {
+    flex: 1;
+    padding: 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+    text-align: center;
+  }
+  .cal-step .num {
+    width: 24px;
+    height: 24px;
+    background: var(--accent);
+    color: #000;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .label { color: var(--muted); font-size: 13px; }
+  .info-row .value { font-weight: 600; font-size: 14px; }
+
+  .feedback-msg {
+    text-align: center;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    display: none;
+  }
+  .feedback-msg.success { display: block; background: rgba(46, 204, 113, 0.15); color: var(--ok); }
+  .feedback-msg.error { display: block; background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+  .tab {
+    padding: 10px 20px;
+    background: rgba(255,255,255,0.05);
+    border: none;
+    border-radius: 8px 8px 0 0;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .tab.active {
+    background: var(--card);
+    color: var(--text);
+  }
+</style>
+
+<div class="page-header">
+  <h1>PLC Output Configuration</h1>
+  <div class="subtitle">Configure analog output to PLC and correction curve</div>
+</div>
+
+<div id="feedback" class="feedback-msg"></div>
+
+<!-- ARM OUTPUTS Safety Toggle -->
+<div class="arm-toggle disarmed" id="arm-panel">
+  <span class="status" id="arm-status">⚠️ OUTPUTS DISARMED</span>
+  <button class="arm-btn arm" id="arm-btn" onclick="toggleArm()">ARM OUTPUTS</button>
+</div>
+
+<div class="grid-2">
+  <!-- Left Column: Live Output Monitor -->
+  <div>
+    <div class="section">
+      <h2><span class="icon">📊</span> Live Output</h2>
+      <div class="live-panel">
+        <div class="live-value" id="live-output">0.000 V</div>
+        <div class="live-label">Commanded Output</div>
+        <div class="live-row">
+          <div class="live-item">
+            <div class="value" id="live-weight">0.0</div>
+            <div class="label">Weight (lb)</div>
+          </div>
+          <div class="live-item">
+            <div class="value" id="live-readback">0.000</div>
+            <div class="label">Readback</div>
+          </div>
+          <div class="live-item">
+            <div class="value" id="live-percent">0%</div>
+            <div class="label">Scale %</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scale Visualization -->
+      <div class="scale-visual">
+        <div class="scale-labels">
+          <span id="scale-min-label">0 lb → 0V</span>
+          <span id="scale-max-label">300 lb → 10V</span>
+        </div>
+        <div class="scale-bar">
+          <div class="scale-pointer" id="scale-pointer" style="left: 0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Output -->
+    <div class="section">
+      <h2><span class="icon">🔧</span> Test Output</h2>
+      <div class="warning-banner" id="test-warning">
+        ⚠️ Test output will override weight-based output. Use for commissioning only.
+      </div>
+      <div class="test-output-panel" id="test-panel">
+        <div class="test-row">
+          <div class="form-group" style="flex: 1; margin: 0;">
+            <label>Test Value</label>
+            <input type="number" id="test-value" step="0.001" value="5.000" min="0" max="10">
+          </div>
+          <button class="btn btn-secondary" id="test-btn" onclick="toggleTestOutput()" disabled>
+            START TEST OUTPUT
+          </button>
+        </div>
+        <div style="margin-top: 12px; font-size: 12px; color: var(--muted);" id="test-help">
+          Outputs must be ARMED. Click to start test output - stays on until you click again.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Output Configuration -->
+  <div>
+    <div class="section">
+      <h2><span class="icon">⚙️</span> Output Configuration</h2>
+      <form id="config-form" onsubmit="return saveConfig(event)">
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Output Mode</label>
+            <select id="output-mode" name="output_mode">
+              <option value="0_10V">0-10V</option>
+              <option value="4_20mA">4-20mA</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Output Channel (1-4)</label>
+            <select id="output-channel" name="output_channel">
+              <option value="1">Channel 1</option>
+              <option value="2">Channel 2</option>
+              <option value="3">Channel 3</option>
+              <option value="4">Channel 4</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Min Weight (lb)</label>
+            <input type="number" id="min-weight" name="min_lb" step="0.1" value="0.0">
+          </div>
+          <div class="form-group">
+            <label>Max Weight (lb)</label>
+            <input type="number" id="max-weight" name="max_lb" step="0.1" value="300.0">
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Safe Output on Fault (V or mA)</label>
+            <input type="number" id="safe-output" name="safe_output" step="0.001" value="0.000">
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Save Configuration</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- MegaIND Output Info -->
+    <div class="section">
+      <h2><span class="icon">📡</span> MegaIND Output Status</h2>
+      <div class="info-row">
+        <span class="label">Board Online</span>
+        <span class="value" id="megaind-online">--</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Firmware</span>
+        <span class="value" id="megaind-fw">--</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Power Supply</span>
+        <span class="value" id="megaind-power">-- V</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Output Readback</span>
+        <span class="value" id="megaind-readback">-- V</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Output Calibration -->
+<div class="section">
+  <h2><span class="icon">🎯</span> Output Calibration (MegaIND)</h2>
+  <p style="color: var(--muted); font-size: 13px; margin-bottom: 16px;">
+    Two-point calibration for accurate analog output. Use a precision multimeter to measure actual output.
+  </p>
+  <div class="calibration-panel">
+    <div class="grid-3">
+      <div class="form-group">
+        <label>Calibration Type</label>
+        <select id="cal-type">
+          <option value="uoutcal">0-10V Output</option>
+          <option value="ioutcal">4-20mA Output</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Channel</label>
+        <select id="cal-channel">
+          <option value="1">Channel 1</option>
+          <option value="2">Channel 2</option>
+          <option value="3">Channel 3</option>
+          <option value="4">Channel 4</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Calibration Status</label>
+        <div style="padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; text-align: center;">
+          <span id="cal-status">Not calibrated</span>
+        </div>
+      </div>
+    </div>
+    <div class="cal-steps">
+      <div class="cal-step">
+        <div class="num">1</div>
+        <div class="form-group" style="margin: 0;">
+          <label>Low Reference (V or mA)</label>
+          <input type="number" id="cal-point1" step="0.001" value="0.5">
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 8px; width: 100%;" onclick="captureCalPoint(1)">
+          Capture Point 1
+        </button>
+      </div>
+      <div class="cal-step">
+        <div class="num">2</div>
+        <div class="form-group" style="margin: 0;">
+          <label>High Reference (V or mA)</label>
+          <input type="number" id="cal-point2" step="0.001" value="9.5">
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 8px; width: 100%;" onclick="captureCalPoint(2)">
+          Capture Point 2
+        </button>
+      </div>
+      <div class="cal-step">
+        <div class="num">✓</div>
+        <div style="padding: 20px 0;">
+          <button class="btn btn-danger" style="width: 100%;" onclick="resetCalibration()">
+            Reset to Factory
+          </button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 12px; font-size: 12px; color: var(--muted);">
+      Voltage calibration: points must be ≥5V apart. Current calibration: points must be ≥10mA apart.
+    </div>
+  </div>
+</div>
+
+<!-- PLC Correction Points -->
+<div class="section">
+  <h2><span class="icon">📈</span> PLC Correction Curve</h2>
+  <p style="color: var(--muted); font-size: 13px; margin-bottom: 16px;">
+    Fine-tune the output if the PLC has scaling errors. Measure what the PLC displays at specific output values.
+  </p>
+  
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('0_10V')">0-10V</button>
+    <button class="tab" onclick="showTab('4_20mA')">4-20mA</button>
+  </div>
+
+  <div id="tab-0_10V">
+    <form onsubmit="return addCorrectionPoint(event, '0_10V')">
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Output Value (V)</label>
+          <input type="number" id="point-v-output" step="0.001" value="0.000">
+        </div>
+        <div class="form-group">
+          <label>PLC Displays (lb)</label>
+          <input type="number" id="point-v-plc" step="0.01" value="0.00">
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add Point</button>
+        </div>
+      </div>
+    </form>
+    <table class="points-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Output (V)</th>
+          <th>PLC Shows (lb)</th>
+          <th>Time</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="points-v-tbody">
+        {% for p in points_v %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ "%.3f"|format(p.analog_value) }}</td>
+          <td>{{ "%.2f"|format(p.plc_displayed_lbs) }}</td>
+          <td style="color: var(--muted); font-size: 12px;">{{ p.ts.split('T')[1].split('+')[0] if 'T' in p.ts else p.ts }}</td>
+          <td><button class="delete-btn" onclick="deleteProfilePoint({{ p.id if p.id else 0 }}, '0_10V')">Delete</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="tab-4_20mA" style="display: none;">
+    <form onsubmit="return addCorrectionPoint(event, '4_20mA')">
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Output Value (mA)</label>
+          <input type="number" id="point-ma-output" step="0.001" value="4.000">
+        </div>
+        <div class="form-group">
+          <label>PLC Displays (lb)</label>
+          <input type="number" id="point-ma-plc" step="0.01" value="0.00">
+        </div>
+        <div class="form-group">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add Point</button>
+        </div>
+      </div>
+    </form>
+    <table class="points-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Output (mA)</th>
+          <th>PLC Shows (lb)</th>
+          <th>Time</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="points-ma-tbody">
+        {% for p in points_ma %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ "%.3f"|format(p.analog_value) }}</td>
+          <td>{{ "%.2f"|format(p.plc_displayed_lbs) }}</td>
+          <td style="color: var(--muted); font-size: 12px;">{{ p.ts.split('T')[1].split('+')[0] if 'T' in p.ts else p.ts }}</td>
+          <td><button class="delete-btn" onclick="deleteProfilePoint({{ p.id if p.id else 0 }}, '4_20mA')">Delete</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function() {
+  const POLL_INTERVAL_MS = {{ poll_rate_ms | default(500) | int }};
+  let pollTimer = null;
+  let isArmed = false;
+  let isTestMode = false;
+  let currentMode = '0_10V';
+  let minWeight = 0;
+  let maxWeight = 300;
+
+  function showFeedback(message, isError) {
+    const fb = document.getElementById('feedback');
+    fb.textContent = message;
+    fb.className = 'feedback-msg ' + (isError ? 'error' : 'success');
+    setTimeout(() => fb.className = 'feedback-msg', 4000);
+  }
+
+  function updateLive(data) {
+    const weight = data.weight.total_lbs;
+    const output = data.plcOutput.command;
+    const units = data.plcOutput.units;
+    const mode = data.plcOutput.mode;
+    
+    document.getElementById('live-weight').textContent = weight.toFixed(1);
+    document.getElementById('live-output').textContent = output.toFixed(3) + ' ' + units;
+    document.getElementById('live-readback').textContent = output.toFixed(3) + ' ' + units;
+    
+    // Calculate percentage
+    const pct = Math.max(0, Math.min(100, ((weight - minWeight) / (maxWeight - minWeight)) * 100));
+    document.getElementById('live-percent').textContent = pct.toFixed(0) + '%';
+    document.getElementById('scale-pointer').style.left = pct + '%';
+
+    // Update scale labels
+    if (mode === '4_20mA') {
+      document.getElementById('scale-min-label').textContent = minWeight + ' lb → 4mA';
+      document.getElementById('scale-max-label').textContent = maxWeight + ' lb → 20mA';
+    } else {
+      document.getElementById('scale-min-label').textContent = minWeight + ' lb → 0V';
+      document.getElementById('scale-max-label').textContent = maxWeight + ' lb → 10V';
+    }
+
+    // Sync armed state from backend
+    if (data.plcOutput.armed !== undefined && data.plcOutput.armed !== isArmed) {
+      isArmed = data.plcOutput.armed;
+      updateArmUI();
+    }
+    
+    // Sync test mode state from backend
+    if (data.plcOutput.test_mode !== undefined && data.plcOutput.test_mode !== isTestMode) {
+      isTestMode = data.plcOutput.test_mode;
+      updateTestUI();
+    }
+
+    // MegaIND status
+    const megaindOnline = data.boards.online.megaind;
+    document.getElementById('megaind-online').textContent = megaindOnline ? '✓ Online' : '✗ Offline';
+    document.getElementById('megaind-online').style.color = megaindOnline ? 'var(--ok)' : 'var(--bad)';
+  }
+
+  window.toggleArm = function() {
+    const newState = !isArmed;
+    fetch('/api/output/arm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({armed: newState})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        isArmed = data.armed;
+        updateArmUI();
+        showFeedback(isArmed ? 'Outputs ARMED' : 'Outputs DISARMED', false);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+  };
+
+  function updateArmUI() {
+    const panel = document.getElementById('arm-panel');
+    const status = document.getElementById('arm-status');
+    const btn = document.getElementById('arm-btn');
+    const testBtn = document.getElementById('test-btn');
+    
+    if (isArmed) {
+      panel.className = 'arm-toggle armed';
+      status.textContent = '✓ OUTPUTS ARMED';
+      btn.textContent = 'DISARM OUTPUTS';
+      btn.className = 'arm-btn disarm';
+      testBtn.disabled = false;
+    } else {
+      panel.className = 'arm-toggle disarmed';
+      status.textContent = '⚠️ OUTPUTS DISARMED';
+      btn.textContent = 'ARM OUTPUTS';
+      btn.className = 'arm-btn arm';
+      testBtn.disabled = true;
+    }
+  }
+
+  window.saveConfig = function(e) {
+    e.preventDefault();
+    const formData = new FormData(document.getElementById('config-form'));
+    formData.append('safe_output', document.getElementById('safe-output').value);
+    
+    fetch('/api/output/config', {
+      method: 'POST',
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Configuration saved', false);
+        minWeight = parseFloat(document.getElementById('min-weight').value);
+        maxWeight = parseFloat(document.getElementById('max-weight').value);
+      } else {
+        showFeedback(data.error || 'Save failed', true);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+    return false;
+  };
+
+  function updateTestUI() {
+    const btn = document.getElementById('test-btn');
+    const panel = document.getElementById('test-panel');
+    const warning = document.getElementById('test-warning');
+    const valueInput = document.getElementById('test-value');
+    const help = document.getElementById('test-help');
+    
+    if (isTestMode) {
+      btn.textContent = 'STOP TEST OUTPUT';
+      btn.className = 'btn btn-danger';
+      panel.style.background = 'rgba(255, 107, 107, 0.15)';
+      panel.style.border = '2px solid var(--bad)';
+      warning.innerHTML = '🔴 TEST OUTPUT ACTIVE - Click STOP to return to weight-based output';
+      warning.style.background = 'rgba(255, 107, 107, 0.2)';
+      warning.style.borderColor = 'var(--bad)';
+      warning.style.color = 'var(--bad)';
+      valueInput.disabled = true;
+      help.textContent = 'Test output is active. Click STOP to return to normal operation.';
+    } else {
+      btn.textContent = 'START TEST OUTPUT';
+      btn.className = 'btn btn-secondary';
+      panel.style.background = '#0d1526';
+      panel.style.border = 'none';
+      warning.innerHTML = '⚠️ Test output will override weight-based output. Use for commissioning only.';
+      warning.style.background = 'rgba(255, 204, 102, 0.1)';
+      warning.style.borderColor = 'var(--warn)';
+      warning.style.color = 'var(--warn)';
+      valueInput.disabled = false;
+      help.textContent = 'Outputs must be ARMED. Click to start test output - stays on until you click again.';
+    }
+    
+    btn.disabled = !isArmed;
+  }
+
+  window.toggleTestOutput = function() {
+    if (!isArmed) {
+      showFeedback('Outputs must be ARMED to test', true);
+      return;
+    }
+    const value = document.getElementById('test-value').value;
+    const action = isTestMode ? 'stop' : 'start';
+    
+    fetch('/api/output/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: action, value: parseFloat(value)})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        isTestMode = data.test_mode;
+        updateTestUI();
+        if (isTestMode) {
+          showFeedback('Test output STARTED: ' + value + ' V', false);
+        } else {
+          showFeedback('Test output STOPPED', false);
+        }
+      } else {
+        showFeedback(data.error || 'Test failed', true);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+  };
+
+  window.captureCalPoint = function(point) {
+    const calType = document.getElementById('cal-type').value;
+    const channel = document.getElementById('cal-channel').value;
+    const value = document.getElementById('cal-point' + point).value;
+    
+    fetch('/api/output/calibrate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        type: calType,
+        channel: parseInt(channel),
+        value: parseFloat(value),
+        point: point
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Calibration point ' + point + ' captured', false);
+        document.getElementById('cal-status').textContent = 
+          point === 1 ? 'Point 1 captured' : 'Calibrated ✓';
+      } else {
+        showFeedback(data.error || 'Calibration failed', true);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+  };
+
+  window.resetCalibration = function() {
+    if (!confirm('Reset output calibration to factory defaults?')) return;
+    const calType = document.getElementById('cal-type').value.replace('cal', 'calrst');
+    const channel = document.getElementById('cal-channel').value;
+    
+    fetch('/api/output/calibrate/reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: calType, channel: parseInt(channel)})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Calibration reset to factory', false);
+        document.getElementById('cal-status').textContent = 'Not calibrated';
+      } else {
+        showFeedback(data.error || 'Reset failed', true);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+  };
+
+  window.showTab = function(mode) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-0_10V').style.display = mode === '0_10V' ? 'block' : 'none';
+    document.getElementById('tab-4_20mA').style.display = mode === '4_20mA' ? 'block' : 'none';
+    currentMode = mode;
+  };
+
+  window.addCorrectionPoint = function(e, mode) {
+    e.preventDefault();
+    const outputId = mode === '0_10V' ? 'point-v-output' : 'point-ma-output';
+    const plcId = mode === '0_10V' ? 'point-v-plc' : 'point-ma-plc';
+    
+    const formData = new FormData();
+    formData.append('output_mode', mode);
+    formData.append('analog_value', document.getElementById(outputId).value);
+    formData.append('plc_displayed_lbs', document.getElementById(plcId).value);
+    
+    fetch('/plc-profile/add', { method: 'POST', body: formData })
+    .then(() => {
+      showFeedback('Correction point added', false);
+      setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+    return false;
+  };
+
+  window.deleteProfilePoint = function(id, mode) {
+    if (!confirm('Delete this correction point?')) return;
+    fetch('/api/plc-profile/delete/' + id, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showFeedback('Point deleted', false);
+        setTimeout(() => location.reload(), 500);
+      }
+    })
+    .catch(err => showFeedback('Error: ' + err.message, true));
+  };
+
+  function poll() {
+    fetch('/api/snapshot')
+      .then(r => r.json())
+      .then(data => updateLive(data))
+      .catch(err => console.error('Poll failed:', err));
+  }
+
+  poll();
+  pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+  updateArmUI();
+  updateTestUI();
+
+  window.addEventListener('beforeunload', () => {
+    if (pollTimer) clearInterval(pollTimer);
+  });
+})();
+</script>
+{% endblock %}
