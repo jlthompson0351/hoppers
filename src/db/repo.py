@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 log = logging.getLogger(__name__)
+CAL_POINT_WEIGHT_EPS_LB = 1e-6
 
 
 def _deep_merge(defaults: Any, overrides: Any) -> Any:
@@ -71,11 +73,19 @@ class AppRepository:
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
 
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON;")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     # -------- events / logging --------
     def log_event(self, level: str, code: str, message: str, details: Optional[dict] = None) -> None:
@@ -136,68 +146,83 @@ class AppRepository:
         self.log_event(level="INFO", code="CONFIG_SAVED", message="Configuration saved.", details={})
 
     def default_config(self) -> Dict[str, Any]:
-        # Comprehensive default config for industrial scale transmitter.
+        """Default config for summing-board scale transmitter."""
         return {
-            # Hardware mode: "real" or "sim"
-            "hw_mode": "sim",
             # I2C configuration
-            "i2c": {
-                "bus": 1,
-                "required_addresses": {"megaind": None, "daq24b8vin": None},
-            },
+            "i2c": {"bus": 1},
             # UI configuration
             "ui": {
                 "maintenance_enabled": False,
                 "poll_rate_ms": 500,
+                "timezone": "UTC",
             },
-            # DAQ board (24b8vin) configuration
-            "daq24b8vin": {
+            # DAQ board (24b8vin) -- summing board, single channel
+            "daq": {
                 "stack_level": 0,
+                "channel": 7,           # 0-indexed, physical ch 8
+                "gain_code": 6,         # +/-370mV range (best for load cells)
+                "sample_rate": 0,       # 250 SPS (best noise rejection)
                 "average_samples": 2,
-                "channels": [
-                    {"enabled": True, "role": "Load Cell (active)", "gain_code": 7},
-                    {"enabled": True, "role": "Load Cell (active)", "gain_code": 7},
-                    {"enabled": True, "role": "Load Cell (active)", "gain_code": 7},
-                    {"enabled": True, "role": "Load Cell (active)", "gain_code": 7},
-                    {"enabled": False, "role": "Not used", "gain_code": 7},
-                    {"enabled": False, "role": "Not used", "gain_code": 7},
-                    {"enabled": False, "role": "Not used", "gain_code": 7},
-                    {"enabled": False, "role": "Not used", "gain_code": 7},
-                ],
             },
-            # Scale configuration
+            # MegaIND configuration
+            "megaind": {
+                "stack_level": 0,
+            },
+            # Scale calibration
             "scale": {
-                "tare_offset_lbs": 0.0,
+                "zero_offset_mv": 0.0,
                 "zero_offset_signal": 0.0,
-                "span_capture": {"zero_signal": None, "span_signal": None, "known_weight_lbs": None},
+                "zero_offset_updated_utc": None,
+                "tare_offset_lbs": 0.0,
             },
-            "enabled_channels": [0, 1, 2, 3],
-            # Filter/signal processing settings
+            # Automatic near-zero drift compensation
+            "zero_tracking": {
+                "enabled": True,
+                "range_lb": 0.5,
+                "deadband_lb": 0.10,
+                "hold_s": 6.0,
+                "rate_lbs": 0.1,
+                "persist_interval_s": 1.0,
+            },
+            # Physical button actions (opto inputs on MegaIND)
+            "opto_actions": {
+                "1": "tare",
+                "2": "zero",
+                "3": "print",
+                "4": "none",
+            },
+            # Kalman filter and stability detection
             "filter": {
-                # Kalman filter (preferred)
-                "use_kalman": True,
+                "kalman_q": 1.0,        # Process noise
+                "kalman_r": 50.0,       # Measurement noise
+                # New key names used by settings page (kept in sync with legacy keys above).
                 "kalman_process_noise": 1.0,
                 "kalman_measurement_noise": 50.0,
-                # IIR filter (legacy fallback)
-                "alpha": 0.18,
-                # Stability detection
                 "stability_window": 25,
-                "stability_stddev_lb": 0.8,
-                "stability_slope_lbs": 0.8,
-                # Advanced noise reduction
-                "median_enabled": False,
-                "median_window": 5,
-                "notch_enabled": False,
-                "notch_freq": 60,
+                "stability_threshold": 0.5,
+                "stability_stddev_lb": 0.5,
+                "stability_slope_lbs": 1.0,
+            },
+            # Excitation monitor thresholds (MegaIND analog input)
+            "excitation": {
+                "enabled": True,
+                "ai_channel": 1,
+                "warn_v": 9.0,
+                "fault_v": 8.0,
+            },
+            # Startup output behavior
+            "startup": {
+                "delay_s": 0.0,
+                "output_value": 0.0,
+                "auto_arm": False,
+                "auto_zero": False,
             },
             # Weight range for output scaling
             "range": {"min_lb": 0.0, "max_lb": 300.0},
-            # NOTE: Ratiometric mode removed - always use raw mV
-            # Excitation voltage monitoring
-            "excitation": {"ai_channel": 1, "warn_v": 9.0, "fault_v": 8.0},
-            # Analog output configuration
+            # Analog output to PLC
             "output": {
                 "mode": "0_10V",
+                "ao_channel": 1,
                 "ao_channel_v": 1,
                 "ao_channel_ma": 1,
                 "safe_v": 0.0,
@@ -207,114 +232,87 @@ class AppRepository:
                 "test_value": 0.0,
                 "calibration_active": False,
                 "nudge_value": 0.0,
-                # Dead band
                 "deadband_enabled": True,
                 "deadband_lb": 0.5,
-                # Output ramping
                 "ramp_enabled": False,
                 "ramp_rate_v": 5.0,
                 "ramp_rate_ma": 8.0,
             },
-            # Zero tracking (auto-zero maintenance)
-            "zero_tracking": {
-                "enabled": False,
-                "range_lb": 0.5,
-                "rate_lbs": 0.1,
-            },
-            # Startup behavior
-            "startup": {
-                "auto_zero": False,
-                "auto_arm": False,
-                "delay_s": 5,
-                "output_value": 0.0,
-            },
-            # Alarms and limits
-            "alarms": {
-                "overload_lb": None,
-                "overload_action": "alarm",
-                "underload_lb": -5,
-                "allow_negative": False,
-                "high_lb": None,
-                "low_lb": None,
-                "rate_lbs": None,
-            },
-            # Fault handling
-            "fault": {
-                "delay_s": 2.0,
-                "recovery": "auto",
-            },
-            # Dump detection
-            "dump_detection": {"drop_threshold_lb": 25.0, "min_prev_stable_lb": 10.0},
-            # Drift detection
-            "drift": {"ratio_threshold": 0.12, "ema_alpha": 0.02, "consecutive_required": 20},
             # Timing
             "timing": {
                 "loop_rate_hz": 20,
                 "config_refresh_s": 2.0,
-                "i2c_retry_count": 3,
-                "board_offline_s": 5,
             },
             # Logging
             "logging": {
                 "interval_s": 1,
                 "retention_days": 30,
-                "log_raw": False,
-                "log_weight": True,
-                "log_output": True,
-                "event_only": False,
             },
-            # Watchdog
-            "watchdog": {
-                "daq_enabled": False,
-                "daq_period_s": 120,
-                "megaind_enabled": False,
-                "megaind_period_s": 120,
+            # Throughput cycle detection + event persistence
+            "throughput": {
+                "enabled": True,
+                "device_id": None,
+                "hopper_id": None,
+                "empty_threshold_lb": 2.0,
+                "rise_trigger_lb": 8.0,
+                "full_min_lb": 15.0,
+                "dump_drop_lb": 6.0,
+                "full_stability_s": 0.4,
+                "empty_confirm_s": 0.3,
+                "min_processed_lb": 5.0,
+                "max_cycle_s": 900.0,
             },
-            # RS485/MODBUS (disabled by default)
-            "rs485": {
-                "enabled": False,
-                "mode": 0,
-                "baudrate": 9600,
-                "stop_bits": 1,
-                "parity": "none",
-                "slave_address": 1,
-            },
-            # One-wire bus (disabled by default)
-            "onewire": {
-                "enabled": False,
-            },
-            # LED indicators (disabled by default)
-            "leds": {
-                "enabled": False,
-            },
-            # MegaIND I/O (Maintenance / Extra Controls)
-            "megaind_io": {
-                "armed": False,
-                "allow_plc_channel": False,
-                "safe_v": 0.0,
-                "role_map": {
-                    "ao_1": "PLC_WEIGHT",
-                    "ai_1": "EXCITATION",
-                },
-                "ao_v": [],
-                "rules": [],
+            # Production tracking (shift totals)
+            "production": {
+                "shift_start_utc": _utc_now(),
             },
         }
 
     # -------- calibration --------
-    def add_calibration_point(self, known_weight_lbs: float, signal: float) -> None:
-        """Add a calibration point. Always uses raw mV (ratiometric removed)."""
+    def upsert_calibration_point(
+        self,
+        known_weight_lbs: float,
+        signal: float,
+        weight_eps_lb: float = CAL_POINT_WEIGHT_EPS_LB,
+    ) -> bool:
+        """Compatibility wrapper that appends point and reports same-weight history.
+
+        NOTE:
+        - This method no longer deletes old rows.
+        - Return value indicates whether same-weight history already existed.
+        """
+        known_weight_lbs = float(known_weight_lbs)
+        signal = float(signal)
+        weight_eps_lb = max(0.0, float(weight_eps_lb))
+        existing_count = 0
         with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO calibration_points(ts, known_weight_lbs, signal, ratiometric) VALUES (?,?,?,?);",
-                (_utc_now(), float(known_weight_lbs), float(signal), 0),  # Always 0 (raw mV)
+            cur = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM calibration_points WHERE ABS(known_weight_lbs - ?) <= ?;",
+                (known_weight_lbs, weight_eps_lb),
             )
+            row = cur.fetchone()
+            existing_count = int(row["cnt"]) if row else 0
+        self.add_calibration_point(known_weight_lbs=known_weight_lbs, signal=signal)
+        return existing_count > 0
+
+    def add_calibration_point(self, known_weight_lbs: float, signal: float) -> int:
+        """Append calibration point and return inserted row id."""
+        known_weight_lbs = float(known_weight_lbs)
+        signal = float(signal)
+        inserted_id = 0
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO calibration_points(ts, known_weight_lbs, signal, ratiometric) VALUES (?,?,?,?);",
+                (_utc_now(), known_weight_lbs, signal, 0),  # Always 0 (raw mV)
+            )
+            inserted_id = int(cur.lastrowid or 0)
         self.log_event(
             level="INFO",
             code="CAL_POINT_ADDED",
             message="Calibration point added.",
-            details={"known_weight_lbs": known_weight_lbs, "signal": signal},
+            details={"known_weight_lbs": known_weight_lbs, "signal": signal, "point_id": inserted_id},
         )
+        return inserted_id
 
     def get_calibration_points(self, limit: int = 200) -> List[CalibrationPointRow]:
         """Get all calibration points. Ratiometric flag is ignored (always raw mV)."""
@@ -342,6 +340,34 @@ class AppRepository:
     def clear_calibration_points(self) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM calibration_points;")
+
+    def get_calibration_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return recent calibration application history from events."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT ts, details_json FROM events WHERE code=? ORDER BY id DESC LIMIT ?;",
+                ("CALIBRATION_APPLIED", int(limit)),
+            )
+            history: List[Dict[str, Any]] = []
+            for row in cur.fetchall():
+                details = json.loads(row["details_json"] or "{}")
+                history.append(
+                    {
+                        "ts": row["ts"],
+                        "known_weight_lbs": details.get("known_weight_lbs"),
+                        "requested_mode": details.get("requested_mode"),
+                        "applied_mode": details.get("applied_mode"),
+                        "captured_signal_mv": details.get("captured_signal_mv"),
+                        "applied_signal_mv": details.get("applied_signal_mv"),
+                        "previous_active_signal_mv": details.get("previous_active_signal_mv"),
+                        "calibration_method": details.get("calibration_method"),
+                        "slope_lbs_per_mv": details.get("slope_lbs_per_mv"),
+                        "intercept_lbs": details.get("intercept_lbs"),
+                        "active_points_count": details.get("active_points_count"),
+                        "total_points_count": details.get("total_points_count"),
+                    }
+                )
+            return history
 
     # -------- PLC profile mapping --------
     def add_plc_profile_point(self, output_mode: str, analog_value: float, plc_displayed_lbs: float) -> None:
@@ -421,6 +447,211 @@ class AppRepository:
             conn.execute("DELETE FROM trends_total WHERE ts < ?;", (cutoff,))
             conn.execute("DELETE FROM trends_excitation WHERE ts < ?;", (cutoff,))
             conn.execute("DELETE FROM trends_channels WHERE ts < ?;", (cutoff,))
+
+    # -------- throughput events --------
+    @staticmethod
+    def _throughput_where_clause(
+        start_utc: Optional[str],
+        end_utc: Optional[str],
+        device_id: Optional[str],
+    ) -> tuple[str, List[Any]]:
+        clauses: List[str] = []
+        params: List[Any] = []
+        if start_utc:
+            clauses.append("timestamp_utc >= ?")
+            params.append(str(start_utc))
+        if end_utc:
+            clauses.append("timestamp_utc < ?")
+            params.append(str(end_utc))
+        if device_id:
+            clauses.append("device_id = ?")
+            params.append(str(device_id))
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where_sql, params
+
+    def add_throughput_event(
+        self,
+        *,
+        processed_lbs: float,
+        timestamp_utc: Optional[str] = None,
+        full_lbs: Optional[float] = None,
+        empty_lbs: Optional[float] = None,
+        duration_ms: Optional[int] = None,
+        confidence: Optional[float] = None,
+        device_id: Optional[str] = None,
+        hopper_id: Optional[str] = None,
+    ) -> int:
+        ts_utc = str(timestamp_utc or _utc_now())
+        created_at = _utc_now()
+        inserted_id = 0
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO throughput_events("
+                "timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, confidence, device_id, hopper_id, created_at"
+                ") VALUES (?,?,?,?,?,?,?,?,?);",
+                (
+                    ts_utc,
+                    float(processed_lbs),
+                    (None if full_lbs is None else float(full_lbs)),
+                    (None if empty_lbs is None else float(empty_lbs)),
+                    (None if duration_ms is None else int(duration_ms)),
+                    (None if confidence is None else float(confidence)),
+                    (None if device_id is None else str(device_id)),
+                    (None if hopper_id is None else str(hopper_id)),
+                    created_at,
+                ),
+            )
+            inserted_id = int(cur.lastrowid or 0)
+        return inserted_id
+
+    def get_throughput_events_page(
+        self,
+        *,
+        start_utc: Optional[str] = None,
+        end_utc: Optional[str] = None,
+        device_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        page = max(1, int(page))
+        page_size = max(1, min(500, int(page_size)))
+        offset = (page - 1) * page_size
+        where_sql, where_params = self._throughput_where_clause(start_utc, end_utc, device_id)
+
+        with self._conn() as conn:
+            count_cur = conn.execute(
+                f"SELECT COUNT(*) AS cnt FROM throughput_events{where_sql};",
+                tuple(where_params),
+            )
+            count_row = count_cur.fetchone()
+            total = int(count_row["cnt"]) if count_row else 0
+
+            cur = conn.execute(
+                "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
+                "confidence, device_id, hopper_id, created_at "
+                f"FROM throughput_events{where_sql} "
+                "ORDER BY timestamp_utc DESC, id DESC LIMIT ? OFFSET ?;",
+                tuple(where_params + [page_size, offset]),
+            )
+
+            events: List[Dict[str, Any]] = []
+            for row in cur.fetchall():
+                events.append(
+                    {
+                        "id": int(row["id"]),
+                        "timestamp_utc": row["timestamp_utc"],
+                        "processed_lbs": float(row["processed_lbs"]),
+                        "full_lbs": (None if row["full_lbs"] is None else float(row["full_lbs"])),
+                        "empty_lbs": (None if row["empty_lbs"] is None else float(row["empty_lbs"])),
+                        "duration_ms": (None if row["duration_ms"] is None else int(row["duration_ms"])),
+                        "confidence": (None if row["confidence"] is None else float(row["confidence"])),
+                        "device_id": row["device_id"],
+                        "hopper_id": row["hopper_id"],
+                        "created_at": row["created_at"],
+                    }
+                )
+            return events, total
+
+    def get_throughput_events_range(
+        self,
+        *,
+        start_utc: Optional[str] = None,
+        end_utc: Optional[str] = None,
+        device_id: Optional[str] = None,
+        order_desc: bool = False,
+    ) -> List[Dict[str, Any]]:
+        where_sql, where_params = self._throughput_where_clause(start_utc, end_utc, device_id)
+        order_sql = "DESC" if order_desc else "ASC"
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
+                "confidence, device_id, hopper_id, created_at "
+                f"FROM throughput_events{where_sql} "
+                f"ORDER BY timestamp_utc {order_sql}, id {order_sql};",
+                tuple(where_params),
+            )
+            rows: List[Dict[str, Any]] = []
+            for row in cur.fetchall():
+                rows.append(
+                    {
+                        "id": int(row["id"]),
+                        "timestamp_utc": row["timestamp_utc"],
+                        "processed_lbs": float(row["processed_lbs"]),
+                        "full_lbs": (None if row["full_lbs"] is None else float(row["full_lbs"])),
+                        "empty_lbs": (None if row["empty_lbs"] is None else float(row["empty_lbs"])),
+                        "duration_ms": (None if row["duration_ms"] is None else int(row["duration_ms"])),
+                        "confidence": (None if row["confidence"] is None else float(row["confidence"])),
+                        "device_id": row["device_id"],
+                        "hopper_id": row["hopper_id"],
+                        "created_at": row["created_at"],
+                    }
+                )
+            return rows
+
+    def get_throughput_totals(
+        self,
+        *,
+        start_utc: Optional[str] = None,
+        end_utc: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        where_sql, where_params = self._throughput_where_clause(start_utc, end_utc, device_id)
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"SELECT COALESCE(SUM(processed_lbs), 0.0) AS total_lbs, COUNT(*) AS cnt FROM throughput_events{where_sql};",
+                tuple(where_params),
+            )
+            row = cur.fetchone()
+        total_processed = float(row["total_lbs"]) if row else 0.0
+        event_count = int(row["cnt"]) if row else 0
+        avg_per_event = (total_processed / event_count) if event_count > 0 else 0.0
+        return {
+            "total_processed_lbs": total_processed,
+            "event_count": event_count,
+            "avg_per_event_lbs": avg_per_event,
+        }
+
+    def get_shift_total(self, shift_start_utc: Optional[str] = None) -> float:
+        """Get total processed weight since shift start time.
+        
+        Args:
+            shift_start_utc: ISO-8601 timestamp for shift start. If None, returns 0.0.
+            
+        Returns:
+            Total weight processed in pounds since shift_start_utc.
+        """
+        if shift_start_utc is None:
+            return 0.0
+        
+        totals = self.get_throughput_totals(start_utc=shift_start_utc, end_utc=None, device_id=None)
+        return float(totals.get("total_processed_lbs", 0.0) or 0.0)
+
+    def delete_throughput_event(self, event_id: int) -> bool:
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM throughput_events WHERE id = ?;",
+                (int(event_id),),
+            )
+            cur = conn.execute("SELECT changes() AS cnt;")
+            row = cur.fetchone()
+            return (int(row["cnt"]) if row else 0) > 0
+
+    def delete_throughput_events(
+        self,
+        *,
+        start_utc: Optional[str] = None,
+        end_utc: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> int:
+        where_sql, where_params = self._throughput_where_clause(start_utc, end_utc, device_id)
+        with self._conn() as conn:
+            conn.execute(
+                f"DELETE FROM throughput_events{where_sql};",
+                tuple(where_params),
+            )
+            cur = conn.execute("SELECT changes() AS cnt;")
+            row = cur.fetchone()
+            return int(row["cnt"]) if row else 0
 
     # -------- production totals --------
     @staticmethod

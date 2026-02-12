@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, height=480, initial-scale=1, user-scalable=no">
+  <title>Scale HDMI</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2b;
+      --text: #e6edf3;
+      --muted: #9fb0c0;
+      --warn: #ffcc66;
+      --bad: #ff6b6b;
+      --ok: #2ecc71;
+      --zero: #3498db;
+      --tare: #9b59b6;
+      --clear: #7f8c8d;
+      --settings: #27ae60;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .hdmi-root {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .scale-name {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      border: 2px solid;
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .status-pill.ok { color: var(--ok); border-color: var(--ok); background: rgba(46, 204, 113, 0.12); }
+    .status-pill.warn { color: var(--warn); border-color: var(--warn); background: rgba(255, 204, 102, 0.12); }
+    .status-pill.bad { color: var(--bad); border-color: var(--bad); background: rgba(255, 107, 107, 0.12); }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .weight-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      background: var(--card);
+      padding: 12px 14px;
+    }
+
+    .weight-value {
+      font-size: clamp(58px, 11vw, 96px);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 0.95;
+      margin: 0;
+    }
+
+    .weight-unit {
+      margin-top: 2px;
+      font-size: 20px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .weight-meta {
+      margin-top: 8px;
+      font-size: 16px;
+      color: var(--muted);
+    }
+
+    .weight-meta.active {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .weight-meta.locked {
+      color: #f39c12;
+      font-weight: 700;
+    }
+
+    .totals-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      background: var(--card);
+      padding: 12px 14px;
+      min-height: 0;
+    }
+
+    .totals-title {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .totals-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .totals-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .totals-row:last-child {
+      border-bottom: none;
+      padding-bottom: 2px;
+    }
+
+    .totals-label {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .totals-value {
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: -0.8px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .totals-note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .btn-shift-clear {
+      min-height: 46px;
+      border: none;
+      border-radius: 10px;
+      background: #3f5363;
+      color: white;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.05s ease, filter 0.15s ease;
+    }
+
+    .btn-shift-clear:active { transform: scale(0.98); }
+    .btn-shift-clear:hover { filter: brightness(1.05); }
+
+    .feedback {
+      min-height: 22px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .feedback.ok { color: var(--ok); }
+    .feedback.err { color: var(--bad); }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .btn {
+      min-height: 64px;
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.05s ease, filter 0.15s ease;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:hover { filter: brightness(1.05); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn.zero { background: var(--zero); }
+    .btn.tare { background: var(--tare); }
+    .btn.clear { background: var(--clear); }
+    .btn.settings { background: var(--settings); }
+
+    .bottom-meta {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .conn-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .conn-dot.ok { background: var(--ok); }
+    .conn-dot.bad { background: var(--bad); }
+
+    @media (max-width: 760px) {
+      .scale-name { font-size: 16px; }
+      .main-content { grid-template-columns: 1fr; }
+      .button-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .btn { min-height: 56px; font-size: 18px; }
+      .bottom-meta { gap: 12px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  {% set weight_decimals = (display.get('weight_decimals', 1) if display else 1)|int %}
+  <div class="hdmi-root">
+    <header class="top-bar">
+      <div class="scale-name">{{ (display.get('name') if display else None) or 'Scale' }} HDMI</div>
+      <div class="status-row">
+        <span class="status-pill" id="stable-pill">{{ "STABLE" if snap.stable else "UNSTABLE" }}</span>
+        <span class="status-pill" id="fault-pill">{{ "FAULT" if snap.fault else "OK" }}</span>
+      </div>
+    </header>
+
+    <section class="main-content">
+      <section class="weight-panel">
+        <p class="weight-value" id="weight-value">
+          {% if weight_decimals == 0 %}
+            {{ "%.0f"|format(snap.total_weight_lbs or 0.0) }}
+          {% elif weight_decimals == 2 %}
+            {{ "%.2f"|format(snap.total_weight_lbs or 0.0) }}
+          {% else %}
+            {{ "%.1f"|format(snap.total_weight_lbs or 0.0) }}
+          {% endif %}
+        </p>
+        <div class="weight-unit">lb</div>
+        <div class="weight-meta" id="tare-meta">Tare: 0.0 lb</div>
+        <div class="weight-meta" id="zero-info">Zero Offset: 0.000 lb (0.000000 mV)</div>
+        <div class="weight-meta" id="zero-tracking-info">Zero Tracking: LOCKED</div>
+        <div class="weight-meta" id="zero-updated-info">Zero Updated: --</div>
+      </section>
+
+      <section class="totals-panel">
+        <div>
+          <p class="totals-title">Production Totals</p>
+          <div class="totals-grid">
+            <div class="totals-row">
+              <span class="totals-label">Daily Weight</span>
+              <span class="totals-value" id="daily-total-value">0.0 lb</span>
+            </div>
+            <div class="totals-row">
+              <span class="totals-label">Shift Weight</span>
+              <span class="totals-value" id="shift-total-value">0.0 lb</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn-shift-clear" id="btn-shift-clear">CLEAR SHIFT TOTAL</button>
+      </section>
+    </section>
+
+    <div id="feedback" class="feedback"></div>
+
+    <div class="button-grid">
+      <button type="button" class="btn zero" id="btn-zero">ZERO</button>
+      <button type="button" class="btn tare" id="btn-tare">TARE</button>
+      <button type="button" class="btn clear" id="btn-clear">CLEAR TARE</button>
+      <button type="button" class="btn settings" id="btn-settings">SETTINGS</button>
+    </div>
+
+    <div class="bottom-meta">
+      <span><span class="conn-dot" id="daq-dot"></span>DAQ</span>
+      <span><span class="conn-dot" id="io-dot"></span>I/O</span>
+      <span>Loop: <strong id="loop-hz">0.0</strong> Hz</span>
+      <span>Updated: <strong id="last-update">--</strong></span>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const POLL_MS = {{ poll_rate_ms | default(500) | int }};
+      const WEIGHT_DECIMALS = {{ weight_decimals }};
+      let pollTimer = null;
+      let lastStable = false;
+
+      function showFeedback(message, isError) {
+        const feedback = document.getElementById("feedback");
+        feedback.textContent = message;
+        feedback.className = "feedback " + (isError ? "err" : "ok");
+        window.setTimeout(function() {
+          feedback.textContent = "";
+          feedback.className = "feedback";
+        }, 2500);
+      }
+
+      function setStatusPill(el, okText, badText, isOk) {
+        el.textContent = isOk ? okText : badText;
+        if (isOk) {
+          el.className = "status-pill ok";
+        } else {
+          el.className = "status-pill warn";
+        }
+      }
+
+      function updateUi(data) {
+        if (!data || !data.weight || !data.system) return;
+
+        const weight = Number(data.weight.total_lbs || 0);
+        const stable = Boolean(data.weight.stable);
+        const fault = Boolean(data.system.fault);
+        lastStable = stable;
+
+        document.getElementById("weight-value").textContent = weight.toFixed(WEIGHT_DECIMALS);
+
+        const stablePill = document.getElementById("stable-pill");
+        setStatusPill(stablePill, "STABLE", "UNSTABLE", stable);
+
+        const faultPill = document.getElementById("fault-pill");
+        faultPill.textContent = fault ? "FAULT" : "OK";
+        faultPill.className = "status-pill " + (fault ? "bad" : "ok");
+
+        const tareOffset = Number(data.weight.tare_offset_lbs || 0);
+        const tareMeta = document.getElementById("tare-meta");
+        if (Math.abs(tareOffset) > 0.01) {
+          tareMeta.textContent = "Tare: -" + tareOffset.toFixed(1) + " lb";
+          tareMeta.className = "weight-meta active";
+        } else {
+          tareMeta.textContent = "Tare: 0.0 lb";
+          tareMeta.className = "weight-meta";
+        }
+
+        const zeroOffsetMv = Number(data.weight.zero_offset_mv ?? data.weight.zero_offset_signal ?? 0);
+        const zeroOffsetLbs = Number(data.weight.zero_offset_lbs || 0);
+        const zeroInfo = document.getElementById("zero-info");
+        zeroInfo.textContent =
+          "Zero Offset: " + zeroOffsetLbs.toFixed(3) + " lb (" + zeroOffsetMv.toFixed(6) + " mV)";
+        if (Math.abs(zeroOffsetMv) > 0.000001 || Math.abs(zeroOffsetLbs) > 0.005) {
+          zeroInfo.className = "weight-meta active";
+        } else {
+          zeroInfo.className = "weight-meta";
+        }
+
+        const zeroTrackingEnabled = Boolean(data.weight.zero_tracking_enabled);
+        const zeroTrackingActive = Boolean(data.weight.zero_tracking_active);
+        const zeroTrackingLocked = Boolean(data.weight.zero_tracking_locked);
+        const zeroTrackingReason = String(data.weight.zero_tracking_reason || "locked");
+        const zeroTrackingInfo = document.getElementById("zero-tracking-info");
+        if (!zeroTrackingEnabled) {
+          zeroTrackingInfo.textContent = "Zero Tracking: DISABLED";
+          zeroTrackingInfo.className = "weight-meta";
+        } else if (zeroTrackingActive && !zeroTrackingLocked) {
+          zeroTrackingInfo.textContent = "Zero Tracking: ACTIVE (" + zeroTrackingReason + ")";
+          zeroTrackingInfo.className = "weight-meta active";
+        } else {
+          zeroTrackingInfo.textContent = "Zero Tracking: LOCKED (" + zeroTrackingReason + ")";
+          zeroTrackingInfo.className = "weight-meta locked";
+        }
+
+        const zeroUpdatedInfo = document.getElementById("zero-updated-info");
+        const zeroUpdatedUtc = data.weight.zero_offset_updated_utc || null;
+        if (zeroUpdatedUtc) {
+          const zeroTimePart = zeroUpdatedUtc.split("T")[1] || zeroUpdatedUtc;
+          zeroUpdatedInfo.textContent = "Zero Updated: " + zeroTimePart.replace("+00:00", "");
+        } else {
+          zeroUpdatedInfo.textContent = "Zero Updated: --";
+        }
+
+        document.getElementById("btn-zero").disabled = !stable;
+        document.getElementById("btn-tare").disabled = !stable;
+
+        const boardsOnline = (data.boards && data.boards.online) || {};
+        const daqOnline = Boolean(boardsOnline.daq24b8vin);
+        const ioOnline = Boolean(boardsOnline.megaind);
+        document.getElementById("daq-dot").className = "conn-dot " + (daqOnline ? "ok" : "bad");
+        document.getElementById("io-dot").className = "conn-dot " + (ioOnline ? "ok" : "bad");
+
+        const loopHz = Number(data.system.loop_hz || 0);
+        document.getElementById("loop-hz").textContent = loopHz.toFixed(1);
+
+        const updateTime = data.system.last_update_utc || "";
+        if (updateTime) {
+          const timePart = updateTime.split("T")[1] || updateTime;
+          document.getElementById("last-update").textContent = timePart.replace("+00:00", "");
+        }
+
+        // Update production totals
+        if (data.production) {
+          const dailyTotal = Number(data.production.totals?.day || 0);
+          const shiftTotal = Number(data.production.shift_total_lbs || 0);
+          document.getElementById("daily-total-value").textContent = dailyTotal.toFixed(1) + " lb";
+          document.getElementById("shift-total-value").textContent = shiftTotal.toFixed(1) + " lb";
+        }
+      }
+
+      function postAction(url, successMessage) {
+        return fetch(url, { method: "POST" })
+          .then(function(response) {
+            return response.json().catch(function() { return {}; }).then(function(payload) {
+              if (!response.ok || !payload.success) {
+                throw new Error(payload.error || "Request failed");
+              }
+              return payload;
+            });
+          })
+          .then(function() {
+            showFeedback(successMessage, false);
+            poll();
+          })
+          .catch(function(err) {
+            showFeedback(err.message || "Action failed", true);
+          });
+      }
+
+      function poll() {
+        fetch("/api/snapshot")
+          .then(function(response) { return response.json(); })
+          .then(function(data) { updateUi(data); })
+          .catch(function() {
+            showFeedback("Lost connection to scale service", true);
+          });
+      }
+
+      document.getElementById("btn-zero").addEventListener("click", function() {
+        if (!lastStable) {
+          showFeedback("Scale not stable", true);
+          return;
+        }
+        postAction("/api/zero", "Zero set");
+      });
+
+      document.getElementById("btn-tare").addEventListener("click", function() {
+        if (!lastStable) {
+          showFeedback("Scale not stable", true);
+          return;
+        }
+        postAction("/api/tare", "Tare set");
+      });
+
+      document.getElementById("btn-clear").addEventListener("click", function() {
+        postAction("/api/tare/clear", "Tare cleared");
+      });
+
+      document.getElementById("btn-settings").addEventListener("click", function() {
+        window.location.href = "/settings";
+      });
+
+      document.getElementById("btn-shift-clear").addEventListener("click", function() {
+        postAction("/api/production/shift/clear", "Shift total cleared");
+      });
+
+      poll();
+      pollTimer = window.setInterval(poll, POLL_MS);
+
+      window.addEventListener("beforeunload", function() {
+        if (pollTimer) window.clearInterval(pollTimer);
+      });
+    })();
+  </script>
+</body>
+</html>
