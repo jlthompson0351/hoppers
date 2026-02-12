@@ -11,7 +11,6 @@ from src.app import create_app
 from src.db.migrate import ensure_db
 from src.db.repo import AppRepository
 from src.hw.factory import create_hardware_bundle
-from src.hw.i2c import get_boards_status, i2c_presence_check_from_config
 from src.services.acquisition import AcquisitionService
 from src.services.state import LiveState
 
@@ -37,35 +36,35 @@ def main() -> int:
 
     state = LiveState()
 
-    # I2C presence check (Linux/RPi commissioning + runtime requirement).
-    cfg = repo.get_latest_config()
-    i2c_res = i2c_presence_check_from_config(cfg)
-    state.set(
-        i2c_bus=i2c_res.bus,
-        i2c_addresses=[f"0x{a:02x}" for a in i2c_res.addresses],
-        i2c_required={k: f"0x{v:02x}" for k, v in i2c_res.required.items()},
-    )
-    if not i2c_res.ok:
-        repo.log_event(
-            level="ERROR",
-            code="I2C_PRESENCE_FAIL",
-            message=i2c_res.error or "I2C presence check failed.",
-            details={
-                "bus": i2c_res.bus,
-                "required": {k: f"0x{v:02x}" for k, v in i2c_res.required.items()},
-                "seen": [f"0x{a:02x}" for a in i2c_res.addresses],
-            },
+    # I2C presence check (optional -- for diagnostics)
+    try:
+        from src.hw.i2c import i2c_presence_check_from_config, get_boards_status
+        cfg = repo.get_latest_config()
+        i2c_res = i2c_presence_check_from_config(cfg)
+        state.set(
+            i2c_bus=i2c_res.bus,
+            i2c_addresses=[f"0x{a:02x}" for a in i2c_res.addresses],
         )
+        if not i2c_res.ok:
+            repo.log_event(
+                level="WARNING",
+                code="I2C_PRESENCE_FAIL",
+                message=i2c_res.error or "I2C presence check failed.",
+                details={
+                    "bus": i2c_res.bus,
+                    "seen": [f"0x{a:02x}" for a in i2c_res.addresses],
+                },
+            )
+        boards_status = get_boards_status(cfg)
+        state.set(**boards_status)
+    except Exception as e:
+        log.warning("I2C presence check skipped: %s", e)
 
-    # Get boards status for discovery panel
-    boards_status = get_boards_status(cfg)
-    state.set(**boards_status)
-
-    # Attempt to initialize real hardware (no simulation fallback)
+    # Initialize hardware (DAQ + MegaIND, no Watchdog)
+    cfg = repo.get_latest_config()
     log.info("Initializing hardware (real mode only)...")
     hw_result = create_hardware_bundle(cfg)
 
-    # Update state with initial I/O status
     state.set(
         io_live=hw_result.ok,
         daq_online=hw_result.daq_online,
@@ -75,13 +74,13 @@ def main() -> int:
     )
 
     if not hw_result.ok:
-        reason_parts = []
+        parts = []
         if not hw_result.daq_online:
-            reason_parts.append(f"DAQ offline: {hw_result.daq_error or 'unknown'}")
+            parts.append(f"DAQ offline: {hw_result.daq_error or 'unknown'}")
         if not hw_result.megaind_online:
-            reason_parts.append(f"MegaIND offline: {hw_result.megaind_error or 'unknown'}")
-        fault_reason = "; ".join(reason_parts) or "Hardware offline"
-        state.set(fault=True, fault_reason=fault_reason)
+            parts.append(f"MegaIND offline: {hw_result.megaind_error or 'unknown'}")
+        reason = "; ".join(parts) or "Hardware offline"
+        state.set(fault=True, fault_reason=reason)
         repo.log_event(
             level="ERROR",
             code="HW_INIT_FAIL",
@@ -93,20 +92,19 @@ def main() -> int:
                 "megaind_error": hw_result.megaind_error,
             },
         )
-        log.error("Hardware init failed: %s. Service will retry in background.", fault_reason)
+        log.error("Hardware init failed: %s. Service will retry in background.", reason)
     else:
         log.info("Hardware initialized successfully - I/O is LIVE")
 
-    # ALWAYS start the acquisition service - it will handle retry if hardware is offline
+    # Start acquisition loop (handles retry if hardware offline)
     svc = AcquisitionService(
-        hw=hw_result.bundle,  # May be None if init failed
+        hw=hw_result.bundle,
         repo=repo,
         state=state,
     )
     svc.start()
 
     app = create_app()
-    # Expose state/repo via app config for routes.
     app.config["LIVE_STATE"] = state
     app.config["REPO"] = repo
     app.config["ACQ_SERVICE"] = svc

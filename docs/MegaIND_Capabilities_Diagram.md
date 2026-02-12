@@ -301,8 +301,7 @@ megaind <id> wdtrcclr                 # Clear reset count
 - [ ] Verify equipment is in safe state for testing
 - [ ] Verify output polarity and voltage/current range matches equipment input
 - [ ] Verify analog common/reference grounding is correct
-- [ ] Test with ARM OUTPUTS = OFF first (verify blocked)
-- [ ] Enable ARM OUTPUTS = ON only when ready
+- [ ] Note: ARM OUTPUTS defaults to ON (as of 2026-02-12) - disarm manually if needed during initial testing
 - [ ] Use "Test Output" toggle for initial testing (START holds until STOP)
 
 ### Before Commissioning
@@ -387,7 +386,7 @@ Python:
 | Board not detected on I2C | Jumper mismatch, poor connection | Run `i2cdetect -y 1`, check jumpers match stack ID |
 | Analog input reads 0V | Wrong jumper position | Check jumper: 0–10V vs ±10V, use correct read function |
 | Analog input reads wrong value | Needs calibration | Run 2-point calibration: `megaind <id> uincal <ch> <value>` (twice) |
-| Analog output doesn't change | ARM OUTPUTS = OFF | Enable ARM OUTPUTS toggle in UI |
+| Analog output doesn't change | ARM OUTPUTS = OFF (or fault state) | Check ARM OUTPUTS toggle (defaults to ON). Check for I/O faults. |
 | Watchdog keeps resetting Pi | Period too short, reload not called | Increase period or ensure background service calls wdtReload() |
 | RS485 not working | Missing jumper, wrong mode | Check board revision for jumper requirements, verify rs485wr config |
 | Opto counter not incrementing | Edge counting disabled | Enable: setOptoRisingCountEnable() or setOptoFallingCountEnable() |

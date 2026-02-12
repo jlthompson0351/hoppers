@@ -7,7 +7,7 @@
 
 ---
 
-## 🎯 LIVE DASHBOARD: http://172.16.190.15:8080
+## 🎯 LIVE DASHBOARD: http://172.16.190.25:8080
 
 ---
 
@@ -15,13 +15,13 @@
 
 | Property | Value |
 |----------|-------|
-| **Dashboard** | http://172.16.190.15:8080 |
+| **Dashboard** | http://172.16.190.25:8080 |
 | **Status** | ✅ Online, readings live in dashboard |
 | **I2C Bus** | 1 (`/dev/i2c-1`) |
 | **I2C Base Address** | **0x31** (stack 0) |
 | **Firmware Version** | 1.4 |
 | **Pi Hostname** | `Hoppers` |
-| **Pi IP Address** | `172.16.190.15` |
+| **Pi IP Address** | `172.16.190.25` |
 | **CLI Tool** | `24b8vin` (installed at `/usr/local/bin/24b8vin`) |
 | **Python Module** | `SM24b8vin` (import as `import SM24b8vin`) |
 
@@ -314,6 +314,26 @@ Example: Stack ID = 1, Offset = 1 → Modbus Slave Address = 2
 - 0x10: Write Multiple Registers
 
 **⚠️ Note:** RS485/MODBUS mode is **OPTIONAL**. Most applications will use direct I2C communication via Python library.
+
+---
+
+### 9. Hidden Capabilities (Deep Research Findings)
+
+**1. Status LEDs (Register 0)**
+- **Feature:** 8 programmable LEDs on the board.
+- **Register:** `I2C_MEM_LEDS` (Address 0).
+- **Use Case:** Headless diagnostics (Green=OK, Red=Fault).
+
+**2. Variable Sample Rate (Register 52)**
+- **Feature:** Change ADC speed.
+- **Register:** `I2C_MEM_SR_SEL` (Address 52).
+- **Values:** 0=3.75 SPS, 1=7.5 SPS, 2=15 SPS, 3=30 SPS (Default).
+- **Use Case:** Lower for stability, higher for transient detection.
+
+**3. Real-Time Clock (RTC)**
+- **Feature:** Battery-backed timekeeping.
+- **Registers:** 57-62 (Year, Month, Day, Hour, Min, Sec).
+- **Use Case:** Offline logging timestamps.
 
 ---
 

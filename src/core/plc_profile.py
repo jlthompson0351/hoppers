@@ -1,47 +1,100 @@
+"""PLC output profile curve utilities.
+
+Maps weight (lb) to analog output (V or mA) using piecewise linear interpolation.
+When input weight is outside the defined points, the curve extrapolates using the
+nearest segment.
+"""
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
-from typing import List, Tuple
-
-from src.core.pwl import PiecewiseLinearCurve
+from typing import Iterable, List, Sequence, Tuple
 
 
-PlcProfilePoint = Tuple[float, float]  # (plc_displayed_lbs, commanded_analog_value)
+_WEIGHT_EPS = 1e-9
 
 
-@dataclass
+@dataclass(frozen=True)
+class PlcProfilePoint:
+    weight_lb: float
+    analog_value: float
+
+
+def _interp_segment(
+    x: float,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+) -> float:
+    dx = float(x1) - float(x0)
+    if abs(dx) <= _WEIGHT_EPS:
+        return float(y1)
+    t = (float(x) - float(x0)) / dx
+    return float(y0) + t * (float(y1) - float(y0))
+
+
 class PlcProfileCurve:
-    """Piecewise-linear correction curve: desired_lbs -> analog_value.
+    """Piecewise-linear weight -> analog mapping curve."""
 
-    Points are collected by commanding a known analog value and reading PLC displayed lbs.
-    The stored curve maps:
-      x = PLC displayed lbs
-      y = commanded analog value
-    Then when we want the PLC to display 'true' lbs, we evaluate analog_value = f(true_lbs).
-    """
-
-    output_mode: str  # "0_10V" or "4_20mA"
-    points: List[PlcProfilePoint]
-
-    def __post_init__(self) -> None:
-        self._curve = PiecewiseLinearCurve([(lbs, a) for (lbs, a) in self.points])
-
-    def add_point(self, plc_displayed_lbs: float, commanded_analog_value: float) -> None:
-        self.points.append((float(plc_displayed_lbs), float(commanded_analog_value)))
-        self._curve.add_point(float(plc_displayed_lbs), float(commanded_analog_value))
-
-    def analog_for_weight(self, desired_true_lbs: float) -> float:
-        return float(self._curve.eval(float(desired_true_lbs)))
-
-    def as_dict(self) -> dict:
-        return {"output_mode": self.output_mode, "points": [(lbs, a) for (lbs, a) in self.points]}
+    def __init__(self, output_mode: str, points: Iterable[Tuple[float, float]]) -> None:
+        raw_points = [PlcProfilePoint(float(w), float(a)) for w, a in points]
+        if len(raw_points) < 2:
+            raise ValueError("PLC profile requires at least 2 points")
+        self.output_mode = str(output_mode)
+        self._points: List[PlcProfilePoint] = self._normalize_points(raw_points)
+        if len(self._points) < 2:
+            raise ValueError("PLC profile requires at least 2 unique weight points")
+        self._weights = [p.weight_lb for p in self._points]
 
     @staticmethod
-    def from_dict(d: dict) -> "PlcProfileCurve":
-        pts = d.get("points") or []
-        return PlcProfileCurve(
-            output_mode=str(d.get("output_mode", "0_10V")),
-            points=[(float(lbs), float(a)) for (lbs, a) in pts],
+    def _normalize_points(points: Sequence[PlcProfilePoint]) -> List[PlcProfilePoint]:
+        # Sort by weight so interpolation is well-defined.
+        ordered = sorted(points, key=lambda p: (p.weight_lb, p.analog_value))
+        collapsed: List[PlcProfilePoint] = []
+
+        i = 0
+        while i < len(ordered):
+            w = ordered[i].weight_lb
+            total = ordered[i].analog_value
+            count = 1
+            j = i + 1
+            while j < len(ordered) and abs(ordered[j].weight_lb - w) <= _WEIGHT_EPS:
+                total += ordered[j].analog_value
+                count += 1
+                j += 1
+            collapsed.append(PlcProfilePoint(weight_lb=w, analog_value=(total / count)))
+            i = j
+
+        return collapsed
+
+    @property
+    def point_count(self) -> int:
+        return len(self._points)
+
+    def analog_from_weight(self, weight_lb: float) -> float:
+        """Return interpolated/extrapolated analog output for a weight."""
+        x = float(weight_lb)
+        p = self._points
+
+        if x <= p[0].weight_lb:
+            return _interp_segment(x, p[0].weight_lb, p[0].analog_value, p[1].weight_lb, p[1].analog_value)
+        if x >= p[-1].weight_lb:
+            return _interp_segment(
+                x,
+                p[-2].weight_lb,
+                p[-2].analog_value,
+                p[-1].weight_lb,
+                p[-1].analog_value,
+            )
+
+        hi = bisect_right(self._weights, x)
+        lo = max(0, hi - 1)
+        hi = min(len(p) - 1, hi)
+        return _interp_segment(
+            x,
+            p[lo].weight_lb,
+            p[lo].analog_value,
+            p[hi].weight_lb,
+            p[hi].analog_value,
         )
-
-

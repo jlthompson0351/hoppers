@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 MEGAIND_BASE_ADDRESS = 0x50
 
 # Register offsets
-I2C_MEM_RELAY_VAL = 1
+I2C_MEM_RELAY_VAL = 0
 I2C_MEM_OPTO_IN_VAL = 3
 I2C_MEM_U0_10_OUT_VAL1 = 4       # 0-10V outputs (4 channels, 2 bytes each)
 I2C_MEM_I4_20_OUT_VAL1 = 12      # 4-20mA outputs (4 channels, 2 bytes each)

@@ -44,8 +44,8 @@ def create_hardware_bundle(cfg: Dict[str, Any]) -> HardwareInitResult:
     i2c_cfg = cfg.get("i2c") or {}
     i2c_bus = int(i2c_cfg.get("bus", 1))
 
-    # Get DAQ stack level from config
-    daq_cfg = cfg.get("daq24b8vin") or {}
+    # Get DAQ config -- support both old "daq24b8vin" and new "daq" keys
+    daq_cfg = cfg.get("daq") or cfg.get("daq24b8vin") or {}
     daq_stack = int(daq_cfg.get("stack_level", 0))
     daq_avg = int(daq_cfg.get("average_samples", 2) or 2)
     daq_avg = max(1, min(50, daq_avg))
@@ -67,9 +67,32 @@ def create_hardware_bundle(cfg: Dict[str, Any]) -> HardwareInitResult:
         daq = Sequent24b8vin(stack_id=daq_stack, i2c_bus=i2c_bus, average_samples=daq_avg)
         daq_online = True
         log.info("DAQ (24b8vin) initialized: stack=%d, bus=%d", daq_stack, i2c_bus)
+
+        # Set sample rate and gain from config
+        sr_code = int(daq_cfg.get("sample_rate", 0))
+        daq.set_sample_rate(sr_code)
+
+        gain_code = int(daq_cfg.get("gain_code", 6))
+        channel = int(daq_cfg.get("channel", 7))
+        daq.set_gain_code(channel, gain_code)
+        log.info("DAQ channel %d: gain=%d, sample_rate=%d", channel, gain_code, sr_code)
     except Exception as e:
         daq_error = str(e)
         log.error("Failed to initialize DAQ (24b8vin): %s", e)
+
+        # Fallback to simulation on Windows / no smbus2
+        import platform
+        if platform.system().lower() == "windows" or "No module named 'smbus2'" in str(e):
+            log.warning("Falling back to SIMULATED hardware (Windows/No smbus2 detected)")
+            from src.hw.simulated import SimulatedHardware
+            sim_bundle = SimulatedHardware(average_samples=daq_avg)
+            return HardwareInitResult(
+                bundle=sim_bundle,
+                daq_online=True,
+                megaind_online=True,
+                daq_error=None,
+                megaind_error=None,
+            )
 
     # Try to initialize MegaIND
     try:
@@ -81,13 +104,13 @@ def create_hardware_bundle(cfg: Dict[str, Any]) -> HardwareInitResult:
         megaind_error = str(e)
         log.error("Failed to initialize MegaIND: %s", e)
 
-    # Only return a complete bundle if BOTH boards are online
+    # Only return a complete bundle if BOTH core boards are online
     bundle: Optional[HardwareBundle] = None
     if daq is not None and megaind is not None:
         bundle = HardwareBundle(daq=daq, megaind=megaind)
         log.info("Hardware bundle created successfully")
     else:
-        log.warning("Hardware bundle NOT created - one or more boards offline")
+        log.warning("Hardware bundle NOT created - one or more core boards offline")
 
     return HardwareInitResult(
         bundle=bundle,

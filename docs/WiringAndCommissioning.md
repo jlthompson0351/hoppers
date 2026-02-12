@@ -5,13 +5,36 @@
 - Ensure all PLC/panel wiring is de-energized before terminating conductors.
 - Treat load-cell wiring as **instrumentation**: keep separated from motor/drive/power wiring.
 
-## 2. Hardware Stack
-### 2.1 Physical stack order (fixed assumption)
-- Raspberry Pi 4B
-- Sequent **megaind-rpi** (Industrial Automation HAT) mounted directly on the Pi (**bottom**, closest to Pi)
-- Sequent **24b8vin-rpi** (8x 24-bit Analog Inputs DAQ HAT) stacked on top of the MegaIND (**top**)
+## 2. Hardware Stack & Wiring (CRITICAL)
 
-### 2.2 Communications (fixed assumption)
+### 2.1 Stack Order (Bottom to Top)
+1.  **Raspberry Pi 4B** (Bottom)
+2.  **Watchdog HAT** (Stack 0, Address 0x30)
+    *   **Function:** Powers the Pi + UPS Battery Backup.
+    *   **Connection:** Sits directly on the Pi.
+3.  **ISOLATION LAYER (Modified Header)**
+    *   **CRITICAL:** You must use a stacking header with **Pins 2 (5V) and 4 (5V) CUT/REMOVED**.
+    *   This prevents the MegaIND (above) from fighting the Watchdog's power supply.
+4.  **MegaIND HAT** (Stack 0, Address 0x50)
+    *   **Function:** PLC Output (0-10V) + Opto Inputs.
+    *   **Connection:** Sits on the modified header.
+5.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
+    *   **Function:** Reads Load Cell.
+    *   **Connection:** Sits on top of MegaIND.
+
+### 2.2 Power Wiring
+1.  **24V DC Source** -> Connect to **Watchdog** Green Connector.
+2.  **Daisy Chain** -> Jumper wires from Watchdog 24V -> **MegaIND** 24V Green Connector.
+    *   *Note: Watchdog powers the Pi. MegaIND powers itself and the DAQ.*
+3.  **USB-C Power:** Connect a USB-C cable from the **Watchdog's USB-C OUT** to the **Raspberry Pi's USB-C Power Port**.
+    *   *This is the primary power path for the Pi.*
+
+### 2.3 DIP Switch Settings
+*   **Watchdog:** No switches (Address 0x30 fixed).
+*   **MegaIND:** All switches **OFF** (Stack Level 0 -> Address 0x50).
+*   **DAQ:** All Switches **OFF** (Stack Level 0 -> Address 0x31).
+
+### 2.4 Communications (fixed assumption)
 - Both HATs communicate with the Raspberry Pi exclusively over the Pi’s **I2C bus** (I2C port).
 
 ### 2.3 Other required hardware
@@ -37,15 +60,14 @@ sudo i2cdetect -y 1
 ```
 
 Verify that **three Sequent boards appear** on the I2C bus:
-- **megaind-rpi** (typically 0x50 + stack_id)
-- **24b8vin-rpi** (typically 0x31 + stack_id)
-- **Super Watchdog** (typically 0x30)
+- **Watchdog** (0x30)
+- **24b8vin-rpi** (0x31 - Stack 0)
+- **megaind-rpi** (0x50 - Stack 0)
 
 ### Stack ID / address selection (required to document at commissioning)
 Both I/O boards support a **stack ID / I2C address selection** mechanism (board-specific jumpers/DIP/options).
-- During commissioning, record:
-  - MegaIND stack ID and observed I2C address
-  - 24b8vin stack ID and observed I2C address
+- **DAQ (24b8vin):** Set all DIP switches **OFF** (Stack 0).
+- **MegaIND:** Set all DIP switches **OFF** (Stack 0).
 - Verify after any change by re-running `i2cdetect -y 1`.
 
 ### Sequent CLI tools (commissioning expectation)
@@ -75,37 +97,46 @@ The software shall perform an **I2C presence check at startup** and show a clear
 Implementation expectation:
 - Do **not** hardcode Sequent addresses; instead use commissioning-recorded addresses/stack IDs and enforce them at startup.
 
-## 3. Load Cell Wiring (4-wire full bridge; ~3 mV/V typical)
-Typical 4-wire colors vary by manufacturer; verify documentation.
-- **EXC+** (Excitation +) → SlimPak EXC+
-- **EXC−** (Excitation −) → SlimPak EXC−
-- **SIG+** (Signal +) → DAQ differential input +
-- **SIG−** (Signal −) → DAQ differential input −
+## 3. Load Cell Wiring (Summing Board Configuration)
 
-### Notes
-- Use shielded, twisted-pair cable for SIG+/SIG−.
-- Prefer star-grounding at the control panel instrument ground, avoid ground loops.
+**Architecture Change (Feb 2026):**
+The system now uses a **Load Cell Summing Board** (Junction Box) to combine all load cells into a single signal BEFORE entering the DAQ HAT.
 
-## 4. Excitation Voltage Measurement (required)
-Goal: continuously monitor excitation sag without loading the source.
+### 3.1 Wiring Diagram
+```
+[Load Cell 1] --\
+[Load Cell 2] --|--> [Summing Board] --(4 wires)--> [DAQ HAT Channel 1]
+[Load Cell 3] --|
+[Load Cell 4] --/
+```
+
+### 3.2 DAQ Connections
+Connect the **Summing Board Output** to **DAQ Channel 1**:
+- **SIG+** → DAQ CH1 IN+
+- **SIG−** → DAQ CH1 IN−
+- **EXC+** → SlimPak EXC+ (Pass-through via summing box)
+- **EXC−** → SlimPak EXC− (Pass-through via summing box)
+- **SHIELD** → Panel Ground
+
+### 3.3 Configuration Impact
+- **Enabled Channels:** Enable **Channel 1 ONLY**. Disable Channels 2-8.
+- **Gain Code:** Summing boards typically output the average mV/V signal (e.g., 0-30mV). Use **Gain Code 6 (±370mV)** or **7 (±180mV)**.
+- **Diagnostics:** Individual corner diagnostics (drift detection) are **NOT POSSIBLE** in this configuration because the signals are summed in hardware.
+
+## 4. Excitation Voltage Measurement (optional but recommended)
+Goal: monitor excitation sag without loading the source (enable when wiring is available).
 - Wire **SlimPak EXC+ → MegaIND analog input (0–10V IN)**.
 - Wire **SlimPak EXC− → MegaIND analog input reference/return**.
 - Confirm MegaIND analog input is configured as 0–10V and is high-impedance.
+- In software, use **Settings -> Quick Setup -> Enable Excitation Monitoring** to turn this safety path on/off.
 
 Commissioning check:
-- With load cells connected, verify excitation reads near target (~10V) and is stable.
+- With load cells connected and monitoring enabled, verify excitation reads near target (~10V) and is stable.
 
 ## 5. DAQ Channel Allocation
-- One DAQ channel per load cell.
-- System supports enabling/disabling any of the 8 channels; **disabled channels must be excluded** from:
-  - totals
-  - drift checks
-  - stability checks
-  - alarms and fault logic based on load-cell signals
-
-Recommendation:
-- Assign contiguous channels (e.g., CH0–CH3) for simplicity.
-- Document channel-to-load-cell physical location (front-left, etc.).
+- **Current architecture:** summing board output on **DAQ Channel 1 only**.
+- Enable Channel 1 and disable Channels 2-8 unless you are explicitly using a non-summing custom build.
+- If using a custom multi-channel build, document exact channel-to-load-cell mapping and verify software supports that mode before deployment.
 
 ## 6. PLC Analog Output Wiring
 The MegaIND board provides analog outputs compatible with PLC analog inputs.
@@ -141,19 +172,19 @@ Scaffold status:
 ## 9. Startup Checklist
 1. Verify correct stacking order and power supply to Raspberry Pi.
 2. Verify SlimPak excitation output voltage and polarity.
-3. Verify excitation measurement wired to MegaIND AI and reading plausible value in UI.
+3. If excitation monitoring is enabled, verify excitation measurement is wired to MegaIND AI and reading plausible value in UI.
 4. Verify each load cell channel reads non-saturated raw mV with minor noise.
-5. Verify enabled channels match installed load cells (3 or 4 active).
+5. Verify enabled channels match wiring (for summing build: Channel 1 only).
 6. Verify PLC analog output wiring and input configuration (voltage vs current).
-7. Verify safe output behavior (force fault and confirm PLC reads 0V or 4mA).
+7. Verify safe output behavior (force a configured fault; excitation fault test applies only when excitation monitoring is enabled).
 8. Run `i2cdetect -y 1` and confirm both Sequent boards appear on the I2C bus (see I2C requirement above).
 
 ## 10. Commissioning Procedure (high level)
 1. Start system on Pi and verify **I/O LIVE** status in Settings → System tab.
-2. Confirm excitation monitoring and raw mV signals on Dashboard.
+2. Confirm raw mV signals on Dashboard; if excitation monitoring is enabled, confirm excitation status/value as well.
 3. Tune filter and stability parameters for the site vibration environment.
-4. Perform multi-point calibration (see `docs/CalibrationProcedure.md`).
-5. Create PLC profile mapping curve if PLC scaling is unknown/legacy.
+4. Perform weight calibration using the current runtime procedure (see `docs/CalibrationProcedure.md` and `docs/CALIBRATION_CURRENT_STATE.md`).
+5. Verify proportional output mapping and optional correction workflow for your site before handoff.
 6. Verify dump detection and totals accumulation in real process.
 
 ---

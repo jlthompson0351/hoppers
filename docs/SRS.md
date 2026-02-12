@@ -57,15 +57,15 @@ This replaces a SlimPak-style conditioner for signal conditioning, with the exce
   - filtered signal
   - ratio contribution to total (for drift detection)
 
-### FR-06 Excitation Measurement and Ratiometric Option
-- The system shall continuously read excitation voltage via megaind 0–10V analog input.
+### FR-06 Excitation Measurement
+- The system shall support enabling/disabling excitation monitoring from settings.
+- When enabled, the system shall continuously read excitation voltage via megaind 0–10V analog input.
 - The system shall log excitation voltage trend.
-- **Ratiometric normalization** mode shall be available and **enabled by default**:
-  - Default ON: calibration and weight computation shall use normalized signal \(mV/V\).
-  - A UI toggle shall allow disabling ratiometric mode for troubleshooting/diagnostics.
+- Calibration and weight computation shall use raw differential signal (mV).
+- Excitation monitoring is independent of calibration math; when enabled it participates in health/fault handling.
 - Alarm thresholds shall be configurable:
   - **warning low excitation**
-  - **fault very low excitation** (forces safe PLC output + UI fault indicator)
+  - **fault very low excitation** (forces safe PLC output + UI fault indicator when excitation monitoring is enabled)
 
 ### FR-07 PLC Output Behavior
 - Output mode shall be selectable:

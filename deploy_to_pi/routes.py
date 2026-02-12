@@ -6,6 +6,7 @@ from typing import Optional
 
 from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
 
+from src.core.zeroing import compute_zero_offset, estimate_lbs_per_mv
 from src.db.repo import AppRepository
 from src.services.state import LiveState
 
@@ -414,12 +415,17 @@ def settings_post() -> Response:
     # === Display ===
     cfg.setdefault("display", {})
     cfg["display"]["weight_decimals"] = parse_int("weight_decimals", 1)
+    cfg["display"]["round_up_enabled"] = parse_bool("round_up_enabled", False)
+    cfg["display"]["show_decimal_point"] = parse_bool("show_decimal_point", True)
 
     # === Zero & Scale ===
     cfg.setdefault("zero_tracking", {})
     cfg["zero_tracking"]["enabled"] = parse_bool("zero_tracking_enabled", False)
     cfg["zero_tracking"]["range_lb"] = parse_float("zero_tracking_range", 0.5)
+    cfg["zero_tracking"]["deadband_lb"] = parse_float("zero_tracking_deadband", 0.1)
+    cfg["zero_tracking"]["hold_s"] = parse_float("zero_tracking_hold_s", 6.0)
     cfg["zero_tracking"]["rate_lbs"] = parse_float("zero_tracking_rate", 0.1)
+    cfg["zero_tracking"]["persist_interval_s"] = parse_float("zero_tracking_persist_interval_s", 1.0)
 
     cfg.setdefault("startup", {})
     cfg["startup"]["auto_zero"] = parse_bool("startup_auto_zero", False)
@@ -520,7 +526,7 @@ def settings_post() -> Response:
     cfg["megaind"]["stack_level"] = max(0, min(7, parse_int("megaind_stack_level", int((cfg.get("megaind") or {}).get("stack_level", 0) or 0))))
 
     cfg.setdefault("megaind_io", {})
-    cfg["megaind_io"]["armed"] = parse_bool("megaind_io_armed", False)
+    cfg["megaind_io"]["armed"] = parse_bool("megaind_io_armed", True)
     cfg["megaind_io"]["allow_plc_channel"] = parse_bool("megaind_io_allow_plc_channel", False)
     cfg["megaind_io"]["safe_v"] = parse_float("megaind_io_safe_v", 0.0)
     
@@ -636,30 +642,51 @@ def api_zero() -> Response:
     cfg = repo.get_latest_config()
     scale = cfg.get("scale") or {}
     
-    # Get the current raw signal (total_signal is BEFORE zero offset is applied)
-    current_signal = float(snap.get("total_signal", 0.0) or 0.0)
-    old_offset = float(scale.get("zero_offset_signal", 0.0) or 0.0)
+    # Use the same live signal path shown in UI/calibration endpoints.
+    current_signal = float(
+        snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
+    )
+    old_offset = scale.get("zero_offset_signal")
+    if old_offset is None:
+        old_offset = scale.get("zero_offset_mv", 0.0)
+    old_offset = float(old_offset or 0.0)
     
-    # Find the calibration zero point (signal value that = 0 lbs)
-    # Look for the calibration point closest to 0 lbs
     cal_points = repo.get_calibration_points(limit=200)
-    
-    cal_zero_signal = 0.0
-    if cal_points:
-        # Find point with weight closest to 0
-        zero_point = min(cal_points, key=lambda p: abs(float(p.known_weight_lbs)))
-        cal_zero_signal = float(zero_point.signal)
-    
-    # Calculate drift: how far has the signal drifted from calibration zero?
-    # drift = current_raw_signal - calibration_zero_signal
-    drift = current_signal - cal_zero_signal
-    
-    # The new offset should correct for this drift
-    new_offset = drift
+
+    current_gross_lbs = snap.get("filtered_weight_lbs")
+    if current_gross_lbs is None:
+        current_gross_lbs = float(snap.get("total_weight_lbs", 0.0) or 0.0) + float(
+            snap.get("tare_offset_lbs", 0.0) or 0.0
+        )
+    current_gross_lbs = float(current_gross_lbs or 0.0)
+
+    lbs_per_mv = snap.get("lbs_per_mv")
+    if lbs_per_mv is None:
+        lbs_per_mv = estimate_lbs_per_mv(cal_points)
+    lbs_per_mv = float(lbs_per_mv or 0.0)
+
+    if abs(lbs_per_mv) > 1e-9:
+        correction_signal_mv = current_gross_lbs / lbs_per_mv
+        new_offset = old_offset + correction_signal_mv
+        cal_zero_signal = current_signal - new_offset
+        drift = new_offset - old_offset
+        zero_method = "weight_based"
+    else:
+        new_offset, cal_zero_signal = compute_zero_offset(current_signal, cal_points)
+        drift = new_offset - old_offset
+        zero_method = "cal_zero_fallback"
+    updated_utc = _utc_now()
+    scale["zero_offset_mv"] = new_offset
     scale["zero_offset_signal"] = new_offset
+    scale["zero_offset_updated_utc"] = updated_utc
     
     cfg["scale"] = scale
     repo.save_config(cfg)
+    state.set(
+        zero_offset_mv=new_offset,
+        zero_offset_signal=new_offset,
+        zero_offset_updated_utc=updated_utc,
+    )
     repo.log_event(
         level="INFO",
         code="SCALE_ZEROED",
@@ -668,6 +695,9 @@ def api_zero() -> Response:
             "old_zero_offset": old_offset,
             "new_zero_offset": new_offset,
             "current_signal": current_signal,
+            "current_gross_lbs": current_gross_lbs,
+            "lbs_per_mv": lbs_per_mv,
+            "method": zero_method,
             "calibration_zero_signal": cal_zero_signal,
             "drift": drift,
         },
@@ -676,8 +706,12 @@ def api_zero() -> Response:
     return Response(
         json.dumps({
             "success": True,
+            "zero_offset_mv": new_offset,
             "zero_offset_signal": new_offset,
             "drift": drift,
+            "method": zero_method,
+            "current_gross_lbs": current_gross_lbs,
+            "lbs_per_mv": lbs_per_mv,
             "message": "Calibration baseline updated"
         }),
         mimetype="application/json",
@@ -1354,6 +1388,40 @@ def api_snapshot() -> Response:
     production_totals = repo.get_production_totals(["day", "week", "month"])
     dump_count_today = repo.get_dump_count("day")
     last_dump = repo.get_last_dump()
+    latest_cfg = repo.get_latest_config()
+    out_cfg = latest_cfg.get("output", {}) if isinstance(latest_cfg, dict) else {}
+    scale_cfg = latest_cfg.get("scale", {}) if isinstance(latest_cfg, dict) else {}
+    zero_tracking_cfg = latest_cfg.get("zero_tracking", {}) if isinstance(latest_cfg, dict) else {}
+
+    zero_offset_mv = float(
+        snap.get(
+            "zero_offset_mv",
+            snap.get(
+                "zero_offset_signal",
+                scale_cfg.get("zero_offset_mv", scale_cfg.get("zero_offset_signal", 0.0)),
+            ),
+        )
+        or 0.0
+    )
+    lbs_per_mv = float(snap.get("lbs_per_mv") or 0.0)
+    zero_offset_lbs = zero_offset_mv * lbs_per_mv if abs(lbs_per_mv) > 1e-9 else 0.0
+    zero_offset_updated_utc = snap.get("zero_offset_updated_utc") or scale_cfg.get("zero_offset_updated_utc")
+
+    zero_tracking_enabled = bool(
+        snap.get("zero_tracking_enabled", zero_tracking_cfg.get("enabled", False))
+    )
+    zero_tracking_active = bool(snap.get("zero_tracking_active", False))
+    zero_tracking_locked = bool(snap.get("zero_tracking_locked", (not zero_tracking_active)))
+    if not zero_tracking_enabled:
+        zero_tracking_locked = True
+    zero_tracking_reason = snap.get("zero_tracking_reason")
+    if not zero_tracking_reason:
+        if not zero_tracking_enabled:
+            zero_tracking_reason = "disabled"
+        elif zero_tracking_active:
+            zero_tracking_reason = "tracking"
+        else:
+            zero_tracking_reason = "locked"
 
     # Build structured response
     result = {
@@ -1399,6 +1467,18 @@ def api_snapshot() -> Response:
             "raw_lbs": float(snap.get("raw_weight_lbs") or 0.0),
             "stable": bool(snap.get("stable", False)),
             "tare_offset_lbs": float(snap.get("tare_offset_lbs") or 0.0),
+            "zero_offset_signal": zero_offset_mv,
+            "zero_offset_mv": zero_offset_mv,
+            "zero_offset_lbs": float(zero_offset_lbs),
+            "zero_offset_updated_utc": zero_offset_updated_utc,
+            "zero_tracking_enabled": zero_tracking_enabled,
+            "zero_tracking_active": zero_tracking_active,
+            "zero_tracking_locked": zero_tracking_locked,
+            "zero_tracking_reason": str(zero_tracking_reason),
+            "zero_tracking_hold_elapsed_s": float(snap.get("zero_tracking_hold_elapsed_s") or 0.0),
+            "raw_signal_mv": float(
+                snap.get("total_signal", snap.get("raw_signal_mv", snap.get("signal_for_cal", 0.0))) or 0.0
+            ),
             "signal_for_cal": float(snap.get("signal_for_cal") or 0.0),
             "cal_points_used": int(snap.get("cal_points_used") or 0),
         },
@@ -1407,11 +1487,11 @@ def api_snapshot() -> Response:
             "mode": snap.get("output_mode", "0_10V"),
             "command": float(snap.get("output_command") or 0.0),
             "units": snap.get("output_units", "V"),
-            "armed": bool(repo.get_latest_config().get("output", {}).get("armed", False)),
-            "test_mode": bool(repo.get_latest_config().get("output", {}).get("test_mode", False)),
-            "test_value": float(repo.get_latest_config().get("output", {}).get("test_value", 0)),
-            "calibration_active": bool(repo.get_latest_config().get("output", {}).get("calibration_active", False)),
-            "nudge_value": float(repo.get_latest_config().get("output", {}).get("nudge_value", 0.0)),
+            "armed": bool(snap.get("output_armed", out_cfg.get("armed", False))),
+            "test_mode": bool(out_cfg.get("test_mode", False)),
+            "test_value": float(out_cfg.get("test_value", 0)),
+            "calibration_active": bool(out_cfg.get("calibration_active", False)),
+            "nudge_value": float(out_cfg.get("nudge_value", 0.0)),
         },
         "production": {
             "totals": production_totals,

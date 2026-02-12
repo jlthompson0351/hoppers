@@ -5,7 +5,7 @@
 
 ---
 
-## 🎯 LIVE DASHBOARD: http://172.16.190.15:8080
+## 🎯 LIVE DASHBOARD: http://172.16.190.25:8080
 
 ---
 
@@ -13,7 +13,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Dashboard** | http://172.16.190.15:8080 |
+| **Dashboard** | http://172.16.190.25:8080 |
 | **Status** | ✅ Online, connected to Flask service |
 | **I2C Base Address** | **0x50** (stack 0) |
 | **Address Range** | 0x50–0x57 (stack 0–7) |
@@ -133,7 +133,7 @@
 
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
-| **ARM OUTPUTS** | Toggle (OFF by default) | Master enable for analog output writes | **MUST BE ON** to write any output. Display in large red/green toggle. Log every state change. |
+| **ARM OUTPUTS** | Toggle (**ON by default** as of 2026-02-12) | Master enable for analog output writes | Defaults to ARMED for automatic operation. Display in large red/green toggle. Log every state change. Manual disarm available for maintenance. |
 
 **Safety/Warning:**  
 - Display persistent banner: "⚠️ DANGER: Analog outputs control external equipment. Verify all wiring and equipment state before enabling outputs."

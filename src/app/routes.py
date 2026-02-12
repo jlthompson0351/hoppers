@@ -815,6 +815,8 @@ def settings_post() -> Response:
     # === Display ===
     cfg.setdefault("display", {})
     cfg["display"]["weight_decimals"] = parse_int("weight_decimals", 1)
+    cfg["display"]["round_up_enabled"] = parse_bool("round_up_enabled", False)
+    cfg["display"]["show_decimal_point"] = parse_bool("show_decimal_point", True)
 
     # === Zero & Scale ===
     cfg.setdefault("zero_tracking", {})
@@ -939,7 +941,7 @@ def settings_post() -> Response:
     cfg["megaind"]["stack_level"] = max(0, min(7, parse_int("megaind_stack_level", int((cfg.get("megaind") or {}).get("stack_level", 0) or 0))))
 
     cfg.setdefault("megaind_io", {})
-    cfg["megaind_io"]["armed"] = parse_bool("megaind_io_armed", False)
+    cfg["megaind_io"]["armed"] = parse_bool("megaind_io_armed", True)
     cfg["megaind_io"]["allow_plc_channel"] = parse_bool("megaind_io_allow_plc_channel", False)
     cfg["megaind_io"]["safe_v"] = parse_float("megaind_io_safe_v", 0.0)
     

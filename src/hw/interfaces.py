@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -26,10 +26,10 @@ class MegaInd(Protocol):
         """Return analog input in volts for the given channel."""
 
     def write_analog_out_v(self, channel: int, volts: float) -> None:
-        """Write a 0–10V analog output channel."""
+        """Write a 0-10V analog output channel."""
 
     def write_analog_out_ma(self, channel: int, milliamps: float) -> None:
-        """Write a 4–20mA analog output channel."""
+        """Write a 4-20mA analog output channel."""
 
     def read_digital_in(self, channel: int) -> bool:
         """Read digital input (buttons, etc.)."""
@@ -47,5 +47,3 @@ class HardwareBundle:
 
     daq: Daq24b8vin
     megaind: MegaInd
-
-

@@ -9,7 +9,7 @@
 
 ## 🎯 LIVE DASHBOARD
 
-# 👉 http://172.16.190.15:8080
+# 👉 http://172.16.190.25:8080
 
 Open this URL in any browser on your network to view live load cell readings.
 
@@ -19,7 +19,7 @@ Open this URL in any browser on your network to view live load cell readings.
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | `loadcell-transmitter.service` |
 | **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** | ✅ Online | I2C 0x50, Firmware 4.08 |
@@ -30,8 +30,8 @@ Open this URL in any browser on your network to view live load cell readings.
 | Property | Value |
 |----------|-------|
 | **Hostname** | `Hoppers` |
-| **IP Address** | `172.16.190.15` |
-| **Dashboard URL** | http://172.16.190.15:8080 |
+| **IP Address** | `172.16.190.25` |
+| **Dashboard URL** | http://172.16.190.25:8080 |
 | **Username** | `pi` |
 | **Password** | *(provided separately)* |
 | **SSH Port** | 22 (default) |
@@ -48,22 +48,22 @@ Open this URL in any browser on your network to view live load cell readings.
 
 #### Single Command Execution
 ```powershell
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "hostname"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "hostname"
 ```
 
 #### Multiple Commands
 ```powershell
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "hostname && uname -a && uptime"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "hostname && uname -a && uptime"
 ```
 
 #### Run Remote Script
 ```powershell
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "cd /opt/loadcell-transmitter && ./scripts/test_hardware_basic.sh"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "cd /opt/loadcell-transmitter && ./scripts/test_hardware_basic.sh"
 ```
 
 #### Interactive Session
 ```powershell
-plink -ssh pi@172.16.190.15
+plink -ssh pi@172.16.190.25
 ```
 Then enter password when prompted.
 
@@ -75,12 +75,12 @@ Then enter password when prompted.
 
 #### Interactive Session
 ```powershell
-ssh pi@172.16.190.15
+ssh pi@172.16.190.25
 ```
 
 #### Single Command
 ```powershell
-ssh pi@172.16.190.15 "hostname && uptime"
+ssh pi@172.16.190.25 "hostname && uptime"
 ```
 
 ---
@@ -88,7 +88,7 @@ ssh pi@172.16.190.15 "hostname && uptime"
 ### Method 3: Windows — PuTTY GUI
 
 1. Open PuTTY
-2. Enter Host Name: `172.16.190.15`
+2. Enter Host Name: `172.16.190.25`
 3. Port: `22`
 4. Connection Type: SSH
 5. Click "Open"
@@ -105,13 +105,13 @@ For use within Cursor IDE with the Desktop Commander MCP extension:
 
 ```javascript
 // Start SSH process
-start_process({ command: "plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD \"your_command\"" })
+start_process({ command: "plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD \"your_command\"" })
 
 // Example: Read analog inputs
-start_process({ command: "plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD \"24b8vin 0 rd 1\"" })
+start_process({ command: "plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD \"24b8vin 0 rd 1\"" })
 
 // Example: Check board status
-start_process({ command: "plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD \"megaind 0 board\"" })
+start_process({ command: "plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD \"megaind 0 board\"" })
 ```
 
 ---
@@ -120,17 +120,17 @@ start_process({ command: "plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD \"megain
 
 #### Copy file TO Pi:
 ```powershell
-scp C:\path\to\local\file.txt pi@172.16.190.15:/home/pi/
+scp C:\path\to\local\file.txt pi@172.16.190.25:/home/pi/
 ```
 
 #### Copy file FROM Pi:
 ```powershell
-scp pi@172.16.190.15:/home/pi/file.txt C:\path\to\local\
+scp pi@172.16.190.25:/home/pi/file.txt C:\path\to\local\
 ```
 
 #### Copy entire directory TO Pi:
 ```powershell
-scp -r C:\Users\jthompson\Desktop\hoppers pi@172.16.190.15:/tmp/
+scp -r C:\Users\jthompson\Desktop\hoppers pi@172.16.190.25:/tmp/
 ```
 
 ---
@@ -252,7 +252,7 @@ sudo systemctl start ssh
 ### Host Key Verification Failed
 ```powershell
 # Windows: Clear known hosts entry
-ssh-keygen -R 172.16.190.15
+ssh-keygen -R 172.16.190.25
 
 # Or for plink, accept the new key when prompted
 ```
@@ -274,14 +274,14 @@ sudo raspi-config
 
 | Property | Value |
 |----------|-------|
-| **Pi IP** | `172.16.190.15` |
+| **Pi IP** | `172.16.190.25` |
 | **Network** | `Magni-Guest` |
 | **Gateway** | *(depends on network)* |
 
 **To find Pi on network:**
 ```powershell
 # Windows: Ping to verify connectivity
-ping 172.16.190.15
+ping 172.16.190.25
 
 # If IP unknown, scan network (requires nmap or similar)
 nmap -sn 172.16.190.0/24
@@ -300,7 +300,7 @@ nmap -sn 172.16.190.0/24
 │   Industrial Automation I/O     │
 ├─────────────────────────────────┤
 │   Raspberry Pi 4B               │ ← Hostname: Hoppers
-│   IP: 172.16.190.15             │
+│   IP: 172.16.190.25             │
 └─────────────────────────────────┘
 ```
 
@@ -310,21 +310,21 @@ nmap -sn 172.16.190.0/24
 
 ### Example 1: Quick Hardware Check
 ```powershell
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "sudo /usr/sbin/i2cdetect -y 1 && echo '---' && 24b8vin 0 board && echo '---' && megaind 0 board"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "sudo /usr/sbin/i2cdetect -y 1 && echo '---' && 24b8vin 0 board && echo '---' && megaind 0 board"
 ```
 
 ### Example 2: Read All Analog Inputs
 ```powershell
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "for ch in 1 2 3 4 5 6 7 8; do echo CH$ch:; 24b8vin 0 rd $ch; done"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "for ch in 1 2 3 4 5 6 7 8; do echo CH$ch:; 24b8vin 0 rd $ch; done"
 ```
 
 ### Example 3: Test Analog Output
 ```powershell
 # Set output to 5V
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "megaind 0 uoutwr 1 5.0"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "megaind 0 uoutwr 1 5.0"
 
 # Read back
-plink -ssh pi@172.16.190.15 -pw YOUR_PASSWORD "megaind 0 uoutrd 1"
+plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD "megaind 0 uoutrd 1"
 ```
 
 ---
@@ -337,14 +337,14 @@ The Load Cell Scale Transmitter runs as a web server on the Pi. Access it from a
 
 ### From Windows/Mac/Phone:
 1. Open any web browser (Chrome, Edge, Firefox, Safari)
-2. Go to: **http://172.16.190.15:8080**
+2. Go to: **http://172.16.190.25:8080**
 3. View live load cell readings, calibration, and settings
 
 ### How It Works:
 ```
 ┌─────────────────────────────────┐
 │  Your Device (PC/Phone/Tablet) │
-│  Browser → http://172.16.190.15:8080
+│  Browser → http://172.16.190.25:8080
 └──────────────┬──────────────────┘
                │ (WiFi: Magni-Guest)
                ▼

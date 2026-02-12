@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 LIVE DASHBOARD: http://172.16.190.15:8080
+## 🎯 LIVE DASHBOARD: http://172.16.190.25:8080
 
 ---
 
@@ -14,7 +14,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Dashboard** | http://172.16.190.15:8080 |
+| **Dashboard** | http://172.16.190.25:8080 |
 | **Status** | ✅ Online, connected to Flask service |
 | **I2C Base Address** | **0x50** (stack 0) |
 | **Firmware Version** | 04.08 |
@@ -22,7 +22,7 @@
 | **Power Source** | 24.13V |
 | **Pi Voltage** | 5.23V |
 | **Pi Hostname** | `Hoppers` |
-| **Pi IP Address** | `172.16.190.15` |
+| **Pi IP Address** | `172.16.190.25` |
 
 **I2C Scan Result:**
 ```
@@ -172,10 +172,11 @@ No corrections were needed to existing docs; they were already correct.
 ## Safety Requirements for UI Implementation
 
 ### 1. ARM OUTPUTS Interlock (CRITICAL)
-- **Default:** OFF
+- **Default:** **ON** (auto-armed on startup as of 2026-02-12)
 - **Behavior:** ALL analog and digital output writes require ARM = ON
 - **UI:** Large red/green toggle, prominently displayed
 - **Logging:** Log every state change (timestamp, user)
+- **Manual Disarm:** Available for maintenance/troubleshooting
 
 ### 2. Output Change Confirmation
 - **Modal:** Require explicit confirmation for any output change
@@ -349,7 +350,7 @@ class MegaIndRepository:
 **A:** ❌ **NO.** The range is set by **PHYSICAL JUMPERS** on the MegaIND board, one jumper per channel. You must power down, adjust the jumper, and power back on. The software only reads the value using the correct function (`get0_10In` vs `getpm10In`).
 
 ### Q: Do I need to ARM OUTPUTS before setting analog outputs?
-**A:** ✅ **YES.** The ARM OUTPUTS toggle is a safety interlock. All analog and digital output writes are blocked when ARM = OFF. This prevents accidental equipment activation.
+**A:** ✅ **YES.** The ARM OUTPUTS toggle is a safety interlock. All analog and digital output writes are blocked when ARM = OFF. **Note:** As of 2026-02-12, outputs default to ARMED on startup for automatic operation. Manual disarm is available for maintenance.
 
 ### Q: How many calibration points do I need?
 **A:** For MegaIND board-level calibration: **two points** minimum, ≥5V apart (voltage) or ≥10mA apart (current). For **load cell system calibration** (separate procedure): 3–10 points recommended spanning the production weight range.

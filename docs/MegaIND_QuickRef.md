@@ -8,7 +8,7 @@
 
 ---
 
-## 🎯 LIVE DASHBOARD: http://172.16.190.15:8080
+## 🎯 LIVE DASHBOARD: http://172.16.190.25:8080
 
 ---
 
@@ -16,7 +16,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Dashboard** | http://172.16.190.15:8080 |
+| **Dashboard** | http://172.16.190.25:8080 |
 | **I2C Address** | **0x50** (stack 0) |
 | **Firmware Version** | 04.08 |
 | **Status** | ✅ Online, connected to Flask service |
@@ -24,7 +24,7 @@
 | **Power Source** | 24.13V |
 | **Pi Voltage** | 5.23V |
 | **Pi Hostname** | `Hoppers` |
-| **Pi IP Address** | `172.16.190.15` |
+| **Pi IP Address** | `172.16.190.25` |
 
 **Verified via SSH on December 18, 2025:**
 ```
@@ -64,6 +64,18 @@ Firmware ver 04.08, CPU temperature 41 C, Power source 24.13 V, Raspberry 5.23 V
 | RS485/MODBUS | 1 | Slave mode | Jumper + Software |
 | RTC | 1 | Date/Time | Software |
 | One-Wire Bus | 1 | Up to 16 DS18B20 | Auto-detect |
+
+---
+
+## Hidden Capabilities (Deep Research Findings)
+
+**1. RS485 Modbus Master**
+- **Feature:** Can act as a Modbus Master to control other industrial devices.
+- **Use Case:** Daisy-chain laser sensors, VFDs, or other PLCs.
+
+**2. Real-Time Clock (RTC)**
+- **Feature:** Battery-backed timekeeping.
+- **Use Case:** Redundant time source if Watchdog HAT fails.
 
 ---
 
@@ -174,10 +186,11 @@ megaind <id> wdtrcclr                 # Clear reset count
 ## Safety Rules for UI Implementation
 
 1. **ARM OUTPUTS Toggle:**  
-   - Default: OFF  
+   - Default: **ON** (auto-armed on startup as of 2026-02-12)  
    - ALL analog and digital output writes require ARM = ON  
    - Display large red/green toggle  
-   - Log every state change
+   - Log every state change  
+   - Manual disarm available for maintenance/troubleshooting
 
 2. **Output Change Confirmation:**  
    - Require explicit modal confirmation for any output change  

@@ -6,7 +6,7 @@
 
 ## 🎯 SYSTEM IS LIVE (December 18, 2025)
 
-# 👉 Dashboard: http://172.16.190.15:8080
+# 👉 Dashboard: http://172.16.190.25:8080
 
 ---
 
@@ -14,13 +14,13 @@
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | `loadcell-transmitter.service` |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
 | **Hardware Mode** | ✅ REAL | Live readings from load cells |
 
-**Pi:** `Hoppers` at `172.16.190.15` | **See:** `CONNECTION_GUIDE.md` for SSH/dashboard access
+**Pi:** `Hoppers` at `172.16.190.25` | **See:** `CONNECTION_GUIDE.md` for SSH/dashboard access
 
 ---
 
@@ -29,7 +29,7 @@
 - [ ] SSH access enabled (Justin provides IP address)
 - [ ] Hardware stack assembled: Pi → MegaIND → 24b8vin
 - [ ] Load cells connected to 24b8vin (CH1-CH4)
-- [ ] Excitation wired from SlimPak
+- [ ] Excitation wired from SlimPak (recommended for monitoring; can be disabled in software if not wired yet)
 - [ ] Known calibration weights available (e.g., 25 lb, 50 lb, 100 lb)
 - [ ] Multimeter for analog output testing
 

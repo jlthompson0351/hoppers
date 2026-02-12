@@ -4,7 +4,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from src.db.schema import DDL_V1, SCHEMA_VERSION
+from src.db.schema import DDL_V1, DDL_V2, SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ def ensure_db(db_path: Path) -> None:
             log.info("Applying DB schema v1...")
             conn.executescript(DDL_V1)
             _set_version(conn, 1)
+
+        if current < 2:
+            log.info("Applying DB schema v2...")
+            conn.executescript(DDL_V2)
+            _set_version(conn, 2)
 
         conn.commit()
         final = _get_version(conn)

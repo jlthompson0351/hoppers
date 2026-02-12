@@ -165,10 +165,16 @@ class AppRepository:
                     {"enabled": False, "role": "Not used", "gain_code": 7},
                 ],
             },
+            # MegaIND configuration
+            "megaind": {
+                "stack_level": 1,
+            },
             # Scale configuration
             "scale": {
                 "tare_offset_lbs": 0.0,
                 "zero_offset_signal": 0.0,
+                "zero_offset_mv": 0.0,
+                "zero_offset_updated_utc": None,
                 "span_capture": {"zero_signal": None, "span_signal": None, "known_weight_lbs": None},
             },
             "enabled_channels": [0, 1, 2, 3],
@@ -202,7 +208,7 @@ class AppRepository:
                 "ao_channel_ma": 1,
                 "safe_v": 0.0,
                 "safe_ma": 4.0,
-                "armed": False,
+                "armed": True,
                 "test_mode": False,
                 "test_value": 0.0,
                 "calibration_active": False,
@@ -217,9 +223,12 @@ class AppRepository:
             },
             # Zero tracking (auto-zero maintenance)
             "zero_tracking": {
-                "enabled": False,
+                "enabled": True,
                 "range_lb": 0.5,
+                "deadband_lb": 0.1,
+                "hold_s": 6.0,
                 "rate_lbs": 0.1,
+                "persist_interval_s": 1.0,
             },
             # Startup behavior
             "startup": {
@@ -289,7 +298,7 @@ class AppRepository:
             },
             # MegaIND I/O (Maintenance / Extra Controls)
             "megaind_io": {
-                "armed": False,
+                "armed": True,
                 "allow_plc_channel": False,
                 "safe_v": 0.0,
                 "role_map": {

@@ -34,14 +34,16 @@ Or from the UI:
 ## 3. Common Issues
 ### 3.1 Excitation Low Warning / Fault
 Symptoms:
-- UI shows excitation low or fault; output forced safe on fault.
+- UI shows excitation low or fault; output forced safe on fault (only when excitation monitoring is enabled).
 
 Checks:
+- Confirm **Settings -> Quick Setup -> Enable Excitation Monitoring** is ON if you expect excitation-based safety.
 - Measure SlimPak EXC+ to EXC− with DMM.
 - Verify MegaIND AI wiring:
   - EXC+ into 0–10V AI
   - EXC− into AI reference/return
 - Inspect SlimPak supply, terminals, and any series protection devices.
+- If excitation is intentionally not wired yet, disable excitation monitoring so output is not clamped by excitation faults.
 
 ### 3.2 Unstable Reading / Can’t Accept Calibration Points
 Symptoms:
@@ -58,11 +60,11 @@ Symptoms:
 - Calibration page shows signal `0.000000` even though raw DAQ readings exist.
 
 Cause:
-- Ratiometric mode enabled while excitation reads ~0V (missing wiring / wrong MegaIND AI channel), causing signal to collapse to 0.
+- Usually a DAQ channel/configuration issue (wrong active channel, disabled channel, wiring/open circuit, or saturated signal).
 
 Fix / Workaround:
-- Wire excitation to a MegaIND 0–10V input and configure the correct `excitation.ai_channel`, **or**
-- Use the build where the acquisition loop **falls back to raw mV** when excitation is ~0V (so calibration can proceed).
+- Verify the active DAQ channel is enabled and wired correctly, then confirm raw mV changes when load changes.
+- If excitation is not wired in this installation phase, disable **Enable Excitation Monitoring** in Settings so excitation faults do not mask output behavior.
 
 ### 3.2.2 Calibration Points Look Correct but Weight Reading is Wrong
 Symptoms:
@@ -97,7 +99,7 @@ Symptoms:
 Checks:
 - Inspect load cell mounting and mechanical binding.
 - Inspect load cell cable damage or moisture ingress.
-- Verify excitation is stable; enable ratiometric mode.
+- Verify excitation is stable and correctly wired to the configured MegaIND AI channel (when monitoring is enabled).
 - Re-calibrate if needed after resolving mechanical issue.
 
 ### 3.5 PLC Display Doesn't Match UI Weight
@@ -152,10 +154,44 @@ Symptoms:
 Cause:
 - Older SQLite deployments may have an older config JSON without newer nested keys (`logging`, `zero_tracking`, etc.).
 
+### 3.6 Zero Tracking Issues
+
+**Symptom:** Scale drifts overnight, auto zero tracking not working
+
+**Common Causes:**
+1. **Zero tracking disabled** → Enable in Settings → Zero & Scale
+2. **Drift too large for range** → Press ZERO manually first, then tracking handles future drift
+3. **Hold time too long** → Default 6 sec is good, don't use 30+ minutes
+4. **Scale never stable** → Check stability thresholds (stddev, slope)
+
+**See:** `ZERO_TRACKING_OPERATOR_GUIDE.md` for complete troubleshooting
+
+**Quick Fix:**
+- Press ZERO button when empty and stable (instant correction)
+- Enable auto tracking for future drift prevention
+
 Fix:
 - Update the application to a version where `AppRepository.get_latest_config()` deep-merges saved config onto defaults.
 - Restart service: `sudo systemctl restart loadcell-transmitter`
 - Confirm via logs: `sudo journalctl -u loadcell-transmitter -n 100 --no-pager`
+
+### 3.7 HDMI Interface / Kiosk Issues
+Symptoms:
+- HDMI display is blank or shows desktop instead of app.
+- "Lost connection" message on HDMI screen.
+- Touch input not working.
+
+Checks:
+1. **Verify Kiosk Service**:
+   - `sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status kiosk.service`
+   - If inactive, use the **LAUNCH HDMI ON PI** button on the main Dashboard.
+2. **Emergency Recovery**:
+   - If the browser is stuck or showing old data, use the **FORCE RELAUNCH HDMI** button on the Dashboard. This kills all browser processes and starts a fresh kiosk session.
+3. **Hardware Connection**:
+   - Verify HDMI cable is secure at both ends.
+   - Verify USB cable (for touch) is connected to the Pi.
+4. **Manual Launch**:
+   - Double-click the **Scale HDMI** icon on the Pi desktop.
 
 ## 4. Service Management (Pi)
 ### systemd

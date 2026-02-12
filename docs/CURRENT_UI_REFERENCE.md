@@ -1,7 +1,7 @@
 # Current UI Reference
 
-**Document Version:** 2.1  
-**Date:** December 18, 2025  
+**Document Version:** 2.3  
+**Date:** February 12, 2026  
 **Purpose:** Document current UI state after redesign and stability fixes
 
 ---
@@ -10,14 +10,15 @@
 
 1. [Page Overview](#page-overview)
 2. [Dashboard Page](#dashboard-page)
-3. [Calibration Page](#calibration-page)
-4. [PLC Output Configuration Page](#plc-output-configuration-page)
-5. [Settings Page](#settings-page)
-6. [Config Page (Raw)](#config-page-raw)
-7. [Logs Page](#logs-page)
-8. [API Endpoints](#api-endpoints)
-9. [Template Structure](#template-structure)
-10. [CSS Variables](#css-variables)
+3. [HDMI Operator Page](#hdmi-operator-page)
+4. [Calibration Page](#calibration-page)
+5. [PLC Output Configuration Page](#plc-output-configuration-page)
+6. [Settings Page](#settings-page)
+7. [Config Page (Raw)](#config-page-raw)
+8. [Logs Page](#logs-page)
+9. [API Endpoints](#api-endpoints)
+10. [Template Structure](#template-structure)
+11. [CSS Variables](#css-variables)
 
 ---
 
@@ -26,6 +27,7 @@
 | Page | URL | Purpose | Requires Maintenance Mode |
 |------|-----|---------|---------------------------|
 | Dashboard | `/` | Live weight, Zero/Tare, status | No |
+| HDMI Operator | `/hdmi` | 800x480 operator UI with large weight and touch controls | No |
 | Calibration Hub | `/calibration` | Unified Weight and PLC output mapping | No |
 | Settings | `/settings` | All system configuration and advanced tools | No |
 | Config (Raw) | `/config` | Raw JSON config editor (maintenance) | **Yes** |
@@ -103,6 +105,67 @@
 
 ---
 
+## HDMI Operator Page
+
+**URL:** `/hdmi`  
+**Template:** `templates/hdmi.html`  
+**Route:** `routes.hdmi()`
+
+### Layout (800x480)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Scale HDMI                                      [STABLE] [OK]  │
+├───────────────────────────────────┬─────────────────────────────┤
+│            75.1                   │  Totals (Coming Soon)       │
+│             lb                    │  Daily Weight      -- lb     │
+│  Tare: 0.0 lb                     │  Shift Weight      -- lb     │
+│  Zero Offset: -2.064 lb (...)     │  [ CLEAR SHIFT TOTAL ]       │
+│  Zero Tracking: ACTIVE (...)      │  (UI placeholder only)       │
+│  Zero Updated: 13:20:24           │                             │
+├───────────────────────────────────┴─────────────────────────────┤
+│ [ ZERO ] [ TARE ] [ CLEAR TARE ] [ SETTINGS ]                   │
+├─────────────────────────────────────────────────────────────────┤
+│ DAQ [●]   I/O [●]   Loop: 20.0 Hz   Updated: 13:01:27          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+1. **Centered Live Weight Card** - Weight and unit are centered for better readability at distance
+2. **Zero Diagnostics In-Card** - Shows tare, zero offset, zero tracking state/reason, and last zero update
+3. **Shift/Daily Placeholder Panel** - Reserved area for upcoming DB-backed totals
+4. **Shift Clear Placeholder** - `CLEAR SHIFT TOTAL` currently shows feedback only (no backend mutation yet)
+5. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `SETTINGS` remain unchanged
+6. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
+
+### Snapshot Fields Used by HDMI
+
+- `weight.total_lbs`
+- `weight.tare_offset_lbs`
+- `weight.zero_offset_lbs`
+- `weight.zero_offset_mv` (fallback `weight.zero_offset_signal`)
+- `weight.zero_tracking_enabled`
+- `weight.zero_tracking_active`
+- `weight.zero_tracking_locked`
+- `weight.zero_tracking_reason`
+- `weight.zero_offset_updated_utc`
+- `system.loop_hz`
+- `system.last_update_utc`
+- `boards.online`
+
+### API Calls
+
+| Action | Endpoint | Method |
+|--------|----------|--------|
+| Zero | `/api/zero` | POST |
+| Tare | `/api/tare` | POST |
+| Clear Tare | `/api/tare/clear` | POST |
+| Snapshot Poll | `/api/snapshot` | GET |
+| Settings Navigation | `/settings` | GET |
+
+---
+
 ## Calibration Page
 
 **URL:** `/calibration`  
@@ -144,16 +207,18 @@
 
 ### Key Features
 
-1. **Live Weight & Signal Display** - Shows current values for reference (signal shows units: mV/V or mV)
+1. **Live Weight & Signal Display** - Shows current values for reference (signal shown in raw mV)
 2. **Stability Indicator** - Shows STABLE/UNSTABLE badge
 3. **Add Calibration Point** - Form to add known weight
 4. **Points Table** - List of saved calibration points with delete buttons
 5. **Clear All Points** - Button to remove all calibration data
 
-### Signal Units / Ratiometric Behavior
+### Calibration Point Behavior
 
-- If excitation monitoring is available and >~0.5V, calibration uses **ratiometric mV/V** (signal divided by excitation).
-- If excitation is missing/0V, the acquisition loop falls back to **raw mV** so calibration still works (and the UI shows `mV`).
+- Calibration signal is captured in raw **mV**.
+- Adding a point is append-only; repeated same-weight points are kept as history.
+- Weight mapping currently uses single-point or two-point linear behavior.
+- If only one point exists, the runtime uses single-point slope fallback.
 
 ### API Calls
 
@@ -170,6 +235,8 @@
 **URL:** `/plc-profile`  
 **Template:** `templates/plc_profile.html`  
 **Routes:** `routes.plc_profile_get()`
+
+**Default State:** Outputs are **ARMED** on startup (changed 2026-02-12). Manual disarm available for maintenance.
 
 ### Layout (Redesigned)
 
@@ -275,7 +342,7 @@
 
 The Settings page consolidates the previously hidden settings concepts into a single technician-facing page with:
 
-- Quick Setup at the top (range, PLC output basics, excitation monitoring)
+- Quick Setup at the top (range, PLC output basics, excitation monitoring with enable/disable toggle)
 - Tabs for signal filtering, zero behavior, output behavior, alarms, DAQ channels, detection, timing, logging, advanced, and system
 - Plain-language helper text on each setting (“what it does” + “what happens if you increase/decrease it”)
 
@@ -283,9 +350,9 @@ The Settings page consolidates the previously hidden settings concepts into a si
 
 | Tab | Contents |
 |-----|----------|
-| Quick Setup | Weight range, PLC output mode/channel, excitation monitoring |
+| Quick Setup | Weight range, PLC output mode/channel, excitation monitoring (enable + channel + thresholds) |
 | Signal Tuning | Kalman/IIR filter, stability detection, **weight display precision** |
-| Zero & Scale | Zero tracking, power-up behavior, ratiometric mode |
+| Zero & Scale | Zero tracking and power-up behavior |
 | Output Control | Dead band, ramping, auto-arm |
 | Alarms & Limits | Overload, underload, weight alarms, fault handling |
 | DAQ Channels | Channel enable/disable, roles, gain codes |
@@ -361,7 +428,7 @@ Displays recent system events (unchanged).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/calibration/add` | POST | Add calibration point |
+| `/api/calibration/add` | POST | Add calibration point (append-only history) |
 | `/api/calibration/delete/<id>` | POST | Delete calibration point |
 | `/api/calibration/clear` | POST | Clear all calibration points |
 
@@ -417,6 +484,8 @@ Displays recent system events (unchanged).
 |------|---------|
 | `base.html` | Base layout with header/nav |
 | `dashboard.html` | Live weight, Zero/Tare buttons |
+| `hdmi.html` | HDMI operator page (800x480 kiosk) |
+| `kiosk.html` | Touch calibration kiosk page |
 | `calibration.html` | Calibration point management |
 | `plc_profile.html` | PLC output configuration |
 | `settings.html` | Technician-friendly settings UI (tabbed) |
@@ -444,4 +513,4 @@ Displays recent system events (unchanged).
 ---
 
 **Document Created:** December 18, 2025  
-**Last Updated:** December 18, 2025 (v2.1 - Stability fixes, display precision setting, emoji removal)
+**Last Updated:** February 12, 2026 (v2.3 - HDMI operator page documentation update)

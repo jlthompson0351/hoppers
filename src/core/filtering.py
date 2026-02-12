@@ -287,5 +287,3 @@ class StabilityDetector:
         std = math.sqrt(var)
 
         return (std <= float(self.stddev_threshold)) and (slope <= float(self.slope_threshold))
-
-

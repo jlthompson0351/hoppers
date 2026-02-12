@@ -227,7 +227,7 @@ def discover_boards(cfg: dict, bus: Optional[int] = None) -> BoardDiscoveryResul
         bus = int(i2c_cfg.get("bus", 1))
 
     # Get expected boards from config
-    daq_cfg = (cfg or {}).get("daq24b8vin") or {}
+    daq_cfg = (cfg or {}).get("daq") or (cfg or {}).get("daq24b8vin") or {}
     megaind_cfg = (cfg or {}).get("megaind") or {}
 
     expected: Dict[str, int] = {}

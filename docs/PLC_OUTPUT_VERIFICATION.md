@@ -30,7 +30,7 @@ Before connecting to your PLC, verify the output signal is rock-solid and won't 
 ### Test Procedure
 
 1. **Configure System**
-   - Calibrate with at least 2 points (0 lb and one known weight)
+   - Calibrate with at least 1 point (2+ points recommended for production accuracy)
    - Enable deadband (Settings → Output Control)
      - Recommended: 0.5 lb deadband
    - ARM the output
@@ -87,7 +87,7 @@ Use the UI's built-in nudge controls to command specific output values without n
 
 1. Navigate to **Calibration Hub** (`/calibration`)
 2. Scroll to **PLC Output Mapping**:
-   - Confirm **ARM OUTPUTS** toggle is ON
+   - Confirm **ARM OUTPUTS** toggle is ON (defaults to armed on startup)
    - Use the **Live Slider** or **+/- buttons** to nudge the output value
    - Verify the value displayed matches your multimeter
 3. Measure at MegaIND AO terminals with multimeter
@@ -102,6 +102,29 @@ Use the UI's built-in nudge controls to command specific output values without n
 | 100%       | 10.0V     | 10.00 ±0.10V     |
 
 5. **Disable Test Mode when done!**
+
+### Half-Scale Decision Gate (1.0V / 2.0V)
+
+Use this when outputs appear exactly half of expected.
+
+1. Go to **Calibration Hub** (`/calibration`) and confirm outputs are armed (default).
+2. Use quick buttons:
+   - `SET 1.000`
+   - `SET 2.000`
+3. Measure at MegaIND AO terminals with a multimeter.
+
+Interpretation:
+
+| Commanded | Measured | Likely Cause |
+|-----------|----------|--------------|
+| 1.000V / 2.000V | ~1.000V / ~2.000V | Hardware path is correct. Issue is weight->output mapping (range/profile config). |
+| 1.000V / 2.000V | ~0.500V / ~1.000V | Hardware/board calibration path issue (MegaIND output calibration, wiring, or meter point). |
+
+If mapping is the issue:
+- Confirm **Runtime Mapping** on Calibration Hub:
+  - `Profile Curve (active)` uses saved mapping points.
+  - `Linear Range (active)` uses Settings min/max.
+- For quick linear recovery, click **SYNC RANGE FROM PROFILE** (requires 2+ saved mapping points).
 
 ### For 4-20mA Output
 
@@ -121,8 +144,8 @@ Verify the complete signal path: load cells → DAQ → weight calculation → a
 
 ### Steps
 
-1. **Ensure system is calibrated** (at least 2 calibration points)
-2. **ARM the output** (`/plc-profile` → Output Control → Armed = ON)
+1. **Ensure system is calibrated** (at least 1 point; 2+ strongly recommended)
+2. **ARM the output** (`/settings` or dashboard output controls)
 3. Place known weights on scale
 4. Wait for **STABLE** indicator
 5. Note dashboard weight reading
@@ -168,10 +191,10 @@ For direct hardware verification without the app:
 
 ```bash
 # Voltage output (0-10V)
-megaind 0 uout 1 5.0    # Set channel 1 to 5.0V
+megaind 0 uoutwr 1 5.0    # Set channel 1 to 5.0V
 
 # Current output (4-20mA)
-megaind 0 iout 1 12.0   # Set channel 1 to 12.0mA
+megaind 0 ioutwr 1 12.0   # Set channel 1 to 12.0mA
 
 # Read back (if supported)
 megaind 0 uoutrd 1      # Read voltage output
@@ -184,28 +207,28 @@ Or use the shell script:
 
 ---
 
-## PLC Output Mapping (Hand-in-Hand)
+## Manual Output Verification/Nudge
 
-If measured output doesn't match expected (e.g., PLC analog input scaling error):
+If measured output doesn't match expected due to PLC-side scaling or wiring:
 
-1. Go to **Calibration Hub** (`/calibration`)
-2. Use the **PLC Output Mapping** section to create a "Match Point"
-3. Dial in the output until the PLC matches the scale weight, then click **ADD MATCH POINT**
-4. The system will use this curve to automatically "bend" the signal for perfect accuracy.
+1. Go to **Calibration Hub** (`/calibration`).
+2. Use **Test Output** or **Live Slider (Nudge)** to command a known analog value.
+3. Verify the PLC reads the same commanded signal.
+4. Correct PLC analog scaling/wiring so commanded signal and PLC reading agree.
 
 ---
 
 ## Troubleshooting
 
 ### Output stuck at 0V / 4mA
-- Check **Armed** toggle is ON
-- Check for **Fault** state (excitation, I/O offline)
+- Check **Armed** toggle is ON (should default to armed on startup)
+- Check for **Fault** state (I/O offline, or excitation if excitation monitoring is enabled)
 - Verify MegaIND is **ONLINE** in settings
 
 ### Output incorrect but consistent
 - Check calibration points are correct
 - Verify output mode matches wiring (0-10V vs 4-20mA)
-- Consider PLC profile correction
+- Verify PLC analog input scaling and engineering units configuration
 
 ### Output erratic
 - Check stability settings (may need adjustment)

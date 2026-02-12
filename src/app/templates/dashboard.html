@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set weight_decimals = (display.get('weight_decimals', 1) if display else 1)|int %}
+{% set show_decimal = (display.get('show_decimal_point', True) if display else True) %}
 {% block content %}
 <style>
   .weight-display {
@@ -56,14 +57,17 @@
   .action-btn.zero { background: #3498db; color: white; }
   .action-btn.tare { background: #9b59b6; color: white; }
   .action-btn.clear { background: #7f8c8d; color: white; }
+  .action-btn.launch { background: #27ae60; color: white; }
+  .action-btn.force { background: #c0392b; color: white; }
 
   .tare-info {
     text-align: center;
     font-size: 14px;
     color: var(--muted);
-    margin-bottom: 20px;
+    margin-bottom: 6px;
   }
   .tare-info.active { color: var(--warn); font-weight: 600; }
+  .tare-info.locked { color: #f39c12; }
 
   .info-section {
     display: grid;
@@ -172,13 +176,21 @@
     <button class="action-btn zero" id="btn-zero" onclick="doZero()">ZERO</button>
     <button class="action-btn tare" id="btn-tare" onclick="doTare()">TARE</button>
     <button class="action-btn clear" id="btn-clear" onclick="doClearTare()">CLEAR TARE</button>
+    <button class="action-btn launch" id="btn-launch-hdmi" onclick="doLaunchHdmi()">LAUNCH HDMI ON PI</button>
+    <button class="action-btn force" id="btn-force-hdmi" onclick="doForceLaunchHdmi()">FORCE RELAUNCH HDMI</button>
   </div>
 
   <div class="tare-info" id="tare-info">
     Tare: 0.0 lb
   </div>
   <div class="tare-info" id="zero-info" style="margin-top: 5px;">
-    Zero Offset: 0.000000 signal
+    Zero Offset: 0.000 lb (0.000000 mV)
+  </div>
+  <div class="tare-info" id="zero-tracking-info" style="margin-top: 5px;">
+    Zero Tracking: LOCKED
+  </div>
+  <div class="tare-info" id="zero-updated-info" style="margin-top: 5px;">
+    Zero Updated: --
   </div>
 </div>
 
@@ -221,6 +233,22 @@
       <span class="label">Cal Points</span>
       <span class="value" id="cal-points">0</span>
     </div>
+    <div class="info-row">
+      <span class="label">Cal Method</span>
+      <span class="value" id="cal-method">uncalibrated</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Cal Slope</span>
+      <span class="value" id="cal-slope">0.000000 lb/mV</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Cal Intercept</span>
+      <span class="value" id="cal-intercept">--</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Last Cal</span>
+      <span class="value" id="cal-last">--</span>
+    </div>
   </div>
 </div>
 
@@ -245,13 +273,22 @@
 (function() {
   const POLL_INTERVAL_MS = {{ poll_rate_ms | default(500) | int }};
   const WEIGHT_DECIMALS = {{ weight_decimals }};
+  const SHOW_DECIMAL_POINT = {{ 'true' if show_decimal else 'false' }};
   let pollTimer = null;
   let lastStable = false;
+
+  function formatWeight(w) {
+    let s = w.toFixed(WEIGHT_DECIMALS);
+    if (!SHOW_DECIMAL_POINT && Number.isInteger(w)) {
+      s = Math.round(w).toString();
+    }
+    return s;
+  }
 
   function updateDashboard(data) {
     // Weight display
     const weight = data.weight.total_lbs;
-    document.getElementById('weight-value').textContent = weight.toFixed(WEIGHT_DECIMALS) + ' lb';
+    document.getElementById('weight-value').textContent = formatWeight(weight) + ' lb';
 
     // Stable pill
     const stablePill = document.getElementById('stable-pill');
@@ -290,15 +327,41 @@
       tareInfo.className = 'tare-info';
     }
 
-    // Zero offset info
-    const zeroOffset = data.weight.zero_offset_signal || 0;
+    // Zero offset + tracking info
+    const zeroOffsetMv = Number(data.weight.zero_offset_mv ?? data.weight.zero_offset_signal ?? 0);
+    const zeroOffsetLbs = Number(data.weight.zero_offset_lbs || 0);
     const zeroInfo = document.getElementById('zero-info');
-    if (Math.abs(zeroOffset) > 0.000001) {
-      zeroInfo.textContent = 'Zero Offset: ' + zeroOffset.toFixed(6) + ' signal';
+    zeroInfo.textContent =
+      'Zero Offset: ' + zeroOffsetLbs.toFixed(3) + ' lb (' + zeroOffsetMv.toFixed(6) + ' mV)';
+    if (Math.abs(zeroOffsetMv) > 0.000001 || Math.abs(zeroOffsetLbs) > 0.005) {
       zeroInfo.className = 'tare-info active';
     } else {
-      zeroInfo.textContent = 'Zero Offset: 0.000000 signal';
       zeroInfo.className = 'tare-info';
+    }
+
+    const zeroTrackingEnabled = Boolean(data.weight.zero_tracking_enabled);
+    const zeroTrackingActive = Boolean(data.weight.zero_tracking_active);
+    const zeroTrackingLocked = Boolean(data.weight.zero_tracking_locked);
+    const zeroTrackingReason = String(data.weight.zero_tracking_reason || 'locked');
+    const zeroTrackingInfo = document.getElementById('zero-tracking-info');
+    if (!zeroTrackingEnabled) {
+      zeroTrackingInfo.textContent = 'Zero Tracking: DISABLED';
+      zeroTrackingInfo.className = 'tare-info';
+    } else if (zeroTrackingActive && !zeroTrackingLocked) {
+      zeroTrackingInfo.textContent = 'Zero Tracking: ACTIVE (' + zeroTrackingReason + ')';
+      zeroTrackingInfo.className = 'tare-info active';
+    } else {
+      zeroTrackingInfo.textContent = 'Zero Tracking: LOCKED (' + zeroTrackingReason + ')';
+      zeroTrackingInfo.className = 'tare-info locked';
+    }
+
+    const zeroUpdatedInfo = document.getElementById('zero-updated-info');
+    const zeroUpdatedUtc = data.weight.zero_offset_updated_utc || null;
+    if (zeroUpdatedUtc) {
+      const timePart = zeroUpdatedUtc.split('T')[1] || zeroUpdatedUtc;
+      zeroUpdatedInfo.textContent = 'Zero Updated: ' + timePart.replace('+00:00', '');
+    } else {
+      zeroUpdatedInfo.textContent = 'Zero Updated: --';
     }
 
     // PLC Output
@@ -317,16 +380,41 @@
 
     // Raw data
     const channels = data.channels || [];
+    const fallbackRawMv = Number(data.weight.raw_signal_mv ?? data.weight.signal_for_cal ?? 0);
     let totalRawMv = 0;
-    channels.forEach(function(ch) {
-      if (ch.enabled && ch.polled) {
-        totalRawMv += ch.raw_mV || 0;
-      }
-    });
+    if (channels.length > 0) {
+      channels.forEach(function(ch) {
+        if (ch.enabled && ch.polled) {
+          totalRawMv += Number(ch.raw_mV || 0);
+        }
+      });
+    } else {
+      totalRawMv = fallbackRawMv;
+    }
+    if (!Number.isFinite(totalRawMv)) {
+      totalRawMv = fallbackRawMv;
+    }
     document.getElementById('raw-signal').textContent = totalRawMv.toFixed(3) + ' mV';
     document.getElementById('excitation').textContent = data.excitation.voltage_v.toFixed(2) + ' V';
     document.getElementById('signal-cal').textContent = data.weight.signal_for_cal.toFixed(6);
     document.getElementById('cal-points').textContent = data.weight.cal_points_used || 0;
+    const calMethodRaw = String(data.weight.calibration_method || 'uncalibrated');
+    const calMethodDisplay = calMethodRaw.replace(/_/g, ' ');
+    const calSlope = Number(data.weight.calibration_slope_lbs_per_mv || 0);
+    const calInterceptRaw = data.weight.calibration_intercept_lbs;
+    const calLastUtc = data.weight.calibration_last_utc || null;
+    document.getElementById('cal-method').textContent = calMethodDisplay;
+    document.getElementById('cal-slope').textContent = calSlope.toFixed(6) + ' lb/mV';
+    document.getElementById('cal-intercept').textContent =
+      (calInterceptRaw === null || calInterceptRaw === undefined)
+        ? '--'
+        : (Number(calInterceptRaw).toFixed(4) + ' lb');
+    if (calLastUtc) {
+      const t = calLastUtc.split('T')[1] || calLastUtc;
+      document.getElementById('cal-last').textContent = t.replace('+00:00', '');
+    } else {
+      document.getElementById('cal-last').textContent = '--';
+    }
 
     // Status bar
     const daqOnline = data.boards.online.daq24b8vin;
@@ -401,6 +489,59 @@
       })
       .catch(function(err) {
         showFeedback('Clear tare failed: ' + err.message, true);
+      });
+  };
+
+  window.doLaunchHdmi = function() {
+    const launchBtn = document.getElementById('btn-launch-hdmi');
+    launchBtn.disabled = true;
+    fetch('/api/hdmi/launch', { method: 'POST' })
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(payload) {
+          return { ok: r.ok, payload: payload };
+        });
+      })
+      .then(function(result) {
+        if (result.ok && result.payload.success) {
+          showFeedback(result.payload.message || 'HDMI launch requested', false);
+        } else {
+          const msg = (result.payload && (result.payload.error || result.payload.details)) || 'HDMI launch failed';
+          showFeedback(msg, true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('HDMI launch failed: ' + err.message, true);
+      })
+      .finally(function() {
+        launchBtn.disabled = false;
+      });
+  };
+
+  window.doForceLaunchHdmi = function() {
+    const forceBtn = document.getElementById('btn-force-hdmi');
+    if (!window.confirm('Force close and relaunch HDMI now? Use for emergency recovery only.')) {
+      return;
+    }
+    forceBtn.disabled = true;
+    fetch('/api/hdmi/force-launch', { method: 'POST' })
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(payload) {
+          return { ok: r.ok, payload: payload };
+        });
+      })
+      .then(function(result) {
+        if (result.ok && result.payload.success) {
+          showFeedback(result.payload.message || 'HDMI force relaunch sent', false);
+        } else {
+          const msg = (result.payload && (result.payload.error || result.payload.details)) || 'HDMI force relaunch failed';
+          showFeedback(msg, true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('HDMI force relaunch failed: ' + err.message, true);
+      })
+      .finally(function() {
+        forceBtn.disabled = false;
       });
   };
 

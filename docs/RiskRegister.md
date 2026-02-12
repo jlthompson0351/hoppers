@@ -13,7 +13,7 @@
 - **Mitigation**:
   - Shielded twisted pair for signals, separation from power wiring
   - Configure IIR filter + stability thresholds
-  - Use ratiometric mode to reduce excitation-induced drift
+  - Keep excitation wiring healthy and tune zero tracking for slow unloaded drift
   - Commissioning checklist includes noise verification
 
 ### R-02 Excitation Sag / Drift
@@ -24,7 +24,7 @@
 - **Mitigation**:
   - Continuous excitation monitoring and logging
   - Warning/fault thresholds; safe output on fault
-  - Ratiometric normalization mode (preferred)
+  - Periodic calibration verification and zero tracking checks
 
 ### R-03 SD Card Corruption / Wear
 - **Cause**: Power loss, frequent writes.
@@ -59,7 +59,7 @@
 
 ### R-06 Non-Monotonic PLC Profile Mapping
 - **Cause**: Bad point entry, PLC scaling changes, saturation.
-- **Effect**: PWL interpolation becomes ambiguous; wrong outputs.
+- **Effect**: Bad/duplicate mapping points can create ambiguous correction behavior and wrong outputs.
 - **Likelihood**: Medium
 - **Impact**: Medium
 - **Mitigation**:

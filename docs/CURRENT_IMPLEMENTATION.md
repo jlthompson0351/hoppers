@@ -4,6 +4,12 @@
 **Date:** December 19, 2025  
 **Purpose:** Document current implementation after UI redesign, stability fixes, and weight-side “bulletproofing” (Settings wired to runtime + safer outputs + DB housekeeping)
 
+Status note (Feb 2026):
+- This document contains historical implementation notes.
+- For calibration behavior currently running in this repo, use:
+  - `docs/CALIBRATION_CURRENT_STATE.md`
+  - `docs/CalibrationProcedure.md`
+
 ---
 
 ## Table of Contents
@@ -36,13 +42,16 @@ Raspberry Pi (Python App)
 ┌──────────────────────────────────┐
 │  Hardware Averaging (2 samples)  │
 │            ↓                     │
+│  Zero Offset (baseline shift)    │
+│            ↓                     │
+│  Weight Calibration (1pt/2pt)    │
+│            ↓                     │
 │  Kalman Filter (zero-lag)        │
 │            ↓                     │
+│  Tare Offset (weight domain)     │
+│            ↓                     │
 │  Stability Detection             │
-│            ↓                     │
-│  Calibration Curve (PWL)         │
-│            ↓                     │
-│  Tare Offset                     │
+│  Zero Tracking (auto-correct)    │
 │            ↓                     │
 │  Output Scaling                  │
 └──────────────────────────────────┘
@@ -67,7 +76,7 @@ PLC (0-10V or 4-20mA input)
 │   Industrial Automation I/O     │   Firmware: 4.08
 ├─────────────────────────────────┤
 │   Raspberry Pi 4B               │ ← Hostname: Hoppers
-│   IP: 172.16.190.15             │   OS: Debian (aarch64)
+│   IP: 172.16.190.25             │   OS: Debian (aarch64)
 └─────────────────────────────────┘
 ```
 
@@ -125,7 +134,7 @@ pymodbus>=3.6.0
 | **Flask** | Web framework | Dashboard UI, REST API endpoints |
 | **waitress** | WSGI server | Production-grade server (not Flask dev server) |
 | **smbus2** | I2C communication | Low-level I2C for Sequent HATs |
-| **numpy** | Math operations | Calibration regression, array math |
+| **numpy** | Math operations | General numeric helpers and utility math |
 | **loguru** | Logging | Better than stdlib, colors, rotation, easier syntax |
 | **RPi.GPIO** | GPIO control | Reset pins, data-ready signals |
 | **pymodbus** | Modbus TCP | PLC communication protocol (future use) |
@@ -342,6 +351,7 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `excitation.enabled` | bool | `true` | Master enable for excitation monitoring. When `false`, excitation is not used for fault-safe output gating. |
 | `excitation.ai_channel` | int | `1` | MegaIND channel for excitation voltage (1-4) |
 | `excitation.warn_v` | float | `9.0` | Warning threshold (volts) |
 | `excitation.fault_v` | float | `8.0` | Fault threshold (volts) |
@@ -355,7 +365,7 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 | `output.ao_channel_ma` | int | `1` | MegaIND current output channel (1-4) |
 | `output.safe_v` | float | `0.0` | Safe voltage on fault |
 | `output.safe_ma` | float | `4.0` | Safe current on fault |
-| `output.armed` | bool | `false` | Output interlock. When `false`, system forces safe output (no weight-based writes). |
+| `output.armed` | bool | `true` | Output interlock. When `false`, system forces safe output (no weight-based writes). **Defaults to ARMED** for automatic startup. |
 | `output.test_mode` | bool | `false` | Test output active (overrides weight) |
 | `output.test_value` | float | `0.0` | Test output value (V or mA) |
 | `output.deadband_enabled` | bool | `true` | Hold output steady for small weight changes |
@@ -389,9 +399,26 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `zero_tracking.enabled` | bool | `false` | Auto-zero maintenance enable |
-| `zero_tracking.range_lb` | float | `0.5` | Only track when within this band |
+| `zero_tracking.enabled` | bool | `true` | Auto-zero maintenance enable |
+| `zero_tracking.range_lb` | float | `1.0` | Only track when within ±this band |
+| `zero_tracking.deadband_lb` | float | `0.1` | Stop correcting when inside this band |
+| `zero_tracking.hold_s` | float | `6.0` | Wait time before tracking starts (sec) |
 | `zero_tracking.rate_lbs` | float | `0.1` | Max correction rate (lb/s) |
+| `zero_tracking.persist_interval_s` | float | `1.0` | How often to save offset during tracking |
+
+**Zero Tracking State Machine:**
+- **ACTIVE (tracking):** Baseline adjusting now
+- **ACTIVE (deadband):** Within ±0.1 lb, no correction needed
+- **LOCKED (holdoff):** Waiting for hold timer (6 sec of stable)
+- **LOCKED (load_present):** Weight on scale (|weight| > range)
+- **LOCKED (unstable):** Scale bouncing/settling
+- **LOCKED (tare_active):** Container weight set
+- **DISABLED:** Feature off
+
+**Additional Safety Guards:**
+- Spike rejection via slope threshold
+- Persistence throttling to reduce SD card wear
+- Calibration slope (lbs/mV) always preserved
 
 ### Startup
 
@@ -433,12 +460,14 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 **Notes (implemented):**
 - `timing.loop_rate_hz` controls the acquisition loop sleep timing (best-effort). If I2C + processing can’t keep up, the **actual loop Hz** will be lower (shown in UI).
 
-### Calibration Signal Units / Ratiometric Fallback
+### Calibration Signal + Point Handling
 
 The acquisition loop publishes `weight.signal_for_cal` for the Calibration page.
 
-- If ratiometric is effectively enabled (excitation present and non-trivial), `signal_for_cal` is **mV/V**.
-- If excitation is missing/0V, the loop falls back to **raw mV** so calibration points can still be collected.
+- `signal_for_cal` is captured in **raw mV**.
+- Adding a point is append-only; repeated same-weight points are kept as history.
+- Runtime mapping currently uses single-point or two-point linear behavior.
+- Single-point operation remains available via zero-crossing slope fallback.
 
 ### Logging
 
@@ -496,12 +525,9 @@ hoppers/
 │   │       ├── plc_profile.html
 │   │       └── scale_settings.html  # Legacy hidden settings (deprecated)
 │   ├── core/                    # Core algorithms
-│   │   ├── calibration.py       # Calibration curve (PWL)
-│   │   ├── drift.py             # Drift detection
-│   │   ├── dump_detection.py    # Dump event detection
-│   │   ├── filtering.py         # Kalman + IIR filters
-│   │   ├── plc_profile.py       # PLC output curve
-│   │   └── pwl.py               # Piecewise linear math
+│   │   ├── filtering.py         # Kalman + stability
+│   │   ├── zero_tracking.py     # Auto-zero state machine
+│   │   └── zeroing.py           # Zero + calibration mapping helpers
 │   ├── db/                      # Database layer
 │   │   ├── repo.py              # Repository pattern
 │   │   ├── schema.py            # SQLite schema
@@ -516,8 +542,7 @@ hoppers/
 │   └── services/                # Background services
 │       ├── acquisition.py       # Main acquisition loop (with hardware retry)
 │       ├── output_writer.py     # Analog output logic
-│       ├── state.py             # Shared state for UI
-│       └── watchdog.py          # Watchdog service
+│       └── state.py             # Shared state for UI
 ├── systemd/
 │   └── loadcell-transmitter.service  # Systemd unit file
 ├── requirements.txt
@@ -534,29 +559,29 @@ When pushing updates to the Pi:
 
 ```powershell
 # Copy updated files
-pscp -pw <password> requirements.txt pi@172.16.190.15:/opt/loadcell-transmitter/
-pscp -pw <password> src/core/filtering.py pi@172.16.190.15:/opt/loadcell-transmitter/src/core/
-pscp -pw <password> src/hw/sequent_24b8vin.py pi@172.16.190.15:/opt/loadcell-transmitter/src/hw/
-pscp -pw <password> src/services/acquisition.py pi@172.16.190.15:/opt/loadcell-transmitter/src/services/
+pscp -pw <password> requirements.txt pi@172.16.190.25:/opt/loadcell-transmitter/
+pscp -pw <password> src/core/filtering.py pi@172.16.190.25:/opt/loadcell-transmitter/src/core/
+pscp -pw <password> src/hw/sequent_24b8vin.py pi@172.16.190.25:/opt/loadcell-transmitter/src/hw/
+pscp -pw <password> src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transmitter/src/services/
 # ... etc for any changed files
 ```
 
 ### Install Dependencies
 
 ```powershell
-plink -batch -ssh pi@172.16.190.15 -pw <password> "cd /opt/loadcell-transmitter && source .venv/bin/activate && pip install -r requirements.txt"
+plink -batch -ssh pi@172.16.190.25 -pw <password> "cd /opt/loadcell-transmitter && source .venv/bin/activate && pip install -r requirements.txt"
 ```
 
 ### Restart Service
 
 ```powershell
-plink -batch -ssh pi@172.16.190.15 -pw <password> "sudo systemctl restart loadcell-transmitter"
+plink -batch -ssh pi@172.16.190.25 -pw <password> "sudo systemctl restart loadcell-transmitter"
 ```
 
 ### Verify
 
 ```powershell
-plink -batch -ssh pi@172.16.190.15 -pw <password> "sudo systemctl status loadcell-transmitter --no-pager"
+plink -batch -ssh pi@172.16.190.25 -pw <password> "sudo systemctl status loadcell-transmitter --no-pager"
 ```
 
 ---
@@ -566,8 +591,8 @@ plink -batch -ssh pi@172.16.190.15 -pw <password> "sudo systemctl status loadcel
 | Property | Value |
 |----------|-------|
 | **Hostname** | `Hoppers` |
-| **IP Address** | `172.16.190.15` |
-| **Dashboard URL** | http://172.16.190.15:8080 |
+| **IP Address** | `172.16.190.25` |
+| **Dashboard URL** | http://172.16.190.25:8080 |
 | **Username** | `pi` |
 | **Password** | `depor` |
 | **SSH Port** | 22 |
@@ -580,7 +605,7 @@ plink -batch -ssh pi@172.16.190.15 -pw <password> "sudo systemctl status loadcel
 
 ```bash
 # SSH to Pi
-ssh pi@172.16.190.15
+ssh pi@172.16.190.25
 
 # Check service status
 sudo systemctl status loadcell-transmitter
@@ -607,7 +632,8 @@ megaind 0 board
 
 | Page | URL Path | Purpose |
 |------|----------|---------|
-| Dashboard | `/` | Live weight, Zero/Tare buttons, PLC output status |
+| Dashboard | `/` | Live weight, Zero/Tare buttons, PLC output status, HDMI launch controls |
+| HDMI Interface | `/hdmi` | Touch-optimized operator interface for 800x480 displays |
 | Calibration Hub | `/calibration` | Unified Weight and PLC output "Hand-in-Hand" mapping |
 | Settings | `/settings` | All system setup, port selection, and advanced maintenance |
 | Config (Raw) | `/config` | Raw JSON system settings (maintenance) |
@@ -617,11 +643,22 @@ megaind 0 board
 - Large prominent weight display
 - STABLE/FAULT status indicators
 - Zero, Tare, Clear Tare buttons
+- Zero offset display (lb + mV) with timestamp
+- Zero tracking status (ACTIVE/LOCKED + reason)
+- **HDMI Launch Controls**: `LAUNCH HDMI ON PI` and emergency `FORCE RELAUNCH HDMI` buttons.
 - System status bar (board online status)
+
+### HDMI Interface Features
+- **Optimized Layout**: Designed for 800x480 industrial touch panels.
+- **Two-Column Operator View**: Left card for centered live weight, right card reserved for daily/shift totals.
+- **Zero Diagnostics on HDMI**: Shows `Tare`, `Zero Offset`, `Zero Tracking`, and `Zero Updated` directly under the weight value.
+- **Future Throughput Controls Placeholder**: Includes a `CLEAR SHIFT TOTAL` UI placeholder pending database integration.
+- **Simplified Controls**: Large touch-friendly buttons for ZERO, TARE, CLEAR TARE, and SETTINGS.
+- **Auto-Start**: Managed by `kiosk.service` to launch at boot.
 
 ### Calibration Hub Features (Hand-in-Hand)
 - **Visual Weight Bar**: 0-100% capacity bar with live pointer.
-- **Scale Calibration**: Multi-point load cell signal mapping (mV/V -> lb).
+- **Scale Calibration**: Single-point/two-point linear load cell mapping (raw mV -> lb).
 - **PLC Output Mapping**: Interactive "Live Match" nudge slider. Nudge the V/mA until the PLC matches the scale, then save.
 - **Freeze Mode**: Suspends normal logic during nudging for stable calibration.
 
@@ -638,24 +675,35 @@ megaind 0 board
 
 1. **Service Stop Timeout**: Service takes ~90s to stop gracefully (systemd kills it). Consider adding signal handlers.
 
-2. **Excitation Monitoring**: If excitation reads 0.00V (status DISABLED), verify:
-   - `ratiometric` is enabled in Settings
+2. **Excitation Monitoring**:
+   - If monitoring is enabled and excitation reads near 0.00V, verify:
    - MegaIND analog input channel is set correctly
    - excitation wiring (EXC+ to MegaIND AI, EXC− return)
+   - board power and common reference wiring
+   - If excitation is intentionally not wired yet, disable it in **Settings -> Quick Setup -> Enable Excitation Monitoring**.
 
-   If ratiometric is enabled and excitation is low, the status will show WARN/FAULT and the system may force safe output depending on configuration.
+   Calibration capture still uses raw mV. Excitation WARN/FAULT drives safe output behavior only while excitation monitoring is enabled.
 
 3. **I2C Discovery Tools**: On some OS images, `i2cdetect` is installed at `/usr/sbin/i2cdetect`. If `i2cdetect` is “command not found”, run `sudo /usr/sbin/i2cdetect -y 1`.
 
 ---
 
-## Recent Changes (v2.3)
+## Recent Changes (v2.5)
+
+### February 2026
+
+1. **HDMI layout refined for 800x480**: centered weight card, dashboard-style zero diagnostics, and right-side daily/shift placeholder panel.
+2. **Shift clear UX scaffolded**: `CLEAR SHIFT TOTAL` added as UI-only placeholder while throughput database integration is in progress.
+3. **HDMI docs synchronized**: runbook, architecture, and UI references updated to match deployed behavior.
+4. **Calibration behavior review documented**: code-backed runtime behavior and drift separation documented in `docs/CALIBRATION_CURRENT_STATE.md`.
+5. **Procedure docs aligned**: operator calibration docs now match current single/two-point runtime behavior.
+6. **API/UI docs clarified**: `/api/calibration/add` and calibration UI docs now describe append-only capture behavior.
 
 ### January 6, 2026
 
 1. **Unified Calibration Hub**: Merged PLC output calibration into the Scale Calibration page for a "Hand-in-Hand" workflow.
 2. **Interactive Live Nudge**: Added real-time voltage/mA nudging during calibration to match PLC displays precisely.
-3. **Proportional Mapping**: Replaced simple linear output with Piece-wise Linear (PWL) mapping for perfectly accurate PLC readings.
+3. **Proportional Mapping**: Uses linear scaling from configured weight range to output span, with optional deadband/ramp controls.
 4. **Clean Split Logic**: Separated "Setup" (Settings page) from "Training" (Calibration Hub).
 5. **Conflict Guard**: Implemented auto-scanning for I/O pin conflicts between system roles and logic rules.
 6. **Hardware Extensions**: Added support for Relays and Open-Drain outputs in the MegaIND drivers.
@@ -683,4 +731,4 @@ megaind 0 board
 ---
 
 **Document Created:** December 18, 2025  
-**Last Updated:** December 19, 2025 (v2.2 - Settings wired to runtime + output safety + DB housekeeping)
+**Last Updated:** February 12, 2026 (v2.5 - HDMI layout + zero diagnostics documentation sync)

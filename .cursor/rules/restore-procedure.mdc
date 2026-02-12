@@ -1,0 +1,53 @@
+---
+description: Procedures for restoring the Raspberry Pi Scale Project from a backup image.
+globs: 
+---
+# Raspberry Pi Restore Procedure
+
+## Context
+Trigger this rule when the user asks to "restore", "flash", "fix the sd card", or "recover" the Raspberry Pi Scale Project.
+
+## Restoration Protocol
+
+### 1. Identify the Backup
+Ask the user to locate the latest backup image.
+- **Default Location**: `./backups/`
+- **File Extension**: `.img`
+
+### 2. Hardware Requirement
+Ensure the user has:
+- A fresh MicroSD card (Capacity >= Original Backup Size).
+- An SD card reader connected to their computer.
+
+### 3. Flashing Process (Manual)
+Since the agent cannot physically plug in the SD card, guide the user through the software steps:
+
+1.  **Recommend Tool**: Use **Raspberry Pi Imager** (easiest) or **Balena Etcher**.
+2.  **Steps**:
+    *   "Open Raspberry Pi Imager."
+    *   "Under **Operating System**, scroll down to 'Use Custom' and select your backup file: `[Filename]`."
+    *   "Under **Storage**, select your new SD card."
+    *   "Click **WRITE**."
+
+### 4. Post-Restore Verification
+Once the user confirms flashing is done:
+1.  "Insert the SD card into the Pi."
+2.  "Power on the Pi."
+3.  "Wait 2-3 minutes for boot."
+4.  "Try to SSH in: `ssh user@pi-ip`."
+5.  "Check the Scale Project service: `systemctl status scale-project` (or relevant service name)."
+
+### 5. Raspberry Pi Connect (IMPORTANT)
+The backup includes the **Device Identity**.
+
+-   **Scenario A: Replacement Hardware (Broken Pi)**
+    -   Do nothing. The new Pi will take over the old Pi's identity. This is perfect for disaster recovery.
+
+-   **Scenario B: New Hardware (Additional Pi)**
+    -   If you are setting up a *second* Pi, it will conflict with the first one.
+    -   **Action**: You MUST reset the identity on the new Pi:
+        ```bash
+        rpi-connect signout
+        rpi-connect signin
+        ```
+    -   This generates a new unique ID and lets you name it separately in the dashboard.

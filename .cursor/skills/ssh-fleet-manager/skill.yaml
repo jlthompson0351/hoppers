@@ -1,0 +1,18 @@
+name: SSH Fleet Manager
+description: SSH into Raspberry Pi kiosks using Desktop Commander with plink. Use when user wants to connect to, run commands on, or troubleshoot any Pi in the fleet.
+tags:
+  - ssh
+  - raspberry-pi
+  - fleet
+  - remote-access
+  - plink
+examples:
+  - "SSH into PLP5"
+  - "Run uptime on kiosk-001"
+  - "Check if chromium is running on the Portland kiosk"
+  - "Restart the kiosk service on PLP6"
+  - "Get system info from all production kiosks"
+inputModes:
+  - text
+outputModes:
+  - text

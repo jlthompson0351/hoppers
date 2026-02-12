@@ -5,11 +5,13 @@
 set -euo pipefail
 
 STACK=${1:-0}
+CHANNEL=${2:-1}
 VENDOR_DIR="/opt/loadcell-transmitter/.vendor/megaind-rpi"
 CLI_TOOL="$VENDOR_DIR/megaind"
 
 echo "=== MegaIND Analog Output Test ==="
 echo "Stack ID: $STACK"
+echo "Channel: $CHANNEL"
 echo ""
 
 # Check if CLI tool exists
@@ -36,8 +38,8 @@ echo "--------------------------"
 
 for voltage in 0 2.5 5.0 7.5 10.0; do
     echo ""
-    echo "Setting output to: ${voltage}V"
-    "$CLI_TOOL" -stack "$STACK" uout "$voltage"
+    echo "Setting channel $CHANNEL output to: ${voltage}V"
+    "$CLI_TOOL" "$STACK" uoutwr "$CHANNEL" "$voltage"
     
     echo "Measure voltage and verify: ~${voltage}V"
     echo "Press Enter to continue..."
@@ -46,15 +48,15 @@ done
 
 echo ""
 echo "Returning output to 0V (safe state)"
-"$CLI_TOOL" -stack "$STACK" uout 0
+"$CLI_TOOL" "$STACK" uoutwr "$CHANNEL" 0
 echo "✓ Output set to 0V"
 
 echo ""
 echo "=== Test Complete ==="
 echo ""
 echo "To manually set output voltage:"
-echo "  $CLI_TOOL -stack $STACK uout <voltage>"
+echo "  $CLI_TOOL $STACK uoutwr <channel> <voltage>"
 echo ""
 echo "For 4-20mA mode testing, use:"
-echo "  $CLI_TOOL -stack $STACK iout <milliamps>"
+echo "  $CLI_TOOL $STACK ioutwr <channel> <milliamps>"
 echo ""

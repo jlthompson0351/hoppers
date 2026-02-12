@@ -2,7 +2,7 @@
 
 ## 🎯 LIVE DASHBOARD
 
-# 👉 http://172.16.190.15:8080
+# 👉 http://172.16.190.25:8080
 
 Open in any browser to view live load cell readings.
 
@@ -12,13 +12,13 @@ Open in any browser to view live load cell readings.
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
 
-**Pi:** `Hoppers` at `172.16.190.15` — See `CONNECTION_GUIDE.md` for SSH/dashboard access
+**Pi:** `Hoppers` at `172.16.190.25` — See `CONNECTION_GUIDE.md` for SSH/dashboard access
 
 ---
 
@@ -46,6 +46,7 @@ Open in any browser to view live load cell readings.
 ### ⭐ Current Implementation (Pre-Overhaul Reference)
 - **`CURRENT_IMPLEMENTATION.md`** — Complete system state before UI overhaul
 - **`CURRENT_UI_REFERENCE.md`** — UI pages, routes, API endpoints reference
+- **`AUTO_ARMED_OUTPUT_CHANGE.md`** — Auto-armed output change (Feb 12, 2026)
 
 ### Architecture & Requirements
 - **`Architecture.md`** — System architecture and design
@@ -66,11 +67,16 @@ Open in any browser to view live load cell readings.
 ### Zero, Tare & Drift Compensation
 - **`ZERO_VS_TARE_FIX.md`** — How ZERO and TARE work, drift compensation explained
 - **`DRIFT_COMPENSATION_DIAGRAM.md`** — Visual diagrams showing signal flow and zero tracking
+- **`ZERO_TRACKING_OPERATOR_GUIDE.md`** — Complete operator guide: settings, troubleshooting, and verification tests
 
-### Procedures
-- **`CalibrationProcedure.md`** — Multi-point calibration procedure
+### Procedures & Configuration
+- **`CalibrationProcedure.md`** — Operator calibration procedure (current runtime behavior)
+- **`CALIBRATION_CURRENT_STATE.md`** — Code-backed calibration behavior and hardening direction
 - **`TestPlan.md`** — Comprehensive test plan (bench + production)
 - **`MaintenanceAndTroubleshooting.md`** — Maintenance and troubleshooting guide
+- **`HDMI_KIOSK_RUNBOOK.md`** — Setup and operation of the HDMI operator interface
+- **`PLC_OUTPUT_VERIFICATION.md`** — PLC output testing and verification procedures
+- **`DEPLOYMENT_LOG.md`** — Deployment history and change log
 
 ### Risk & Planning
 - **`RiskRegister.md`** — Project risk register
@@ -94,6 +100,7 @@ Open in any browser to view live load cell readings.
 
 ### For Calibration
 → `CalibrationProcedure.md`  
+→ `CALIBRATION_CURRENT_STATE.md`  
 → Use helper script: `../scripts/verify_calibration.py`
 
 ### For Zero/Tare & Drift Issues
@@ -103,6 +110,9 @@ Open in any browser to view live load cell readings.
 ### For Troubleshooting
 → `MaintenanceAndTroubleshooting.md`  
 → `HardwareTestReadiness_TODAY.md` (Troubleshooting section)
+
+### For HDMI / Kiosk Operation
+→ `HDMI_KIOSK_RUNBOOK.md` — Setup, boot behavior, emergency relaunch, and current 800x480 layout details (centered weight card + zero diagnostics + daily/shift placeholder)
 
 ### For Testing
 → `TestPlan.md`  
@@ -127,7 +137,7 @@ System Understanding:
 Maintenance:
   1. MaintenanceAndTroubleshooting.md
   2. TestPlan.md (regression tests)
-  3. CalibrationProcedure.md (re-calibration)
+  3. CalibrationProcedure.md + CALIBRATION_CURRENT_STATE.md (re-calibration)
 ```
 
 ---
@@ -164,7 +174,8 @@ docs/
 └── Procedures
     ├── CalibrationProcedure.md
     ├── TestPlan.md
-    └── MaintenanceAndTroubleshooting.md
+    ├── MaintenanceAndTroubleshooting.md
+    └── HDMI_KIOSK_RUNBOOK.md         ← Setup and operation of HDMI UI
 ```
 
 ---
@@ -178,7 +189,7 @@ docs/
 
 ### Source Code (`../src/`)
 - `app/` — Flask web UI
-- `core/` — Calibration, filtering, stability
+- `core/` — Filtering, zeroing, and zero-tracking logic
 - `hw/` — Hardware interfaces (real + simulated)
 - `db/` — SQLite schema + repositories
 - `services/` — Acquisition loop, output writer
@@ -189,7 +200,8 @@ docs/
 
 ---
 
-**Last Updated**: December 23, 2025  
+**Last Updated**: February 12, 2026  
 **For**: Production deployment with drift compensation  
 **Hardware Verified**: December 18, 2025 — Both boards (24b8vin @ 0x31, MegaIND @ 0x50) online and working  
-**Drift Fix**: December 23, 2025 — ZERO button now properly compensates for drift (see `ZERO_VS_TARE_FIX.md`)
+**Drift Fix**: December 23, 2025 — ZERO button now properly compensates for drift (see `ZERO_VS_TARE_FIX.md`)  
+**Auto-Armed Outputs**: February 12, 2026 — PLC outputs now default to ARMED on startup (see `AUTO_ARMED_OUTPUT_CHANGE.md`)

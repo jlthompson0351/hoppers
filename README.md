@@ -6,6 +6,35 @@ Industrial load-cell scale transmitter using a Raspberry Pi 4B with Sequent Micr
 
 This is an industrial-grade system designed for robust behavior and automatic recovery. The system **always uses real hardware** - there is no simulated mode. If hardware is unavailable, the UI stays up and the system retries automatically.
 
+## Hardware Stack & Wiring (CRITICAL)
+
+### Stack Order (Bottom to Top)
+1.  **Raspberry Pi 4B** (Bottom)
+2.  **Watchdog HAT** (Stack 0, Address 0x30)
+    *   **Function:** Powers the Pi + UPS Battery Backup.
+    *   **Connection:** Sits directly on the Pi.
+3.  **ISOLATION LAYER (Modified Header)**
+    *   **CRITICAL:** You must use a stacking header with **Pins 2 (5V) and 4 (5V) CUT/REMOVED**.
+    *   This prevents the MegaIND (above) from fighting the Watchdog's power supply.
+4.  **MegaIND HAT** (Stack 0, Address 0x50)
+    *   **Function:** PLC Output (0-10V) + Opto Inputs.
+    *   **Connection:** Sits on the modified header.
+5.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
+    *   **Function:** Reads Load Cell.
+    *   **Connection:** Sits on top of MegaIND.
+
+### Power Wiring
+1.  **24V DC Source** -> Connect to **Watchdog** Green Connector.
+2.  **Daisy Chain** -> Jumper wires from Watchdog 24V -> **MegaIND** 24V Green Connector.
+    *   *Note: Watchdog powers the Pi. MegaIND powers itself and the DAQ.*
+3.  **USB-C Power:** Connect a USB-C cable from the **Watchdog's USB-C OUT** to the **Raspberry Pi's USB-C Power Port**.
+    *   *This is the primary power path for the Pi.*
+
+### DIP Switch Settings
+*   **Watchdog:** No switches (Address 0x30 fixed).
+*   **MegaIND:** All switches **OFF** (Stack Level 0 -> Address 0x50).
+*   **DAQ:** All Switches **OFF** (Stack Level 0 -> Address 0x31).
+
 ## Quick start (Raspberry Pi)
 
 ```bash
@@ -36,31 +65,43 @@ Then open `http://127.0.0.1:8080`. The UI will be functional but show hardware a
 
 ## SSH Access to Pi
 
-**Pi IP:** `172.16.190.15`  
+**Pi IP:** `172.16.190.25`  
 **Username:** `pi`  
 **Password:** `depor`
 
 ### Using plink (Windows):
 ```powershell
-plink -pw depor pi@172.16.190.15
+plink -pw depor pi@172.16.190.25
 ```
 
 ### Using standard SSH:
 ```bash
-ssh pi@172.16.190.15
+ssh pi@172.16.190.25
 # Enter password: depor
 ```
 
 ### Deploy files using pscp (Windows):
 ```powershell
 # Copy a single file
-pscp -pw depor local_file.py pi@172.16.190.15:/opt/loadcell-transmitter/path/to/file.py
+pscp -pw depor local_file.py pi@172.16.190.25:/opt/loadcell-transmitter/path/to/file.py
 
 # Restart service after deploying
-plink -pw depor pi@172.16.190.15 "sudo systemctl restart loadcell-transmitter"
+plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
 ```
 
 **Note:** The application runs from `/opt/loadcell-transmitter/` on the Pi (not `/home/pi/hoppers/`).
+
+## HDMI Operator Interface (Kiosk Mode)
+
+The system includes a dedicated, touch-optimized operator interface for HDMI-connected displays (e.g., Elecrow 5" 800x480).
+
+- **HDMI Page**: Accessible at `/hdmi`. The layout is tuned for 800x480 with a centered live-weight card, tare/zero metadata lines (`Zero Offset`, `Zero Tracking`, `Zero Updated`), and a right-side totals placeholder panel for future database-backed daily/shift totals.
+- **Shift Total Placeholder**: Includes `CLEAR SHIFT TOTAL` as a UI placeholder; backend clearing logic is intentionally not wired yet.
+- **Auto-Launch**: The Pi can be configured to auto-launch this interface in full-screen (kiosk) mode at boot.
+- **Remote Control**: The main Dashboard includes buttons to `LAUNCH HDMI ON PI` and an emergency `FORCE RELAUNCH HDMI` to recover from stuck browser processes.
+- **Desktop Launcher**: A "Scale HDMI" shortcut is created on the Pi desktop for manual one-click launch.
+
+**Detailed docs:** `docs/HDMI_KIOSK_RUNBOOK.md`
 
 ## Zero vs Tare (Drift Compensation)
 
@@ -100,7 +141,7 @@ Enable **Zero Tracking** in Settings to automatically compensate for drift:
 
 ## Directory layout
 - `src/app/`: Flask UI (server-rendered templates + API endpoints)
-- `src/core/`: filtering, stability detection, calibration, PLC profile mapping, drift + dump detection
+- `src/core/`: filtering, stability detection, zeroing helpers, and zero-tracking logic
 - `src/hw/`: hardware interfaces + simulated hardware + Sequent stubs
 - `src/db/`: SQLite schema/migrations/repositories
 - `src/services/`: acquisition loop, output writer, shared state
@@ -125,12 +166,13 @@ Enable **Zero Tracking** in Settings to automatically compensate for drift:
 
 ### Detailed Procedures
 - `docs/WiringAndCommissioning.md` — Hardware wiring and I2C setup
-- `docs/CalibrationProcedure.md` — Multi-point calibration procedure
+- `docs/CalibrationProcedure.md` — Operator calibration procedure (current runtime behavior)
+- `docs/CALIBRATION_CURRENT_STATE.md` — Code-backed calibration behavior and hardening direction
 - `docs/TestPlan.md` — Comprehensive test plan
 
 ## Calibration Hub & Hand-in-Hand Mapping
 The system features a unified **Calibration Hub** for both weight and PLC output:
-- **Weight Calibration**: Multi-point piecewise linear signal mapping (mV -> lb) using industry-standard interpolation.
+- **Weight Calibration (current runtime)**: Single-point or two-point linear conversion from signal mV to lb.
 - **Hand-in-Hand PLC Mapping**: Interactive "Live Match" nudge slider to link weight directly to V/mA.
 - **Visual Monitor**: Real-time scale capacity bar (0-100%).
 - **Multi-Load Cell Support**: Automatic signal summing from multiple load cells (typically 2-4 per hopper).
@@ -231,3 +273,20 @@ Before connecting to your PLC, verify signal stability:
 
 Configure range in **Settings → Weight Range** to match your hopper capacity and PLC expectations.
 
+
+
+## 🤖 AI Agent Workflow
+This project is equipped with a **Multi-Agent Swarm** powered by Cursor.
+
+### How to Start
+To activate the swarm, simply tell the AI:
+> "Read `.cursor/AGENTS.md` and start the Orchestrator workflow."
+
+### The Team
+-   **Agent-1 (Opus):** Senior Architect (Planning & Hard Problems).
+-   **Agent-2 (Sonnet):** Lead Developer (Coding & Execution).
+-   **Agent-3 (Sonnet):** Developer (Parallel Work).
+-   **Agent-4 (Gemini):** Context Specialist (Large Refactors).
+
+### The Knowledge Base
+Skills are stored in `.cursor/skills-store/`. The Orchestrator will automatically "equip" agents with the right skills (React, Node, Supabase, etc.) for the job.

@@ -4,7 +4,7 @@
 
 ---
 
-## 🎯 LIVE DASHBOARD: http://172.16.190.15:8080
+## 🎯 LIVE DASHBOARD: http://172.16.190.25:8080
 
 ---
 
@@ -12,12 +12,12 @@
 
 | Property | Value |
 |----------|-------|
-| **Dashboard** | http://172.16.190.15:8080 |
+| **Dashboard** | http://172.16.190.25:8080 |
 | **I2C Address** | **0x31** (stack 0) |
 | **Firmware** | v1.4 |
 | **Status** | ✅ Online, readings live in dashboard |
 | **Pi Hostname** | `Hoppers` |
-| **Pi IP** | `172.16.190.15` |
+| **Pi IP** | `172.16.190.25` |
 | **CLI Tool** | `24b8vin` |
 | **Python Module** | `SM24b8vin` |
 

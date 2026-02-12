@@ -168,52 +168,68 @@ ZERO TRACKING ALGORITHM (runs every acquisition cycle ~20Hz)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ┌─────────────────────────────────────────────────┐
-│ 1. Read current weight: 0.3 lbs                 │
+│ 1. Read current weight: 0.4 lbs                 │
 │    (should be 0 lbs, but drifted)               │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
 │ 2. Check: Is |weight| < zero_tracking_range?    │
-│    (0.3 lbs < 0.5 lbs)  ✓ YES                   │
+│    (0.4 lbs < 1.0 lbs)  ✓ YES                   │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
 │ 3. Check: Is scale stable?                      │
-│    ✓ YES (within stability threshold)           │
+│    ✓ YES (stddev + slope within thresholds)     │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
-│ 4. Calculate signal correction needed:          │
-│    0.3 lbs × 0.0305 mV/lb = 0.009 mV            │
+│ 4. Check: Has it been stable for hold_s?        │
+│    Elapsed: 7.2 sec > 6.0 sec hold  ✓ YES       │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
-│ 5. Apply rate limiting:                         │
-│    Max rate: 0.1 lb/s                           │
-│    Max per cycle: 0.1 × 0.05s × 0.0305 = 0.0002 │
-│    Actual adjustment = min(0.009, 0.0002)       │
+│ 5. Check: Is error > deadband?                  │
+│    0.4 lbs > 0.1 lb deadband  ✓ YES             │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
-│ 6. Update zero offset:                          │
-│    old: 0.240 mV                                │
-│    new: 0.240 + 0.0002 = 0.2402 mV              │
-│    (saved to config)                            │
+│ 6. Calculate signal correction:                 │
+│    weight_correction = min(0.4, rate × dt)      │
+│                      = min(0.4, 0.1 × 0.05)     │
+│                      = 0.005 lb this cycle      │
+│    signal_correction = 0.005 / lbs_per_mv       │
 └────────────────────┬────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────┐
-│ 7. Next cycle, weight will be slightly closer   │
-│    (0.30 lbs → 0.29 lbs → ... → 0.00 lbs)       │
-│                                                 │
-│    Convergence: ~3 seconds for 0.3 lb error     │
+│ 7. Update zero offset (throttled persist):      │
+│    old: -0.145 mV                               │
+│    new: -0.145 + correction                     │
+│    Save to config every 1.0 sec                 │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 8. Next cycles gradually converge:              │
+│    0.40 → 0.39 → 0.38 → ... → 0.10 lb           │
+│    STOPS at 0.10 lb (inside deadband)           │
+│    Status: ACTIVE (deadband)                    │
+│    Convergence: ~4 seconds for 0.4 lb error     │
 └─────────────────────────────────────────────────┘
 ```
+
+**Key Features:**
+- **Hold timer:** Prevents tracking during transient settle periods
+- **Deadband:** Stops at ±0.1 lb (prevents zero hunting)
+- **Rate limited:** Smooth 0.1 lb/s max (no sudden jumps)
+- **Load locked:** Stops immediately when weight added
+- **Spike rejection:** Ignores sudden motion/vibration
+- **Persistence throttled:** Saves every 1 sec (not every cycle)
 
 ---
 
@@ -263,11 +279,13 @@ The ZERO button now properly shifts the baseline without changing your calibrati
 ┌────────────────────────────────────────────────────────────────┐
 │                     ZERO TRACKING                              │
 ├────────────────────────────────────────────────────────────────┤
-│  Purpose:     Automatic drift compensation                     │
-│  How:         Slowly adjusts zero offset when near 0 lbs       │
-│  When:        Scale stable AND weight < 0.5 lbs                │
-│  Rate:        0.1 lb/s (configurable)                          │
-│  Benefit:     No manual intervention needed!                   │
+│  Purpose:     Automatic drift compensation (no operator action)│
+│  How:         Gradually adjusts zero offset when empty         │
+│  When:        Scale stable + unloaded for 6+ sec + |weight|<1lb│
+│  Rate:        0.1 lb/s max (smooth, won't see it move)         │
+│  Stops:       At ±0.1 lb deadband (close enough!)              │
+│  Safety:      Locks when weight >1 lb (real load detected)     │
+│  Benefit:     Fixes overnight drift automatically!             │
 └────────────────────────────────────────────────────────────────┘
 ```
 

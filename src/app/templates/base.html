@@ -12,6 +12,17 @@
       header .meta { color:var(--muted); font-size:13px; }
       nav a { color:var(--text); text-decoration:none; margin-right:12px; opacity:.9; }
       nav a:hover { opacity:1; color:var(--accent); }
+      nav a.nav-btn {
+        margin-right: 8px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(97, 218, 251, 0.35);
+        background: rgba(97, 218, 251, 0.1);
+      }
+      nav a.nav-btn:hover {
+        color: var(--text);
+        background: rgba(97, 218, 251, 0.2);
+      }
       main { padding:18px; max-width:1100px; margin:0 auto; }
       .grid { display:grid; gap:14px; grid-template-columns: repeat(12, 1fr); }
       .card { background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:14px; }
@@ -41,6 +52,7 @@
       </div>
       <nav>
         <a href="{{ url_for('routes.dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('routes.hdmi') }}" class="nav-btn">HDMI</a>
         <a href="{{ url_for('routes.calibration_get') }}">Calibration Hub</a>
         <a href="{{ url_for('routes.settings_get') }}">⚙️ Settings</a>
         <a href="{{ url_for('routes.logs_get') }}">Logs</a>

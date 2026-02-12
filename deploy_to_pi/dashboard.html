@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set weight_decimals = (display.get('weight_decimals', 1) if display else 1)|int %}
+{% set show_decimal = (display.get('show_decimal_point', True) if display else True) %}
 {% block content %}
 <style>
   .weight-display {
@@ -61,9 +62,10 @@
     text-align: center;
     font-size: 14px;
     color: var(--muted);
-    margin-bottom: 20px;
+    margin-bottom: 6px;
   }
   .tare-info.active { color: var(--warn); font-weight: 600; }
+  .tare-info.locked { color: #f39c12; }
 
   .info-section {
     display: grid;
@@ -178,7 +180,13 @@
     Tare: 0.0 lb
   </div>
   <div class="tare-info" id="zero-info" style="margin-top: 5px;">
-    Zero Offset: 0.000000 signal
+    Zero Offset: 0.000 lb (0.000000 mV)
+  </div>
+  <div class="tare-info" id="zero-tracking-info" style="margin-top: 5px;">
+    Zero Tracking: LOCKED
+  </div>
+  <div class="tare-info" id="zero-updated-info" style="margin-top: 5px;">
+    Zero Updated: --
   </div>
 </div>
 
@@ -245,13 +253,22 @@
 (function() {
   const POLL_INTERVAL_MS = {{ poll_rate_ms | default(500) | int }};
   const WEIGHT_DECIMALS = {{ weight_decimals }};
+  const SHOW_DECIMAL_POINT = {{ 'true' if show_decimal else 'false' }};
   let pollTimer = null;
   let lastStable = false;
+
+  function formatWeight(w) {
+    let s = w.toFixed(WEIGHT_DECIMALS);
+    if (!SHOW_DECIMAL_POINT && Number.isInteger(w)) {
+      s = Math.round(w).toString();
+    }
+    return s;
+  }
 
   function updateDashboard(data) {
     // Weight display
     const weight = data.weight.total_lbs;
-    document.getElementById('weight-value').textContent = weight.toFixed(WEIGHT_DECIMALS) + ' lb';
+    document.getElementById('weight-value').textContent = formatWeight(weight) + ' lb';
 
     // Stable pill
     const stablePill = document.getElementById('stable-pill');
@@ -290,15 +307,41 @@
       tareInfo.className = 'tare-info';
     }
 
-    // Zero offset info
-    const zeroOffset = data.weight.zero_offset_signal || 0;
+    // Zero offset + tracking info
+    const zeroOffsetMv = Number(data.weight.zero_offset_mv ?? data.weight.zero_offset_signal ?? 0);
+    const zeroOffsetLbs = Number(data.weight.zero_offset_lbs || 0);
     const zeroInfo = document.getElementById('zero-info');
-    if (Math.abs(zeroOffset) > 0.000001) {
-      zeroInfo.textContent = 'Zero Offset: ' + zeroOffset.toFixed(6) + ' signal';
+    zeroInfo.textContent =
+      'Zero Offset: ' + zeroOffsetLbs.toFixed(3) + ' lb (' + zeroOffsetMv.toFixed(6) + ' mV)';
+    if (Math.abs(zeroOffsetMv) > 0.000001 || Math.abs(zeroOffsetLbs) > 0.005) {
       zeroInfo.className = 'tare-info active';
     } else {
-      zeroInfo.textContent = 'Zero Offset: 0.000000 signal';
       zeroInfo.className = 'tare-info';
+    }
+
+    const zeroTrackingEnabled = Boolean(data.weight.zero_tracking_enabled);
+    const zeroTrackingActive = Boolean(data.weight.zero_tracking_active);
+    const zeroTrackingLocked = Boolean(data.weight.zero_tracking_locked);
+    const zeroTrackingReason = String(data.weight.zero_tracking_reason || 'locked');
+    const zeroTrackingInfo = document.getElementById('zero-tracking-info');
+    if (!zeroTrackingEnabled) {
+      zeroTrackingInfo.textContent = 'Zero Tracking: DISABLED';
+      zeroTrackingInfo.className = 'tare-info';
+    } else if (zeroTrackingActive && !zeroTrackingLocked) {
+      zeroTrackingInfo.textContent = 'Zero Tracking: ACTIVE (' + zeroTrackingReason + ')';
+      zeroTrackingInfo.className = 'tare-info active';
+    } else {
+      zeroTrackingInfo.textContent = 'Zero Tracking: LOCKED (' + zeroTrackingReason + ')';
+      zeroTrackingInfo.className = 'tare-info locked';
+    }
+
+    const zeroUpdatedInfo = document.getElementById('zero-updated-info');
+    const zeroUpdatedUtc = data.weight.zero_offset_updated_utc || null;
+    if (zeroUpdatedUtc) {
+      const timePart = zeroUpdatedUtc.split('T')[1] || zeroUpdatedUtc;
+      zeroUpdatedInfo.textContent = 'Zero Updated: ' + timePart.replace('+00:00', '');
+    } else {
+      zeroUpdatedInfo.textContent = 'Zero Updated: --';
     }
 
     // PLC Output
@@ -317,12 +360,20 @@
 
     // Raw data
     const channels = data.channels || [];
+    const fallbackRawMv = Number(data.weight.raw_signal_mv ?? data.weight.signal_for_cal ?? 0);
     let totalRawMv = 0;
-    channels.forEach(function(ch) {
-      if (ch.enabled && ch.polled) {
-        totalRawMv += ch.raw_mV || 0;
-      }
-    });
+    if (channels.length > 0) {
+      channels.forEach(function(ch) {
+        if (ch.enabled && ch.polled) {
+          totalRawMv += Number(ch.raw_mV || 0);
+        }
+      });
+    } else {
+      totalRawMv = fallbackRawMv;
+    }
+    if (!Number.isFinite(totalRawMv)) {
+      totalRawMv = fallbackRawMv;
+    }
     document.getElementById('raw-signal').textContent = totalRawMv.toFixed(3) + ' mV';
     document.getElementById('excitation').textContent = data.excitation.voltage_v.toFixed(2) + ' V';
     document.getElementById('signal-cal').textContent = data.weight.signal_for_cal.toFixed(6);

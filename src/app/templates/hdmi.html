@@ -23,8 +23,8 @@
 
     html, body {
       margin: 0;
-      width: 100%;
-      height: 100%;
+      width: 800px;
+      height: 480px;
       overflow: hidden;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       background: var(--bg);
@@ -33,27 +33,27 @@
     }
 
     .hdmi-root {
-      width: 100vw;
-      height: 100vh;
+      width: 800px;
+      height: 480px;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-      gap: 8px;
-      padding: 10px 12px;
+      grid-template-rows: 38px minmax(0, 1fr) 18px 54px 18px;
+      gap: 4px;
+      padding: 6px 8px;
     }
 
     .top-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 8px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 10px 14px;
+      border-radius: 8px;
+      padding: 4px 10px;
       background: rgba(255, 255, 255, 0.02);
     }
 
     .scale-name {
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 700;
       letter-spacing: 0.3px;
     }
@@ -61,7 +61,7 @@
     .status-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     .status-pill {
@@ -69,8 +69,8 @@
       align-items: center;
       border: 2px solid;
       border-radius: 999px;
-      padding: 5px 12px;
-      font-size: 13px;
+      padding: 3px 10px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.3px;
     }
@@ -81,8 +81,8 @@
 
     .main-content {
       display: grid;
-      grid-template-columns: 1.35fr 1fr;
-      gap: 10px;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 6px;
       min-height: 0;
     }
 
@@ -93,13 +93,13 @@
       justify-content: center;
       text-align: center;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
+      border-radius: 12px;
       background: var(--card);
-      padding: 12px 14px;
+      padding: 6px 10px;
     }
 
     .weight-value {
-      font-size: clamp(58px, 11vw, 96px);
+      font-size: 80px;
       font-weight: 800;
       letter-spacing: -1.5px;
       line-height: 0.95;
@@ -108,14 +108,14 @@
 
     .weight-unit {
       margin-top: 2px;
-      font-size: 20px;
+      font-size: 18px;
       color: var(--muted);
       font-weight: 600;
     }
 
     .weight-meta {
-      margin-top: 8px;
-      font-size: 16px;
+      margin-top: 4px;
+      font-size: 13px;
       color: var(--muted);
     }
 
@@ -133,17 +133,17 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 10px;
+      gap: 2px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
+      border-radius: 12px;
       background: var(--card);
-      padding: 12px 14px;
+      padding: 8px 10px;
       min-height: 0;
     }
 
     .totals-title {
-      margin: 0 0 8px;
-      font-size: 14px;
+      margin: 0 0 2px;
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.4px;
       color: var(--muted);
@@ -152,52 +152,51 @@
 
     .totals-grid {
       display: grid;
-      gap: 8px;
+      gap: 0;
     }
 
     .totals-row {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      padding: 7px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 6px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .totals-row:last-child {
       border-bottom: none;
-      padding-bottom: 2px;
+      padding-bottom: 0;
     }
 
     .totals-label {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--muted);
       font-weight: 600;
     }
 
     .totals-value {
-      font-size: 30px;
+      font-size: 24px;
       line-height: 1;
       font-weight: 800;
-      letter-spacing: -0.8px;
+      letter-spacing: -0.6px;
       color: var(--text);
       white-space: nowrap;
     }
 
     .totals-note {
-      margin-top: 4px;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      line-height: 1.25;
+      line-height: 1.2;
     }
 
     .btn-shift-clear {
-      min-height: 46px;
+      min-height: 34px;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       background: #3f5363;
       color: white;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 800;
       letter-spacing: 0.2px;
       cursor: pointer;
@@ -209,9 +208,9 @@
     .btn-shift-clear:hover { filter: brightness(1.05); }
 
     .feedback {
-      min-height: 22px;
+      min-height: 18px;
       text-align: center;
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 600;
     }
 
@@ -221,15 +220,15 @@
     .button-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
+      gap: 6px;
     }
 
     .btn {
-      min-height: 64px;
+      min-height: 54px;
       border: none;
-      border-radius: 12px;
+      border-radius: 10px;
       color: white;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: 0.2px;
       cursor: pointer;
@@ -250,34 +249,27 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
     }
 
     .conn-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       display: inline-block;
-      margin-right: 6px;
+      margin-right: 4px;
       vertical-align: middle;
     }
 
     .conn-dot.ok { background: var(--ok); }
     .conn-dot.bad { background: var(--bad); }
-
-    @media (max-width: 760px) {
-      .scale-name { font-size: 16px; }
-      .main-content { grid-template-columns: 1fr; }
-      .button-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .btn { min-height: 56px; font-size: 18px; }
-      .bottom-meta { gap: 12px; font-size: 12px; }
-    }
   </style>
 </head>
 <body>
   {% set weight_decimals = (display.get('weight_decimals', 1) if display else 1)|int %}
+  {% set show_decimal = (display.get('show_decimal_point', True) if display else True) %}
   <div class="hdmi-root">
     <header class="top-bar">
       <div class="scale-name">{{ (display.get('name') if display else None) or 'Scale' }} HDMI</div>
@@ -307,19 +299,28 @@
 
       <section class="totals-panel">
         <div>
-          <p class="totals-title">Production Totals</p>
+          <p class="totals-title">Processed Weight</p>
           <div class="totals-grid">
             <div class="totals-row">
-              <span class="totals-label">Daily Weight</span>
+              <span class="totals-label">Shift</span>
+              <span class="totals-value" id="shift-total-value">0.0 lb</span>
+            </div>
+            <div class="totals-row">
+              <span class="totals-label">Today</span>
               <span class="totals-value" id="daily-total-value">0.0 lb</span>
             </div>
             <div class="totals-row">
-              <span class="totals-label">Shift Weight</span>
-              <span class="totals-value" id="shift-total-value">0.0 lb</span>
+              <span class="totals-label">Loads</span>
+              <span class="totals-value" id="dump-count-value">0</span>
+            </div>
+            <div class="totals-row">
+              <span class="totals-label">Avg Load</span>
+              <span class="totals-value" id="avg-dump-value">0.0 lb</span>
             </div>
           </div>
         </div>
-        <button type="button" class="btn-shift-clear" id="btn-shift-clear">CLEAR SHIFT TOTAL</button>
+        <div class="totals-note" id="shift-start-time">Shift started: --</div>
+        <button type="button" class="btn-shift-clear" id="btn-shift-clear">CLEAR SHIFT</button>
       </section>
     </section>
 
@@ -344,8 +345,17 @@
     (function() {
       const POLL_MS = {{ poll_rate_ms | default(500) | int }};
       const WEIGHT_DECIMALS = {{ weight_decimals }};
+      const SHOW_DECIMAL_POINT = {{ 'true' if show_decimal else 'false' }};
       let pollTimer = null;
       let lastStable = false;
+
+      function formatWeight(w) {
+        var s = w.toFixed(WEIGHT_DECIMALS);
+        if (!SHOW_DECIMAL_POINT && Number.isInteger(w)) {
+          s = Math.round(w).toString();
+        }
+        return s;
+      }
 
       function showFeedback(message, isError) {
         const feedback = document.getElementById("feedback");
@@ -374,7 +384,7 @@
         const fault = Boolean(data.system.fault);
         lastStable = stable;
 
-        document.getElementById("weight-value").textContent = weight.toFixed(WEIGHT_DECIMALS);
+        document.getElementById("weight-value").textContent = formatWeight(weight);
 
         const stablePill = document.getElementById("stable-pill");
         setStatusPill(stablePill, "STABLE", "UNSTABLE", stable);
@@ -447,12 +457,29 @@
           document.getElementById("last-update").textContent = timePart.replace("+00:00", "");
         }
 
-        // Update production totals
+        // Update processed weight totals
         if (data.production) {
           const dailyTotal = Number(data.production.totals?.day || 0);
           const shiftTotal = Number(data.production.shift_total_lbs || 0);
-          document.getElementById("daily-total-value").textContent = dailyTotal.toFixed(1) + " lb";
+          const dumpCount = Number(data.production.dump_count_today || 0);
+          const avgDump = Number(data.production.avg_dump_lbs || 0);
           document.getElementById("shift-total-value").textContent = shiftTotal.toFixed(1) + " lb";
+          document.getElementById("daily-total-value").textContent = dailyTotal.toFixed(1) + " lb";
+          document.getElementById("dump-count-value").textContent = String(dumpCount);
+          document.getElementById("avg-dump-value").textContent = avgDump.toFixed(1) + " lb";
+
+          var shiftStartUtc = data.production.shift_start_utc || "";
+          if (shiftStartUtc) {
+            try {
+              var shiftDt = new Date(shiftStartUtc);
+              var shiftTimeStr = shiftDt.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+              document.getElementById("shift-start-time").textContent = "Shift started: " + shiftTimeStr;
+            } catch(e) {
+              document.getElementById("shift-start-time").textContent = "Shift started: " + shiftStartUtc;
+            }
+          } else {
+            document.getElementById("shift-start-time").textContent = "Shift started: --";
+          }
         }
       }
 
@@ -509,7 +536,8 @@
       });
 
       document.getElementById("btn-shift-clear").addEventListener("click", function() {
-        postAction("/api/production/shift/clear", "Shift total cleared");
+        if (!window.confirm("Clear shift total and start a new shift?")) return;
+        postAction("/api/production/shift/clear", "Shift cleared");
       });
 
       poll();

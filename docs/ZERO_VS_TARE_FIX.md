@@ -65,19 +65,25 @@ raw_weight = curve.weight_from_signal(float(calibrated_signal))
 - Calibrated signal: 5.85 - 0.24 = 5.61 mV
 - Calibration says: 5.61 mV = **0 lbs** ✓
 
-### 3. Implemented Zero Tracking (Automatic Drift Compensation)
+### 3. Implemented Robust Zero Tracking (Automatic Drift Compensation)
 
-**File: `src/services/acquisition.py`**
+**Files: `src/services/acquisition.py`, `src/core/zero_tracking.py`**
 
-Zero tracking automatically adjusts the zero offset when:
+Zero tracking automatically adjusts the zero offset when ALL conditions are met:
 - The scale is **stable** (not moving/settling)
-- Weight reading is within the **zero tracking range** (e.g., ±0.5 lbs)
-- Scale is essentially empty
+- Weight reading is within the **zero tracking range** (e.g., ±1.0 lbs)
+- Scale has been **unloaded + stable** for the hold time (6 seconds)
+- No tare is active (container weight)
+- Weight error is **outside deadband** (>0.1 lb)
+- Calibration exists (has lbs/mV slope)
 
-**Settings in UI:**
+**Settings in UI (Settings → Zero & Scale):**
 - **Enable Zero Tracking:** ON/OFF (recommended ON)
-- **Zero Tracking Range:** 0.5 lb (only tracks when within ±0.5 lbs of zero)
-- **Zero Tracking Rate:** 0.1 lb/s (how fast corrections are applied)
+- **Zero Tracking Range:** 1.0 lb (only tracks when within ±1.0 lbs of zero)
+- **Zero Tracking Deadband:** 0.1 lb (stops correcting when close enough)
+- **Zero Tracking Hold Time:** 6.0 s (wait period before tracking starts)
+- **Zero Tracking Rate:** 0.1 lb/s (max correction speed, smooth and gradual)
+- **Persist Interval:** 1.0 s (how often to save offset to disk)
 
 ---
 
@@ -172,11 +178,14 @@ Adding 100 lbs:
 - [ ] Add a known weight → verify calibration factor is still correct
 
 ### Test Zero Tracking
+- [ ] Press ZERO button first to fix current drift
 - [ ] Enable zero tracking in Settings → Zero & Scale
-- [ ] Set range to 0.5 lb, rate to 0.1 lb/s
-- [ ] Let scale drift overnight
-- [ ] Monitor logs for "ZERO_TRACKING_ADJUSTMENT" events
-- [ ] Verify scale automatically returns to 0 lbs
+- [ ] Set range to 1.0 lb, deadband to 0.1 lb, hold to 6-10 sec
+- [ ] Let scale sit empty - should show "ACTIVE" status after hold time
+- [ ] Add weight (>1 lb) - should lock immediately
+- [ ] Remove weight - should resume after 6 sec
+- [ ] Monitor logs for "ZERO_TRACKING_STATE" and "ZERO_TRACKING_APPLIED" events
+- [ ] Let scale drift overnight - verify it auto-corrects within ±0.1 lb
 
 ### Test TARE Still Works
 - [ ] Place a container on scale (e.g., 10 lbs)
@@ -190,11 +199,15 @@ Adding 100 lbs:
 
 | Field | Location | Description |
 |-------|----------|-------------|
-| `zero_offset_signal` | `scale` config | Signal offset applied before calibration (mV) |
+| `zero_offset_mv` / `zero_offset_signal` | `scale` config | Signal offset applied before calibration (mV) |
+| `zero_offset_updated_utc` | `scale` config | Timestamp of last zero update |
 | `tare_offset_lbs` | `scale` config | Weight offset applied after calibration (lbs) |
-| `zero_tracking.enabled` | config | Enable automatic drift compensation |
-| `zero_tracking.range_lb` | config | Weight range for activation (default: 0.5 lb) |
+| `zero_tracking.enabled` | config | Enable automatic drift compensation (default: true) |
+| `zero_tracking.range_lb` | config | Weight range for activation (default: 1.0 lb) |
+| `zero_tracking.deadband_lb` | config | Stop correcting when inside this band (default: 0.1 lb) |
+| `zero_tracking.hold_s` | config | Wait time before tracking starts (default: 6.0 s) |
 | `zero_tracking.rate_lbs` | config | Maximum correction rate (default: 0.1 lb/s) |
+| `zero_tracking.persist_interval_s` | config | How often to save offset during tracking (default: 1.0 s) |
 
 ---
 
@@ -202,8 +215,17 @@ Adding 100 lbs:
 
 | Button | What it does | When to use | Fixes drift? |
 |--------|--------------|-------------|--------------|
-| **ZERO** | Adjusts signal offset to compensate for drift | Scale shows weight when empty | ✅ Yes |
+| **ZERO** | Adjusts signal offset to compensate for drift | Scale shows weight when empty | ✅ Yes (instant) |
 | **TARE** | Subtracts weight offset | Container on scale | ❌ No |
-| **Zero Tracking** | Automatically adjusts ZERO offset | Always (when enabled) | ✅ Yes (automatic) |
+| **Zero Tracking** | Automatically adjusts ZERO offset when conditions met | Always (when enabled) | ✅ Yes (gradual, automatic) |
 
-The 7 lb overnight drift is now handled correctly - either automatically by zero tracking, or manually with the ZERO button. The calibration relationship (mV per pound) is preserved!
+**Zero Tracking Status (visible on dashboard):**
+- **ACTIVE (tracking):** Corrections happening now
+- **ACTIVE (deadband):** Close enough, no correction needed
+- **LOCKED (holdoff):** Waiting for hold timer (6 sec)
+- **LOCKED (load_present):** Weight on scale, won't adjust
+- **LOCKED (unstable):** Scale bouncing, won't adjust
+- **LOCKED (tare_active):** Container weight set, won't adjust
+- **DISABLED:** Feature turned off in settings
+
+The 4+ lb overnight drift is now handled correctly - either automatically by zero tracking (if enabled and within range), or manually with the ZERO button. The calibration slope (mV per pound) is always preserved!

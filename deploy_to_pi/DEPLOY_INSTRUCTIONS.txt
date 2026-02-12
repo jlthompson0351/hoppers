@@ -1,42 +1,34 @@
-ZERO vs TARE Fix - Deployment to Pi
-=====================================
+App Deployment to Pi
+====================
 
-FILES TO COPY TO PI:
--------------------
-1. src/app/routes.py
-2. src/services/acquisition.py
-3. src/db/repo.py
-4. src/app/templates/dashboard.html
-5. src/app/templates/settings.html
-6. src/app/templates/scale_settings.html
+TARGET:
+- Host: `172.16.190.25` (override with `PI_HOST` env var)
+- App path: `/opt/loadcell-transmitter`
+
+FILES TO COPY:
+--------------
+1. `src/app/routes.py`
+2. `src/services/acquisition.py`
+3. `src/db/repo.py`
+4. `src/core/zero_tracking.py`
+5. `src/core/zeroing.py`
+6. `src/app/templates/dashboard.html`
+7. `src/app/templates/settings.html`
+8. `src/app/templates/scale_settings.html`
+9. `src/app/templates/calibration.html`
 
 DEPLOYMENT STEPS:
-----------------
-1. Copy these 6 files to the Pi (same paths)
-   - Use WinSCP, FileZilla, or command line
-   
-2. SSH into the Pi:
-   ssh pi@172.16.190.15
+-----------------
+1. Copy files above to matching locations under `/opt/loadcell-transmitter`.
+2. Restart service:
+   `sudo systemctl restart loadcell-transmitter`
+3. Confirm service is healthy:
+   `sudo systemctl status loadcell-transmitter`
+4. Verify UI at:
+   `http://172.16.190.25:8080`
 
-3. Restart the service:
-   sudo systemctl restart loadcell-transmitter
-
-4. Check status:
-   sudo systemctl status loadcell-transmitter
-
-5. Test the ZERO button on the web interface
-
-WHAT WAS FIXED:
---------------
-- ZERO button now updates calibration baseline (zero_offset_signal)
-- ZERO is no longer doing the same thing as TARE
-- Zero tracking feature is now fully implemented and functional
-- This fixes the 7 lb overnight drift issue you were experiencing
-
-VERIFY IT WORKS:
----------------
-- After restart, go to http://172.16.190.15:8080
-- Hard refresh the page (Ctrl+Shift+R)
-- Click ZERO button when scale is stable
-- Check that "Zero Offset:" value changes (not "Tare:")
-- Enable zero tracking in Settings > Zero & Scale
+NOTES:
+------
+- If `routes.py` is root-owned, upload to `/tmp/routes.py` then:
+  `sudo cp /tmp/routes.py /opt/loadcell-transmitter/src/app/routes.py`
+- Hard refresh browser after deploy (`Ctrl+Shift+R`).

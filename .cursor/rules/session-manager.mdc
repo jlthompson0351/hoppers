@@ -1,0 +1,36 @@
+---
+description: Managing project context and daily logs. Use when user says "wrap up", "restore context", or "start session".
+globs: DAILY_LOG.md
+---
+# Daily Log & Context Rules
+
+You are responsible for maintaining the `DAILY_LOG.md` file, which is the source of truth for project state.
+
+## 1. Context Restoration (Start of Session)
+When the user asks to "restore context" or "start session":
+1.  Read `DAILY_LOG.md`.
+2.  Summarize the `<status>`, `<current_goals>`, and `<next_steps>` for the user.
+3.  Ask "Shall we proceed with the first step?"
+
+## 2. Session Wrap-up (End of Session)
+When the user says "wrap up", "log work", or "end session":
+1.  Analyze all changes made in this session (files edited, tasks completed).
+2.  **UPDATE** the "Current Context" section in `DAILY_LOG.md`:
+    - Update `<status>` if changed.
+    - Check off completed items in `<current_goals>`.
+    - Add new items to `<recent_decisions>` if applicable.
+    - Update `<next_steps>` for the *next* session.
+3.  **APPEND** a new entry to "Log History" using this format:
+    ```markdown
+    ### YYYY-MM-DD
+    **Focus:** [One sentence summary]
+    - **Completed:** [List of changes]
+    - **Decisions:** [Any architectural choices]
+    - **Blockers:** [Any unresolved issues]
+    ```
+4.  Present the proposed changes to `DAILY_LOG.md` for user review before saving.
+
+## 3. General Behavior
+- NEVER delete the "Log History". Only append to it.
+- ALWAYS keep the "Current Context" section at the top of the file.
+- Use the XML tags (`<status>`, etc.) strictly to maintain parseability.

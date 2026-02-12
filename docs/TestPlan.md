@@ -44,7 +44,8 @@ This document describes the general test strategy. For a step-by-step deployment
 - Add several points for both modes.
 - Verify points appear on PLC Profile page and persist.
 
-### TP-05 Fault Safe Output
+### TP-05 Fault Safe Output (Excitation Monitoring Enabled)
+- Ensure **Enable Excitation Monitoring** is ON.
 - Force excitation below fault threshold (disconnect excitation source or use variable supply).
 - Verify:
   - fault flag set
@@ -83,6 +84,7 @@ This document describes the general test strategy. For a step-by-step deployment
 ### TP-08 Excitation Measurement
 - Verify excitation readback in UI matches DMM within tolerance.
 - Verify warning and fault thresholds trigger at expected voltages.
+- Toggle **Enable Excitation Monitoring** OFF and verify excitation no longer drives fault-safe output.
 - **Automated helper**: `test_hardware_basic.sh` checks board presence
 
 ### TP-09 Load Cell Channel Sanity

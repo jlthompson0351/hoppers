@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 DDL_V1 = """
@@ -89,4 +89,53 @@ CREATE TABLE IF NOT EXISTS production_totals (
 );
 """
 
+
+DDL_V2 = """
+CREATE TABLE IF NOT EXISTS throughput_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp_utc TEXT NOT NULL,
+  processed_lbs REAL NOT NULL,
+  full_lbs REAL,
+  empty_lbs REAL,
+  duration_ms INTEGER,
+  confidence REAL,
+  device_id TEXT,
+  hopper_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_throughput_events_ts ON throughput_events(timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_throughput_events_device_ts ON throughput_events(device_id, timestamp_utc);
+
+-- Best-effort backfill from legacy dump table, preserving historical data.
+INSERT INTO throughput_events(
+  timestamp_utc,
+  processed_lbs,
+  full_lbs,
+  empty_lbs,
+  duration_ms,
+  confidence,
+  device_id,
+  hopper_id,
+  created_at
+)
+SELECT
+  pd.ts,
+  pd.processed_lbs,
+  pd.prev_stable_lbs,
+  pd.new_stable_lbs,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  pd.ts
+FROM production_dumps pd
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM throughput_events te
+  WHERE te.timestamp_utc = pd.ts
+    AND ABS(te.processed_lbs - pd.processed_lbs) < 1e-9
+    AND ABS(COALESCE(te.full_lbs, 0.0) - pd.prev_stable_lbs) < 1e-9
+    AND ABS(COALESCE(te.empty_lbs, 0.0) - pd.new_stable_lbs) < 1e-9
+);
+"""
 

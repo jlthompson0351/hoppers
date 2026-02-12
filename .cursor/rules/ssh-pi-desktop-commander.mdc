@@ -1,0 +1,36 @@
+---
+description: Use MCP Desktop Commander for SSH connections to Raspberry Pi kiosks
+alwaysApply: true
+---
+
+# SSH to Raspberry Pi: Use Desktop Commander
+
+When connecting to Raspberry Pi kiosks via SSH, **ALWAYS use the MCP Desktop Commander tool** (`user-desktop-commander-start_process`), not standard Shell commands.
+
+## Why Desktop Commander?
+
+- ✅ Proper handling of interactive SSH sessions
+- ✅ Better output capture and monitoring
+- ✅ Supports password-based authentication with plink
+- ✅ Manages persistent connections for fleet operations
+
+## Correct Approach
+
+```typescript
+// Use Desktop Commander start_process
+user-desktop-commander-start_process({
+  command: "plink -ssh pi@192.168.1.100 -pw raspberry 'ls -la /home/pi'",
+  timeout_ms: 10000
+})
+```
+
+## What NOT to Do
+
+```bash
+# ❌ DON'T use Shell tool for SSH
+ssh pi@192.168.1.100
+```
+
+## Related
+
+For comprehensive Pi SSH operations, use the **ssh-fleet-manager** skill which provides full fleet management capabilities with Desktop Commander.

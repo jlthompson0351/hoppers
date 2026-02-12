@@ -50,3 +50,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Local backup artifacts (do not commit)
+backups/
+*.img

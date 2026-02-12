@@ -2,7 +2,7 @@
 
 ## 🎯 LIVE SYSTEM (December 18, 2025)
 
-**Dashboard:** http://172.16.190.15:8080
+**Dashboard:** http://172.16.190.25:8080
 
 | Component | Status | Details |
 |-----------|--------|---------|
@@ -16,8 +16,8 @@
 ## 1. Overview
 The system is split into three layers:
 - **Hardware layer (`src/hw/`)**: Interfaces and **Real Sequent drivers** (via `smbus2`). System always uses real hardware with automatic retry if offline.
-- **Core logic (`src/core/`)**: Filtering, stability, calibration, PLC mapping, drift and dump detection. No direct hardware/DB calls.
-- **Services/UI (`src/services/`, `src/app/`)**: Background acquisition loop, analog output writer, SQLite repositories, and Flask web UI.
+- **Core logic (`src/core/`)**: Filtering, stability, zero tracking, and zeroing helpers. No direct hardware/DB calls.
+- **Services/UI (`src/services/`, `src/app/`)**: Background acquisition loop, analog output writer, SQLite repositories, Flask web UI, and **HDMI Operator Interface**.
 
 Key principle: **hardware IO is dependency-injected** via `src/hw/factory.py`.
 
@@ -27,11 +27,13 @@ Key principle: **hardware IO is dependency-injected** via `src/hw/factory.py`.
   - Sequent MegaIND (megaind-rpi) mounted directly on the Pi (bottom, closest to Pi)
   - Sequent 24b8vin (24b8vin-rpi) stacked on top of the MegaIND (top)
   - Sequent Super Watchdog (provides power + UPS)
+  - **HDMI Display**: Elecrow 5" 800x480 touch display connected via HDMI + USB (for touch).
 - **Communications**: all boards communicate with the Raspberry Pi exclusively over the Pi’s **I2C bus** (I2C port).
 - **Driver Stack**:
   - `megaind-rpi` (CLI + Python) for MegaIND
   - `24b8vin-rpi` (CLI + Python `SM24b8vin`) for DAQ
   - **New**: `src/hw/sequent_*.py` drivers wrap these for direct app integration.
+  - **Kiosk**: Chromium-browser in kiosk mode for the HDMI display.
 
 ### 1.2 Verified I2C Configuration (December 18, 2025)
 
@@ -55,44 +57,46 @@ $ sudo i2cdetect -y 1
 | Property | Value |
 |----------|-------|
 | **Hostname** | `Hoppers` |
-| **IP Address** | `172.16.190.15` |
-| **Dashboard URL** | http://172.16.190.15:8080 |
+| **IP Address** | `172.16.190.25` |
+| **Dashboard URL** | http://172.16.190.25:8080 |
 | **Network** | `Magni-Guest` |
 | **OS** | Debian GNU/Linux (aarch64), Kernel 6.12.47 |
 | **SSH** | Enabled, running on port 22 |
 
-### 1.4 Deployment Details (December 18, 2025)
+### 1.4 HDMI Operator Interface (Updated Feb 2026)
+- **HDMI Page**: `/hdmi` route serving a touch-optimized UI.
+- **Layout**: Two-column 800x480 layout with centered live-weight card and right-side daily/shift placeholder totals panel.
+- **Weight Metadata**: HDMI card mirrors dashboard zero diagnostics (`Tare`, `Zero Offset`, `Zero Tracking`, `Zero Updated`) from `/api/snapshot`.
+- **Kiosk Service**: `kiosk.service` (systemd user unit) auto-launches Chromium to `/hdmi` at boot.
+- **Remote Launch**: Dashboard includes buttons to trigger or force-relaunch the kiosk browser on the Pi display.
+- **Resolution**: Fixed 800x480 layout for industrial touch panels.
 
-| Path | Description |
-|------|-------------|
-| `/opt/loadcell-transmitter/` | Application root |
-| `/opt/loadcell-transmitter/src/` | Python source code |
-| `/opt/loadcell-transmitter/.venv/` | Python virtual environment |
-| `/var/lib/loadcell-transmitter/` | Data directory (SQLite DB) |
-| `/etc/systemd/system/loadcell-transmitter.service` | Systemd service |
-
-**Service Management:**
-```bash
-sudo systemctl status loadcell-transmitter   # Check status
-sudo systemctl restart loadcell-transmitter  # Restart
-sudo journalctl -u loadcell-transmitter -f   # View logs
-```
+### 1.5 Load Cell Architecture (Updated Feb 2026)
+**Single-Channel Summing Mode:**
+- All load cells are wired to a **Summing Board** (Junction Box).
+- The Summing Board outputs a single combined signal.
+- This signal is wired to **DAQ Channel 1**.
+- **Software Implication:** Acquisition loop reads Channel 1 as the "Total Raw Signal". Channels 2-8 are disabled.
+- **Trade-off:** Simplifies wiring but removes ability to detect individual load cell drift/failure in software.
 
 ## 2. Processes and Threads
 - **Main process**: single Python process.
 - **Background acquisition thread**: periodic loop (target configurable rate) that:
   - reads DAQ channels (mV)
   - reads excitation analog input (V)
-  - performs ratiometric normalization (optional)
-  - filters and detects stability
-  - computes total weight and per-channel ratios
-  - performs drift detection and dump detection
+  - applies zero offset (baseline drift correction)
+  - applies weight calibration (single-point or two-point linear)
+  - filters with Kalman and detects stability
+  - applies tare offset (weight domain)
+  - runs zero tracking state machine (auto drift correction)
   - computes PLC analog output command and writes to MegaIND AO
   - persists trends/events/totals into SQLite
 - **Flask thread pool** (waitress):
   - Serves UI templates (initial render).
   - Serves **JSON API** (`/api/snapshot`) for client-side polling.
   - Handles configuration/calibration commands.
+  - **HDMI Control API**: `/api/hdmi/launch` and `/api/hdmi/force-launch` for remote kiosk management.
+- **Chromium Process**: Independent browser process running in kiosk mode, managed by `kiosk.service`.
 
 ### 2.1 Channel enablement invariant (required)
 The acquisition loop and all downstream logic shall treat **disabled DAQ channels** as non-participating data sources. Disabled channels must not affect:
@@ -105,26 +109,24 @@ The acquisition loop and all downstream logic shall treat **disabled DAQ channel
 
 ```mermaid
 graph TD
-  Daq[DAQ_24b8vin] -->|raw_mV_per_ch| Acq[AcquisitionLoop]
-  ExcAI[MegaIND_AI] -->|excitation_V| Acq
-  Acq --> Norm[RatiometricNormalization]
-  Norm --> Filter[IIR_LowPass]
-  Filter --> Stable[StabilityDetector]
-  Stable --> Cal[CalibrationCurve_PWL]
-  Cal --> Total[TotalWeightAndPerCellRatios]
-  Total --> Drift[DriftDetector]
-  Total --> Dump[DumpDetector]
-  Total --> PlcMap[PLCProfileCurve_PWL]
-  PlcMap --> Out[AnalogOutputWriter]
-  Out --> MegaAO[MegaIND_AO]
-  Acq --> Repo[SQLiteRepo]
-  Drift --> Repo
-  Dump --> Repo
-  Startup[Startup] -->|I2C Scan| Discovery[BoardDiscovery]
-  Discovery --> State[LiveState]
-  Acq --> State
-  Flask[FlaskUI] -->|Poll /api/snapshot| State
-  Flask -->|save config, add points| Repo
+  daq[DAQ_24b8vin] -->|raw_mV| acq[AcquisitionLoop]
+  exc[MegaIND_AI] -->|excitation_V| acq
+  acq --> zeroOffset[ApplyZeroOffset]
+  zeroOffset --> calLinear[CalLinear_1_or_2_Point]
+  calLinear --> kalman[KalmanFilter]
+  kalman --> tare[ApplyTareOffset]
+  tare --> stable[StabilityDetector]
+  stable --> zeroTrack[ZeroTracking]
+  zeroTrack --> out[AnalogOutputWriter]
+  out --> megaAo[MegaIND_AO]
+  acq --> repo[SQLiteRepo]
+  startup[Startup] -->|I2CScan| discovery[BoardDiscovery]
+  discovery --> state[LiveState]
+  acq --> state
+  flask[FlaskUI] -->|Poll_api_snapshot| state
+  flask -->|SaveConfig_and_AddPoints| repo
+  flask -->|Launch_or_Force| kiosk[ChromiumKiosk]
+  kiosk -->|Poll_api_snapshot| state
 ```
 
 ## 4. Key Modules
@@ -141,37 +143,44 @@ graph TD
 - Converts desired weight to analog output based on:
   - clamping to min/max range
   - output mode (0–10V vs 4–20mA)
-  - **Proportional Mapping**: Uses a piece-wise linear curve to map weight directly to analog values (V/mA) to match PLC displays.
+  - **Proportional Mapping**: linear scaling from configured weight range to output span.
+  - optional deadband and ramp limiting
 - Implements safe output policy on fault.
 
 ### 4.3 `src/core/filtering.py`
-- Kalman Filter (Preferred): Zero-lag optimal estimation.
-- Simple exponential IIR low-pass (\(y[n] = y[n-1] + \alpha(x[n]-y[n-1])\)).
-- Stability detector based on rolling window variability and derivative.
+- **Kalman Filter** (Preferred): Zero-lag optimal estimation
+- **StabilityDetector**: Windowed stddev + slope thresholds
+- **MedianFilter**: Spike rejection (optional)
+- **NotchFilter**: 50/60 Hz rejection (optional)
 
-### 4.4 `src/core/calibration.py`
-- Stores weight calibration points (signal -> true weight).
-- Uses piecewise-linear interpolation to map signal → weight.
+### 4.4 `src/core/zero_tracking.py`
+- **ZeroTracker**: State machine for auto drift correction
+- **Safety gates**: hold timer, deadband, range limit, spike detection
+- **Rate limiting**: Smooth gradual corrections (0.1 lb/s max)
+- **Persistence throttling**: Reduces SD card wear
 
-### 4.5 `src/core/plc_profile.py`
-- Stores "Match Points" (true weight -> commanded V/mA).
-- Interpolates desired lbs → analog command so the PLC display exactly matches the scale reading.
-- Stored separately per output mode (0-10V or 4-20mA).
+### 4.5 `src/core/zeroing.py`
+- **compute_zero_offset()**: Manual ZERO baseline calculation
+- **calibration_zero_signal()**: Find 0 lb point in calibration
+- **estimate_lbs_per_mv()**: Extract calibration slope
+- Calibration helpers provide zero-point lookup and slope estimation for runtime mapping.
 
-### 4.6 `src/core/drift.py`
-- Tracks per-channel ratio contribution vs baseline.
-- Flags warning if deviation persists above threshold during stable operation.
+### 4.6 `src/db/repo.py` + calibration points
+- Stores calibration points (signal -> known weight) in SQLite.
+- Captures are append-only; same-weight rows are preserved as history.
+- Runtime currently uses one-point or two-point linear calibration derived from endpoint points.
 
-### 4.7 `src/core/dump_detection.py`
-- Detects large negative step from one stable weight plateau to another.
-- Adds delta to production totals and logs dump event.
+### 4.7 Excitation + fault handling
+- Acquisition loop reads configured MegaIND analog input for excitation health when `cfg.excitation.enabled` is true.
+- Warn/fault thresholds are configurable in `cfg.excitation`.
+- DAQ offline and MegaIND offline always drive the fault model; excitation fault contributes only when excitation monitoring is enabled.
 
 ## 5. SQLite Data Model (scaffold-level)
 - `schema_version`: DB schema version
 - `config_versions`: versioned config JSON blobs
 - `events`: faults/warnings/info events with details JSON
-- `calibration_points`: saved calibration points (signal, known weight, ratiometric flag)
-- `plc_profile_points`: saved PLC profile points per mode
+- `calibration_points`: saved calibration points (signal, known weight, legacy `ratiometric` flag)
+- `plc_profile_points`: optional PLC mapping curve points (used when 2+ points exist for active mode; otherwise linear range fallback is used)
 - `trends_excitation`: excitation voltage samples
 - `trends_channels`: per-channel raw and filtered signals
 - `trends_total`: total weight samples with stability flag

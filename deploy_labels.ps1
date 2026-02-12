@@ -1,4 +1,4 @@
-$PI_HOST = "pi@172.16.190.15"
+$PI_HOST = "pi@172.16.190.25"
 $PI_PATH = "/opt/loadcell-transmitter"
 $ROOT = "C:\Users\jthompson\Desktop\hoppers"
 $PW = "depor"

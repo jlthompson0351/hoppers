@@ -99,6 +99,7 @@
   <div class="tab" data-tab="output">Output Control</div>
   <div class="tab" data-tab="alarms">Alarms &amp; Limits</div>
   <div class="tab" data-tab="daq">DAQ Channels</div>
+  <div class="tab" data-tab="buttons">Buttons</div>
   <div class="tab" data-tab="detection">Detection</div>
   <div class="tab" data-tab="timing">Timing</div>
   <div class="tab" data-tab="logging">Logging</div>
@@ -386,6 +387,34 @@
             <option value="1" {% if display.get('weight_decimals', 1) == 1 %}selected{% endif %}>1 - One decimal (75.2 lb)</option>
             <option value="2" {% if display.get('weight_decimals', 1) == 2 %}selected{% endif %}>2 - Two decimals (75.24 lb)</option>
           </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Round Up to Nearest Pound</div>
+          <div class="setting-help">
+            Always rounds weight UP to the next whole number (ceiling).<br>
+            <strong>24.2 &rarr; 25, 24.9 &rarr; 25, 25.0 &rarr; 25, 25.1 &rarr; 26</strong><br>
+            Applies to both the display <strong>AND</strong> PLC output. Useful when scale reads consistently light.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="checkbox" name="round_up_enabled" value="1" {% if display.get('round_up_enabled', False) %}checked{% endif %}>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Show Decimal Point</div>
+          <div class="setting-help">
+            Controls whether whole numbers show a decimal point.<br>
+            <strong>ON:</strong> "25.0 lb" &mdash; <strong>OFF:</strong> "25 lb"<br>
+            Only affects the display format, not precision or PLC output.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="checkbox" name="show_decimal_point" value="1" {% if display.get('show_decimal_point', True) %}checked{% endif %}>
         </div>
       </div>
     </div>
@@ -845,25 +874,48 @@
   <!-- ============== DAQ CHANNELS TAB ============== -->
   <div class="tab-content" id="tab-daq">
     <div class="info-box">
-      <strong>📡 DAQ Channel Configuration</strong> Configure the 8 analog input channels on the 24b8vin board.
-      Enable only the channels connected to load cells and set the appropriate gain for your signal level.
+      <strong>📡 DAQ Configuration (Summing Mode)</strong>
+      <br>
+      Since you are using a <strong>Summing Board</strong>, all load cells are combined into a single signal.
+      Select which DAQ channel receives this combined signal.
     </div>
     
     <div class="section">
-      <div class="section-title">DAQ Board Settings</div>
+      <div class="section-title">Primary Input Channel</div>
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stack Level</div>
+          <div class="setting-label">Active Channel</div>
           <div class="setting-help">
-            I2C address offset for the 24b8vin board. Usually 0 unless you have multiple DAQ boards stacked.
-            Address = 0x31 + Stack Level
+            Which DAQ channel is connected to the Summing Board output?
+            Only this channel will be read. All others are ignored to prevent noise.
           </div>
         </div>
         <div class="setting-control">
-          <select name="daq_stack_level">
-            {% for s in range(8) %}
-            <option value="{{ s }}" {% if daq24b8vin.get('stack_level', 0) == s %}selected{% endif %}>{{ s }} (0x{{ '%02X' | format(0x31 + s) }})</option>
+          <select name="primary_input_channel">
+            {% for i in range(8) %}
+            {% set ch_idx = i %}
+            {% set ch_num = i + 1 %}
+            {% set is_active = (daq24b8vin.get('channels', [])[ch_idx] or {}).get('enabled', False) %}
+            <option value="{{ ch_idx }}" {% if is_active %}selected{% endif %}>Channel {{ ch_num }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Input Gain</div>
+          <div class="setting-help">
+            Set the sensitivity for the active channel.<br>
+            <strong>±0.37V (Code 6):</strong> Standard for 2mV/V load cells.<br>
+            <strong>±0.18V (Code 7):</strong> High sensitivity for 3mV/V load cells.
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="primary_input_gain">
+            {% for code, label in gain_labels.items() %}
+            <option value="{{ code }}" {% if (daq24b8vin.get('channels', [])[0] or {}).get('gain_code', 7) == code %}selected{% endif %}>{{ code }}: {{ label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -871,73 +923,16 @@
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Hardware Sample Averaging</div>
-          <div class="setting-help">
-            Number of hardware samples to average per reading. <strong>Higher:</strong> Less noise but slower.
-            <strong>Lower:</strong> Faster but noisier. Most installations use 2-4.
-          </div>
+          <div class="setting-label">Live Reading (Active Channel)</div>
+          <div class="setting-help">Current raw voltage from the selected channel.</div>
         </div>
         <div class="setting-control">
-          <input type="number" name="daq_average_samples" min="1" max="20" step="1" value="{{ daq24b8vin.get('average_samples', 2) }}">
-          <div class="setting-unit">samples</div>
+           {% set active_ch_idx = 0 %}
+           {% for c in rows if c.enabled %}{% set active_ch_idx = c.idx %}{% endfor %}
+           <div style="font-size: 18px; font-weight: bold; color: var(--accent);">
+             {{ "%.5f" | format(rows[active_ch_idx].raw_v) }} V
+           </div>
         </div>
-      </div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Channel Configuration</div>
-      
-      <table class="channel-table">
-        <thead>
-          <tr>
-            <th>Ch</th>
-            <th>Enabled</th>
-            <th>Role</th>
-            <th>Gain Code</th>
-            <th>Input Range</th>
-            <th>Live Reading</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
-          <tr>
-            <td><strong>{{ row.ch_display }}</strong></td>
-            <td>
-              <input type="checkbox" name="ch_enabled_{{ row.idx }}" {% if row.enabled %}checked{% endif %}>
-            </td>
-            <td>
-              <select name="ch_role_{{ row.idx }}" style="min-width: 140px;">
-                {% for role in roles %}
-                <option value="{{ role }}" {% if row.role == role %}selected{% endif %}>{{ role }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td>
-              <select name="ch_gain_{{ row.idx }}">
-                {% for code, label in gain_labels.items() %}
-                <option value="{{ code }}" {% if row.gain_code == code %}selected{% endif %}>{{ code }}: {{ label }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td class="small">{{ gain_labels[row.gain_code] | default('Unknown') }}</td>
-            <td>
-              {% if row.polled %}
-                <span style="color: var(--accent);">{{ "%.4f" | format(row.raw_v) }} V</span>
-              {% else %}
-                <span style="color: var(--muted);">—</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      
-      <div class="info-box" style="margin-top: 16px;">
-        <strong>Gain Code Guide for Load Cells:</strong><br>
-        Most load cells output ~3mV/V at full scale. With 10V excitation = 30mV full scale signal.<br>
-        • Use <strong>Gain 7 (±0.18V)</strong> for best resolution on small signals<br>
-        • Use <strong>Gain 6 (±0.37V)</strong> if signal clips with Gain 7<br>
-        • Use <strong>Gain 5 (±0.75V)</strong> for higher output load cells or summed signals
       </div>
     </div>
   </div>
@@ -1346,7 +1341,36 @@
     </div>
   </div>
 
-  <!-- ============== MEGAIND I/O TAB ============== -->
+  <!-- ============== BUTTONS / OPTO INPUTS TAB ============== -->
+  <div class="tab-content" id="tab-buttons">
+    <div class="info-box">
+      <strong>🔘 Physical Buttons</strong> Configure the 4 Opto-Isolated Inputs on the MegaIND HAT.
+      Wire a 24V signal through a momentary pushbutton to trigger these actions.
+    </div>
+
+    {% set actions = cfg.get('opto_actions', {}) %}
+    
+    <div class="section">
+      <div class="section-title">Button Configuration</div>
+      
+      {% for i in range(1, 5) %}
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Input {{ i }} Action</div>
+          <div class="setting-help">What happens when Opto Input {{ i }} goes HIGH (24V).</div>
+        </div>
+        <div class="setting-control">
+          <select name="opto_action_{{ i }}">
+            <option value="none" {% if actions.get(i|string, 'none') == 'none' %}selected{% endif %}>None (Disabled)</option>
+            <option value="tare" {% if actions.get(i|string, 'none') == 'tare' %}selected{% endif %}>TARE (Net = 0)</option>
+            <option value="zero" {% if actions.get(i|string, 'none') == 'zero' %}selected{% endif %}>ZERO (Gross = 0)</option>
+            <option value="print" {% if actions.get(i|string, 'none') == 'print' %}selected{% endif %}>PRINT / LOG</option>
+          </select>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
   <div class="tab-content" id="tab-megaind">
     <div class="info-box">
       <strong>MegaIND I/O (Simple + Practical)</strong> This tab is for using the MegaIND as a straightforward industrial I/O card:

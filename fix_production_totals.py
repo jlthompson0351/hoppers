@@ -21,6 +21,7 @@ def main():
     # Find database
     db_paths = [
         Path("var/data/app.sqlite3"),
+        Path("/var/lib/loadcell-transmitter/data/app.sqlite3"),
         Path("/opt/loadcell-transmitter/var/data/app.sqlite3"),
     ]
     

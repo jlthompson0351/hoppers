@@ -77,6 +77,23 @@
   .channel-table th { text-align: left; padding: 10px; font-size: 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.1); }
   .channel-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,.06); }
   .channel-table input, .channel-table select { padding: 8px 10px; font-size: 13px; }
+
+  /* Throughput tab */
+  .throughput-controls { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+  .throughput-controls .setting-control { gap: 6px; }
+  .throughput-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .throughput-summary { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .throughput-card { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 12px 14px; }
+  .throughput-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .throughput-card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .throughput-table-wrap { overflow: auto; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; }
+  .throughput-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  .throughput-table th { text-align: left; padding: 10px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid rgba(255,255,255,.1); }
+  .throughput-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; }
+  .throughput-empty { text-align: center; color: var(--muted); padding: 18px; }
+  .throughput-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 10px; }
+  .throughput-pagination button { padding: 6px 10px; font-size: 12px; }
+  .throughput-timezone { color: var(--muted); font-size: 12px; }
   
   /* Save Bar */
   .save-bar { position: sticky; bottom: 0; background: linear-gradient(transparent, var(--bg) 20%); padding: 20px 0; margin-top: 20px; }
@@ -99,9 +116,11 @@
   <div class="tab" data-tab="output">Output Control</div>
   <div class="tab" data-tab="alarms">Alarms &amp; Limits</div>
   <div class="tab" data-tab="daq">DAQ Channels</div>
+  <div class="tab" data-tab="buttons">Buttons</div>
   <div class="tab" data-tab="detection">Detection</div>
   <div class="tab" data-tab="timing">Timing</div>
   <div class="tab" data-tab="logging">Logging</div>
+  <div class="tab" data-tab="throughput">Throughput</div>
   <div class="tab" data-tab="advanced">Advanced</div>
   <div class="tab" data-tab="megaind">MegaIND I/O</div>
   <div class="tab" data-tab="system">System</div>
@@ -114,6 +133,9 @@
     <div class="info-box">
       <strong>Start Here!</strong> These are the essential settings to get your scale up and running. 
       Most installations only need to adjust these settings.
+      <br><br>
+      <strong>Mapping priority:</strong> when Calibration Hub has 2+ saved PLC output mapping points for the active mode,
+      runtime uses that profile curve. The min/max range below is used as linear fallback and for quick commissioning.
     </div>
     
     <div class="section">
@@ -133,7 +155,7 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">Maximum Weight</div>
-          <div class="setting-help">The weight value that corresponds to <strong>10V</strong> (or 20mA) output. Set this to your scale's full capacity.</div>
+          <div class="setting-help">The weight value that corresponds to <strong>10V</strong> (or 20mA) output for linear mode. Set this to your scale's full capacity (or use Calibration Hub to sync this from saved profile points).</div>
         </div>
         <div class="setting-control">
           <input type="number" name="range_max_lb" step="0.1" value="{{ range_cfg.get('max_lb', 300) }}">
@@ -187,6 +209,20 @@
     <div class="section">
       <div class="section-title">Excitation Monitoring</div>
       
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Enable Excitation Monitoring</div>
+          <div class="setting-help">Turn this off if excitation is not wired yet. Fault and safe-output logic will ignore excitation until re-enabled.</div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if excitation.get('enabled', true) %}on{% endif %}" id="toggle_excitation_enabled" onclick="toggleSwitch(this, 'excitation_enabled')"></div>
+            <input type="hidden" name="excitation_enabled" id="excitation_enabled" value="{{ '1' if excitation.get('enabled', true) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if excitation.get('enabled', true) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+
       <div class="setting-row">
         <div>
           <div class="setting-label">Excitation Input Channel</div>
@@ -388,6 +424,34 @@
           </select>
         </div>
       </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Round Up to Nearest Pound</div>
+          <div class="setting-help">
+            Always rounds weight UP to the next whole number (ceiling).<br>
+            <strong>24.2 &rarr; 25, 24.9 &rarr; 25, 25.0 &rarr; 25, 25.1 &rarr; 26</strong><br>
+            Applies to both the display <strong>AND</strong> PLC output. Useful when scale reads consistently light.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="checkbox" name="round_up_enabled" value="1" {% if display.get('round_up_enabled', False) %}checked{% endif %}>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Show Decimal Point</div>
+          <div class="setting-help">
+            Controls whether whole numbers show a decimal point.<br>
+            <strong>ON:</strong> "25.0 lb" &mdash; <strong>OFF:</strong> "25 lb"<br>
+            Only affects the display format, not precision or PLC output.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="checkbox" name="show_decimal_point" value="1" {% if display.get('show_decimal_point', True) %}checked{% endif %}>
+        </div>
+      </div>
     </div>
     
     <div class="section">
@@ -479,8 +543,8 @@
         <div>
           <div class="setting-label">Enable Zero Tracking</div>
           <div class="setting-help">
-            <strong>Recommended ON.</strong> Automatically maintains zero when the scale is empty. 
-            Compensates for temperature drift and mechanical settling. Disables while weight is present.
+            <strong>Recommended ON.</strong> Automatically fixes drift when scale is empty and stable. 
+            Stops when weight is added. Prevents the "-4 lb overnight" problem.
           </div>
         </div>
         <div class="setting-control">
@@ -496,7 +560,8 @@
         <div>
           <div class="setting-label">Zero Tracking Range</div>
           <div class="setting-help">
-            Zero tracking only activates when weight is within this range of zero. Prevents tracking when there's actual weight on the scale.
+            Only adjust zero when scale reads within ±this amount. Prevents corrections when real weight is on the scale.
+            <strong>1 lb is good for overnight drift.</strong> Higher = catches bigger drifts but less safe.
           </div>
         </div>
         <div class="setting-control">
@@ -509,13 +574,56 @@
         <div>
           <div class="setting-label">Zero Tracking Rate</div>
           <div class="setting-help">
-            How fast zero drift is corrected. <strong>Lower (0.01-0.05 lb/s):</strong> Slow, subtle corrections. 
-            <strong>Higher (0.1-0.5 lb/s):</strong> Faster correction but may be visible.
+            How fast corrections happen. <strong>0.08-0.12 lb/s:</strong> Smooth, won't see it move. 
+            <strong>0.2+ lb/s:</strong> Faster but display may flicker. <strong>Recommended: 0.1 lb/s</strong>
           </div>
         </div>
         <div class="setting-control">
           <input type="number" name="zero_tracking_rate" min="0.01" max="1" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.1) }}">
           <div class="setting-unit">lb/s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Deadband</div>
+          <div class="setting-help">
+            Stop correcting when reading is within ±this amount. Prevents constant tiny adjustments.
+            <strong>0.1 lb means "close enough."</strong> Scale won't chase perfect 0.000 lb.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_deadband" min="0.01" max="2" step="0.01" value="{{ zero_tracking.get('deadband_lb', 0.1) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Hold Time</div>
+          <div class="setting-help">
+            Wait this long after scale becomes empty before starting corrections. 
+            <strong>6-10 seconds:</strong> Quick response after operator walks away. 
+            <strong>30+ seconds:</strong> Only for scales that vibrate/settle slowly.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_hold_s" min="0" max="60" step="0.5" value="{{ zero_tracking.get('hold_s', 6.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Persist Interval</div>
+          <div class="setting-help">
+            How often to save the zero offset to disk during auto-tracking. 
+            <strong>1 second is good</strong> - saves changes without wearing out SD card.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_persist_interval_s" min="0.2" max="10" step="0.1" value="{{ zero_tracking.get('persist_interval_s', 1.0) }}">
+          <div class="setting-unit">s</div>
         </div>
       </div>
     </div>
@@ -845,102 +953,216 @@
   <!-- ============== DAQ CHANNELS TAB ============== -->
   <div class="tab-content" id="tab-daq">
     <div class="info-box">
-      <strong>📡 DAQ Channel Configuration</strong> Configure the 8 analog input channels on the 24b8vin board.
-      Enable only the channels connected to load cells and set the appropriate gain for your signal level.
+      <strong>DAQ Configuration</strong>
+      <br>
+      All 8 channels are shown with live readings. Select which channel your summing board signal is on.
+      The active channel will be used for weight measurement. All others are shown for diagnostics.
     </div>
-    
+
     <div class="section">
-      <div class="section-title">DAQ Board Settings</div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Stack Level</div>
-          <div class="setting-help">
-            I2C address offset for the 24b8vin board. Usually 0 unless you have multiple DAQ boards stacked.
-            Address = 0x31 + Stack Level
-          </div>
-        </div>
-        <div class="setting-control">
-          <select name="daq_stack_level">
-            {% for s in range(8) %}
-            <option value="{{ s }}" {% if daq24b8vin.get('stack_level', 0) == s %}selected{% endif %}>{{ s }} (0x{{ '%02X' | format(0x31 + s) }})</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Hardware Sample Averaging</div>
-          <div class="setting-help">
-            Number of hardware samples to average per reading. <strong>Higher:</strong> Less noise but slower.
-            <strong>Lower:</strong> Faster but noisier. Most installations use 2-4.
-          </div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="daq_average_samples" min="1" max="20" step="1" value="{{ daq24b8vin.get('average_samples', 2) }}">
-          <div class="setting-unit">samples</div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Channel Configuration</div>
-      
-      <table class="channel-table">
+      <div class="section-title">All Channels (Live)</div>
+      <p style="color: var(--muted); margin-bottom: 12px; font-size: 13px;">
+        Readings refresh every second. Use the On toggle to enable/disable channels, and the Use radio to pick the active one.
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
         <thead>
-          <tr>
-            <th>Ch</th>
-            <th>Enabled</th>
-            <th>Role</th>
-            <th>Gain Code</th>
-            <th>Input Range</th>
-            <th>Live Reading</th>
+          <tr style="border-bottom: 1px solid var(--border); text-transform: uppercase; font-size: 11px; color: var(--muted);">
+            <th style="text-align: left; padding: 8px 6px;">Ch</th>
+            <th style="text-align: right; padding: 8px 6px;">mV</th>
+            <th style="text-align: right; padding: 8px 6px;">Volts</th>
+            <th style="text-align: center; padding: 8px 6px;">Gain</th>
+            <th style="text-align: center; padding: 8px 6px;">On</th>
+            <th style="text-align: center; padding: 8px 6px;">Use</th>
           </tr>
         </thead>
-        <tbody>
-          {% for row in rows %}
-          <tr>
-            <td><strong>{{ row.ch_display }}</strong></td>
-            <td>
-              <input type="checkbox" name="ch_enabled_{{ row.idx }}" {% if row.enabled %}checked{% endif %}>
+        <tbody id="daq-channel-tbody">
+          {% for r in rows %}
+          <tr data-ch="{{ r.idx }}" style="border-bottom: 1px solid var(--border); {% if r.active %}background: rgba(0,255,136,0.08);{% endif %}">
+            <td style="padding: 10px 6px; font-weight: bold;">{{ r.ch_display }}</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; font-size: 16px;" class="ch-mv">{{ "%.4f" | format(r.raw_mv) }}</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; color: var(--muted);" class="ch-v">{{ "%.6f" | format(r.raw_v) }}</td>
+            <td style="padding: 10px 6px; text-align: center;" class="ch-gain">{{ r.gain_code }}</td>
+            <td style="padding: 10px 6px; text-align: center;">
+              <input type="checkbox" name="ch_enabled_{{ r.idx }}" class="ch-enabled" data-ch="{{ r.idx }}" {% if r.enabled %}checked{% endif %}>
             </td>
-            <td>
-              <select name="ch_role_{{ row.idx }}" style="min-width: 140px;">
-                {% for role in roles %}
-                <option value="{{ role }}" {% if row.role == role %}selected{% endif %}>{{ role }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td>
-              <select name="ch_gain_{{ row.idx }}">
-                {% for code, label in gain_labels.items() %}
-                <option value="{{ code }}" {% if row.gain_code == code %}selected{% endif %}>{{ code }}: {{ label }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td class="small">{{ gain_labels[row.gain_code] | default('Unknown') }}</td>
-            <td>
-              {% if row.polled %}
-                <span style="color: var(--accent);">{{ "%.4f" | format(row.raw_v) }} V</span>
-              {% else %}
-                <span style="color: var(--muted);">—</span>
-              {% endif %}
+            <td style="padding: 10px 6px; text-align: center;">
+              <input type="radio" name="active_channel" class="ch-active-radio" data-ch="{{ r.idx }}" value="{{ r.idx }}" {% if r.active %}checked{% endif %}>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      
-      <div class="info-box" style="margin-top: 16px;">
-        <strong>Gain Code Guide for Load Cells:</strong><br>
-        Most load cells output ~3mV/V at full scale. With 10V excitation = 30mV full scale signal.<br>
-        • Use <strong>Gain 7 (±0.18V)</strong> for best resolution on small signals<br>
-        • Use <strong>Gain 6 (±0.37V)</strong> if signal clips with Gain 7<br>
-        • Use <strong>Gain 5 (±0.75V)</strong> for higher output load cells or summed signals
+    </div>
+
+    <div class="section">
+      <div class="section-title">Active Channel Settings</div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Input Gain</div>
+          <div class="setting-help">
+            Set the sensitivity for the active channel.<br>
+            <strong>Code 6 (±0.37V):</strong> Standard for 2mV/V load cells.<br>
+            <strong>Code 7 (±0.18V):</strong> High sensitivity for 3mV/V load cells.
+          </div>
+        </div>
+        <div class="setting-control">
+          <select name="active_gain">
+            {% for code, label in gain_labels.items() %}
+            <option value="{{ code }}" {% if (cfg.get('daq') or cfg.get('daq24b8vin') or {}).get('gain_code', 6) == code %}selected{% endif %}>{{ code }}: {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Sample Rate</div>
+          <div class="setting-help">Lower = better noise rejection. 250 SPS recommended for load cells.</div>
+        </div>
+        <div class="setting-control">
+          <select name="daq_sample_rate">
+            <option value="0" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 0 %}selected{% endif %}>250 SPS (Best noise)</option>
+            <option value="1" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 1 %}selected{% endif %}>500 SPS</option>
+            <option value="2" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 2 %}selected{% endif %}>1000 SPS</option>
+            <option value="3" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 3 %}selected{% endif %}>2000 SPS</option>
+            <option value="4" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 4 %}selected{% endif %}>4000 SPS</option>
+            <option value="5" {% if (cfg.get('daq') or {}).get('sample_rate', 0) == 5 %}selected{% endif %}>8000 SPS (Fastest)</option>
+          </select>
+        </div>
       </div>
     </div>
   </div>
+
+  <script>
+  // Live channel polling for DAQ tab.
+  // IMPORTANT: once user changes toggles/radio, keep that local state until Save.
+  (function() {
+    var daqTimer = null;
+    var daqDirty = false;
+
+    function refreshRowVisuals() {
+      var rows = document.querySelectorAll('#daq-channel-tbody tr[data-ch]');
+      rows.forEach(function(tr) {
+        var onBox = tr.querySelector('.ch-enabled');
+        var useRadio = tr.querySelector('.ch-active-radio');
+        if (useRadio && useRadio.checked) {
+          tr.style.background = 'rgba(0,255,136,0.12)';
+        } else {
+          tr.style.background = '';
+        }
+        if (onBox && !onBox.checked) {
+          tr.style.opacity = '0.45';
+        } else {
+          tr.style.opacity = '1';
+        }
+      });
+    }
+
+    function wireControls() {
+      var tbody = document.getElementById('daq-channel-tbody');
+      if (!tbody) return;
+
+      tbody.querySelectorAll('.ch-enabled').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          daqDirty = true;
+
+          // If user turns OFF the active channel, auto-select next enabled channel.
+          var ch = parseInt(cb.dataset.ch, 10);
+          var active = tbody.querySelector('.ch-active-radio:checked');
+          if (active && parseInt(active.dataset.ch, 10) === ch && !cb.checked) {
+            var fallback = tbody.querySelector('.ch-enabled:checked');
+            if (fallback) {
+              var radio = tbody.querySelector('.ch-active-radio[data-ch="' + fallback.dataset.ch + '"]');
+              if (radio) radio.checked = true;
+            } else {
+              // Don't allow all channels off.
+              cb.checked = true;
+            }
+          }
+          refreshRowVisuals();
+        });
+      });
+
+      tbody.querySelectorAll('.ch-active-radio').forEach(function(r) {
+        r.addEventListener('change', function() {
+          daqDirty = true;
+          var ch = parseInt(r.dataset.ch, 10);
+          var cb = tbody.querySelector('.ch-enabled[data-ch="' + ch + '"]');
+          if (cb) cb.checked = true; // Active channel must be enabled
+          refreshRowVisuals();
+        });
+      });
+
+      refreshRowVisuals();
+    }
+
+    function pollChannels() {
+      fetch('/api/daq/channels')
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+          var tbody = document.getElementById('daq-channel-tbody');
+          if (!tbody) return;
+
+          data.channels.forEach(function(ch) {
+            var tr = tbody.querySelector('tr[data-ch="' + ch.ch + '"]');
+            if (!tr) return;
+
+            // Always refresh numeric live readings
+            tr.querySelector('.ch-mv').textContent = Number(ch.raw_mv).toFixed(4);
+            tr.querySelector('.ch-v').textContent = Number(ch.raw_v).toFixed(6);
+            tr.querySelector('.ch-gain').textContent = ch.gain_code;
+
+            // Only refresh toggles from backend if user has NOT made local edits yet
+            if (!daqDirty) {
+              var cb = tr.querySelector('.ch-enabled');
+              var radio = tr.querySelector('.ch-active-radio');
+              if (cb) cb.checked = !!ch.enabled;
+              if (radio) radio.checked = !!ch.active;
+            }
+          });
+
+          refreshRowVisuals();
+        })
+        .catch(function(){});
+    }
+
+    // Reset dirty state on Save click (form submit)
+    var form = document.getElementById('settingsForm');
+    if (form) {
+      form.addEventListener('submit', function() {
+        daqDirty = false;
+      });
+    }
+
+    wireControls();
+
+    // Start polling when DAQ tab is visible
+    document.addEventListener('click', function(e) {
+      if (e.target.classList && e.target.classList.contains('tab')) {
+        if (e.target.dataset.tab === 'daq') {
+          if (!daqTimer) {
+            pollChannels();
+            daqTimer = setInterval(pollChannels, 1000);
+          }
+        } else {
+          if (daqTimer) {
+            clearInterval(daqTimer);
+            daqTimer = null;
+          }
+        }
+      }
+    });
+
+    // If already on DAQ tab on page load
+    var activeTab = document.querySelector('.tab.active');
+    if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'daq') {
+      pollChannels();
+      daqTimer = setInterval(pollChannels, 1000);
+    }
+  })();
+  </script>
   
   <!-- ============== DETECTION TAB ============== -->
   <div class="tab-content" id="tab-detection">
@@ -1212,6 +1434,134 @@
     </div>
   </div>
   
+  <!-- ============== THROUGHPUT TAB ============== -->
+  <div class="tab-content" id="tab-throughput">
+    <div class="info-box">
+      <strong>Processed Weight / Throughput</strong>
+      <br>
+      View completed hopper cycles (fill + dump) with filters, rollups, and export.
+      Event timestamps are stored in UTC and grouped using the configured site timezone.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Filters</div>
+      <div class="throughput-controls">
+        <div class="setting-control">
+          <label class="setting-label" for="throughput-mode">Mode</label>
+          <select id="throughput-mode">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        <div class="setting-control" id="throughput-day-wrap">
+          <label class="setting-label" for="throughput-day">Day</label>
+          <input id="throughput-day" type="date">
+        </div>
+
+        <div class="setting-control" id="throughput-week-wrap" style="display:none;">
+          <label class="setting-label" for="throughput-week">Week</label>
+          <input id="throughput-week" type="week">
+        </div>
+
+        <div class="setting-control" id="throughput-month-wrap" style="display:none;">
+          <label class="setting-label" for="throughput-month">Month</label>
+          <input id="throughput-month" type="month">
+        </div>
+
+        <div class="setting-control" id="throughput-year-wrap" style="display:none;">
+          <label class="setting-label" for="throughput-year">Year</label>
+          <input id="throughput-year" type="number" min="2000" max="2100" step="1">
+        </div>
+
+        <div class="setting-control" id="throughput-custom-start-wrap" style="display:none;">
+          <label class="setting-label" for="throughput-custom-start">Custom Start</label>
+          <input id="throughput-custom-start" type="date">
+        </div>
+
+        <div class="setting-control" id="throughput-custom-end-wrap" style="display:none;">
+          <label class="setting-label" for="throughput-custom-end">Custom End</label>
+          <input id="throughput-custom-end" type="date">
+        </div>
+
+        <div class="setting-control">
+          <label class="setting-label" for="throughput-device-id">Device ID (optional)</label>
+          <input id="throughput-device-id" type="text" placeholder="all devices">
+        </div>
+
+        <div class="setting-control">
+          <label class="setting-label" for="ui_timezone">Site Timezone</label>
+          <input
+            id="ui_timezone"
+            name="ui_timezone"
+            type="text"
+            value="{{ ui.get('timezone', 'UTC') }}"
+            placeholder="UTC or America/Chicago"
+          >
+          <div class="throughput-timezone">
+            Save Settings to persist timezone for day/week/month/year grouping.
+          </div>
+        </div>
+      </div>
+
+      <div class="throughput-actions" style="margin-top: 12px;">
+        <button type="button" id="throughput-apply">Apply</button>
+        <button type="button" id="throughput-export" style="background: #2d3b56; color: #fff;">Export CSV</button>
+        <button type="button" id="throughput-delete-filtered" style="background: #5a3b15; color: #fff;">Delete Filtered</button>
+        <button type="button" id="throughput-delete-all" style="background: #7a2323; color: #fff;">Delete All (Testing)</button>
+        <span class="throughput-timezone" id="throughput-range-label"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Summary</div>
+      <div class="throughput-summary">
+        <div class="throughput-card">
+          <div class="label">Total Processed</div>
+          <div class="value" id="throughput-total-lbs">0.0 lb</div>
+        </div>
+        <div class="throughput-card">
+          <div class="label">Loads / Events</div>
+          <div class="value" id="throughput-event-count">0</div>
+        </div>
+        <div class="throughput-card">
+          <div class="label">Average Load</div>
+          <div class="value" id="throughput-avg-lbs">0.0 lb</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Events</div>
+      <div class="throughput-table-wrap">
+        <table class="throughput-table">
+          <thead>
+            <tr>
+              <th>Timestamp (Local)</th>
+              <th>Processed (lb)</th>
+              <th>Full (lb)</th>
+              <th>Empty (lb)</th>
+              <th>Duration</th>
+              <th>Confidence</th>
+              <th style="width:60px;"></th>
+            </tr>
+          </thead>
+          <tbody id="throughput-table-body">
+            <tr><td colspan="7" class="throughput-empty">No events found.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="throughput-pagination">
+        <button type="button" id="throughput-prev">Previous</button>
+        <span class="throughput-timezone" id="throughput-page-label">Page 1</span>
+        <button type="button" id="throughput-next">Next</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============== ADVANCED TAB ============== -->
   <div class="tab-content" id="tab-advanced">
     <div class="warning-banner">
@@ -1346,7 +1696,36 @@
     </div>
   </div>
 
-  <!-- ============== MEGAIND I/O TAB ============== -->
+  <!-- ============== BUTTONS / OPTO INPUTS TAB ============== -->
+  <div class="tab-content" id="tab-buttons">
+    <div class="info-box">
+      <strong>🔘 Physical Buttons</strong> Configure the 4 Opto-Isolated Inputs on the MegaIND HAT.
+      Wire a 24V signal through a momentary pushbutton to trigger these actions.
+    </div>
+
+    {% set actions = cfg.get('opto_actions', {}) %}
+    
+    <div class="section">
+      <div class="section-title">Button Configuration</div>
+      
+      {% for i in range(1, 5) %}
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Input {{ i }} Action</div>
+          <div class="setting-help">What happens when Opto Input {{ i }} goes HIGH (24V).</div>
+        </div>
+        <div class="setting-control">
+          <select name="opto_action_{{ i }}">
+            <option value="none" {% if actions.get(i|string, 'none') == 'none' %}selected{% endif %}>None (Disabled)</option>
+            <option value="tare" {% if actions.get(i|string, 'none') == 'tare' %}selected{% endif %}>TARE (Net = 0)</option>
+            <option value="zero" {% if actions.get(i|string, 'none') == 'zero' %}selected{% endif %}>ZERO (Gross = 0)</option>
+            <option value="print" {% if actions.get(i|string, 'none') == 'print' %}selected{% endif %}>PRINT / LOG</option>
+          </select>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
   <div class="tab-content" id="tab-megaind">
     <div class="info-box">
       <strong>MegaIND I/O (Simple + Practical)</strong> This tab is for using the MegaIND as a straightforward industrial I/O card:
@@ -1687,6 +2066,9 @@ document.querySelectorAll('.tab').forEach(tab => {
     } else {
       stopMegaIndPolling();
     }
+    if (this.dataset.tab === 'throughput' && typeof window.loadThroughputData === 'function') {
+      window.loadThroughputData();
+    }
   });
 });
 
@@ -1736,6 +2118,462 @@ function stopMegaIndPolling() {
     _megaindPollTimer = null;
   }
 }
+
+// Throughput tab filters + data loading.
+(function() {
+  const throughputState = {
+    page: 1,
+    pageSize: 50,
+    total: 0,
+    activeRange: null,
+    siteTimezone: {{ ui.get("timezone", "UTC") | tojson }}
+  };
+
+  function pad2(v) {
+    return String(v).padStart(2, '0');
+  }
+
+  function isoDateFromParts(y, m, d) {
+    return `${String(y)}-${pad2(m)}-${pad2(d)}`;
+  }
+
+  function addDays(dateStr, deltaDays) {
+    const dt = new Date(`${dateStr}T00:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + Number(deltaDays || 0));
+    return isoDateFromParts(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+  }
+
+  function todayInTimezone(tzName) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tzName,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(new Date());
+      const y = parts.find(p => p.type === 'year')?.value;
+      const m = parts.find(p => p.type === 'month')?.value;
+      const d = parts.find(p => p.type === 'day')?.value;
+      if (y && m && d) {
+        return `${y}-${m}-${d}`;
+      }
+    } catch (e) {
+      // Fall through to browser local date.
+    }
+    const now = new Date();
+    return isoDateFromParts(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  }
+
+  function isoWeekStartDate(weekValue) {
+    if (!weekValue || weekValue.indexOf('-W') < 0) return null;
+    const [yearRaw, weekRaw] = weekValue.split('-W');
+    const year = Number(yearRaw);
+    const week = Number(weekRaw);
+    if (!Number.isFinite(year) || !Number.isFinite(week) || week < 1 || week > 53) return null;
+
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const mondayWeek1 = new Date(jan4);
+    mondayWeek1.setUTCDate(jan4.getUTCDate() - (jan4Day - 1));
+
+    const start = new Date(mondayWeek1);
+    start.setUTCDate(mondayWeek1.getUTCDate() + ((week - 1) * 7));
+    return isoDateFromParts(start.getUTCFullYear(), start.getUTCMonth() + 1, start.getUTCDate());
+  }
+
+  function isoWeekValueFromDate(dateStr) {
+    const dt = new Date(`${dateStr}T00:00:00Z`);
+    const target = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+    const dayNum = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+    return `${target.getUTCFullYear()}-W${pad2(weekNo)}`;
+  }
+
+  function durationText(ms) {
+    if (ms === null || ms === undefined) return '—';
+    const totalSec = Math.max(0, Math.round(Number(ms) / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${pad2(m)}m ${pad2(s)}s`;
+    return `${m}m ${pad2(s)}s`;
+  }
+
+  function numberText(value, decimals) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    return Number(value).toFixed(decimals);
+  }
+
+  function formatTimestampLocal(isoUtc) {
+    if (!isoUtc) return '—';
+    const dt = new Date(isoUtc);
+    if (Number.isNaN(dt.getTime())) return isoUtc;
+    try {
+      return new Intl.DateTimeFormat([], {
+        timeZone: throughputState.siteTimezone || undefined,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).format(dt);
+    } catch (e) {
+      return dt.toLocaleString();
+    }
+  }
+
+  function bucketForMode(mode) {
+    if (mode === 'week') return 'weekly';
+    if (mode === 'month') return 'monthly';
+    if (mode === 'year') return 'yearly';
+    return 'daily';
+  }
+
+  function updateModeVisibility() {
+    const mode = document.getElementById('throughput-mode')?.value || 'day';
+    const show = (id, on) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = on ? '' : 'none';
+    };
+    show('throughput-day-wrap', mode === 'day');
+    show('throughput-week-wrap', mode === 'week');
+    show('throughput-month-wrap', mode === 'month');
+    show('throughput-year-wrap', mode === 'year');
+    show('throughput-custom-start-wrap', mode === 'custom');
+    show('throughput-custom-end-wrap', mode === 'custom');
+  }
+
+  function currentRangeFromFilters() {
+    const mode = document.getElementById('throughput-mode')?.value || 'day';
+    const dayVal = document.getElementById('throughput-day')?.value || '';
+    const weekVal = document.getElementById('throughput-week')?.value || '';
+    const monthVal = document.getElementById('throughput-month')?.value || '';
+    const yearVal = document.getElementById('throughput-year')?.value || '';
+    const customStart = document.getElementById('throughput-custom-start')?.value || '';
+    const customEnd = document.getElementById('throughput-custom-end')?.value || '';
+
+    let start = '';
+    let end = '';
+    if (mode === 'day') {
+      if (!dayVal) return null;
+      start = dayVal;
+      end = addDays(dayVal, 1);
+    } else if (mode === 'week') {
+      const weekStart = isoWeekStartDate(weekVal);
+      if (!weekStart) return null;
+      start = weekStart;
+      end = addDays(weekStart, 7);
+    } else if (mode === 'month') {
+      if (!monthVal || monthVal.indexOf('-') < 0) return null;
+      const [yRaw, mRaw] = monthVal.split('-');
+      const y = Number(yRaw);
+      const m = Number(mRaw);
+      if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+      start = `${yRaw}-${mRaw}-01`;
+      if (m >= 12) {
+        end = `${y + 1}-01-01`;
+      } else {
+        end = `${yRaw}-${pad2(m + 1)}-01`;
+      }
+    } else if (mode === 'year') {
+      const y = Number(yearVal);
+      if (!Number.isFinite(y) || y < 2000 || y > 2100) return null;
+      start = `${y}-01-01`;
+      end = `${y + 1}-01-01`;
+    } else {
+      if (!customStart || !customEnd) return null;
+      if (customEnd < customStart) return null;
+      start = customStart;
+      end = addDays(customEnd, 1);  // inclusive date picker UX
+    }
+
+    const deviceId = (document.getElementById('throughput-device-id')?.value || '').trim();
+    return {
+      mode,
+      start,
+      end,
+      deviceId
+    };
+  }
+
+  function rangeLabel(range) {
+    if (!range) return '';
+    const endInclusive = addDays(range.end, -1);
+    if (range.start === endInclusive) {
+      return `${range.start} (${throughputState.siteTimezone})`;
+    }
+    return `${range.start} to ${endInclusive} (${throughputState.siteTimezone})`;
+  }
+
+  function renderSummary(summary) {
+    const total = Number(summary.total_processed_lbs || 0);
+    const count = Number(summary.event_count || 0);
+    const avg = Number(summary.avg_per_event_lbs || 0);
+    document.getElementById('throughput-total-lbs').textContent = `${total.toFixed(1)} lb`;
+    document.getElementById('throughput-event-count').textContent = String(count);
+    document.getElementById('throughput-avg-lbs').textContent = `${avg.toFixed(1)} lb`;
+  }
+
+  function renderTable(events) {
+    const tbody = document.getElementById('throughput-table-body');
+    if (!tbody) return;
+    if (!events || events.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="throughput-empty">No events found.</td></tr>';
+      return;
+    }
+
+    const rows = events.map((evt) => {
+      const confidenceText = (evt.confidence === null || evt.confidence === undefined)
+        ? '—'
+        : `${(Number(evt.confidence) * 100).toFixed(0)}%`;
+      const evtId = evt.id || '';
+      return (
+        '<tr>' +
+          `<td>${formatTimestampLocal(evt.timestamp)}</td>` +
+          `<td>${numberText(evt.processed_lbs, 1)}</td>` +
+          `<td>${numberText(evt.full_lbs, 1)}</td>` +
+          `<td>${numberText(evt.empty_lbs, 1)}</td>` +
+          `<td>${durationText(evt.duration_ms)}</td>` +
+          `<td>${confidenceText}</td>` +
+          `<td><button type="button" class="throughput-row-delete" data-id="${evtId}" style="background:#7a2323;color:#fff;padding:4px 8px;font-size:11px;border:none;border-radius:4px;cursor:pointer;" title="Delete this event">X</button></td>` +
+        '</tr>'
+      );
+    });
+    tbody.innerHTML = rows.join('');
+
+    // Wire up per-row delete buttons.
+    tbody.querySelectorAll('.throughput-row-delete').forEach(btn => {
+      btn.addEventListener('click', async function() {
+        const eventId = this.dataset.id;
+        if (!eventId) return;
+        if (!window.confirm('Delete this throughput event permanently?')) return;
+        try {
+          const resp = await fetch(`/throughput/events/delete/${eventId}`, { method: 'POST' });
+          const body = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(body.error || 'Delete failed');
+          loadThroughput(throughputState.page);
+        } catch (err) {
+          alert('Delete failed: ' + (err.message || 'Unknown error'));
+        }
+      });
+    });
+  }
+
+  function updatePagination() {
+    const page = throughputState.page;
+    const totalPages = Math.max(1, Math.ceil((throughputState.total || 0) / throughputState.pageSize));
+    const prev = document.getElementById('throughput-prev');
+    const next = document.getElementById('throughput-next');
+    const label = document.getElementById('throughput-page-label');
+    if (label) label.textContent = `Page ${page} of ${totalPages}`;
+    if (prev) prev.disabled = page <= 1;
+    if (next) next.disabled = page >= totalPages;
+  }
+
+  async function loadThroughput(page) {
+    const range = currentRangeFromFilters();
+    if (!range) {
+      renderTable([]);
+      document.getElementById('throughput-range-label').textContent = 'Select a valid range.';
+      return;
+    }
+
+    throughputState.page = Math.max(1, Number(page) || 1);
+    throughputState.activeRange = range;
+
+    const summaryParams = new URLSearchParams({
+      bucket: bucketForMode(range.mode),
+      start: range.start,
+      end: range.end
+    });
+    const eventsParams = new URLSearchParams({
+      start: range.start,
+      end: range.end,
+      page: String(throughputState.page),
+      pageSize: String(throughputState.pageSize)
+    });
+    if (range.deviceId) {
+      summaryParams.set('deviceId', range.deviceId);
+      eventsParams.set('deviceId', range.deviceId);
+    }
+
+    try {
+      const [summaryResp, eventsResp] = await Promise.all([
+        fetch(`/throughput/summary?${summaryParams.toString()}`, { cache: 'no-store' }),
+        fetch(`/throughput/events?${eventsParams.toString()}`, { cache: 'no-store' })
+      ]);
+      if (!summaryResp.ok || !eventsResp.ok) {
+        throw new Error('Failed to load throughput data');
+      }
+      const summary = await summaryResp.json();
+      const events = await eventsResp.json();
+
+      throughputState.total = Number(events.total || 0);
+      throughputState.siteTimezone = summary.timezone || throughputState.siteTimezone;
+
+      renderSummary(summary);
+      renderTable(events.events || []);
+      updatePagination();
+      document.getElementById('throughput-range-label').textContent = rangeLabel(range);
+    } catch (err) {
+      renderTable([]);
+      document.getElementById('throughput-range-label').textContent = 'Failed to load throughput data.';
+    }
+  }
+
+  function exportThroughputCsv() {
+    const range = currentRangeFromFilters();
+    if (!range) return;
+    const params = new URLSearchParams({
+      start: range.start,
+      end: range.end
+    });
+    if (range.deviceId) {
+      params.set('deviceId', range.deviceId);
+    }
+    window.location.href = `/throughput/events.csv?${params.toString()}`;
+  }
+
+  async function deleteThroughputEvents(deleteAll) {
+    const rangeLabelEl = document.getElementById('throughput-range-label');
+    const directDeviceId = (document.getElementById('throughput-device-id')?.value || '').trim();
+    const range = currentRangeFromFilters();
+    let payload = {};
+
+    if (deleteAll) {
+      const scope = directDeviceId ? ` for device "${directDeviceId}"` : '';
+      const ok = window.confirm(`Delete ALL throughput events${scope}? This cannot be undone.`);
+      if (!ok) return;
+      payload = { deleteAll: true, confirmAll: true };
+      if (directDeviceId) payload.deviceId = directDeviceId;
+    } else {
+      if (!range) {
+        if (rangeLabelEl) rangeLabelEl.textContent = 'Select a valid range before deleting.';
+        return;
+      }
+      const deviceSuffix = range.deviceId ? ` (device: ${range.deviceId})` : '';
+      const ok = window.confirm(
+        `Delete throughput events for ${rangeLabel(range)}${deviceSuffix}? This cannot be undone.`
+      );
+      if (!ok) return;
+      payload = {
+        start: range.start,
+        end: range.end
+      };
+      if (range.deviceId) payload.deviceId = range.deviceId;
+    }
+
+    try {
+      const resp = await fetch('/throughput/events/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(body.error || 'Failed deleting throughput events.');
+      }
+      const deleted = Number(body.deleted || 0);
+      if (rangeLabelEl) rangeLabelEl.textContent = `Deleted ${deleted} event(s).`;
+      throughputState.page = 1;
+      loadThroughput(1);
+    } catch (err) {
+      if (rangeLabelEl) {
+        rangeLabelEl.textContent = `Delete failed: ${err?.message || 'Unknown error'}`;
+      }
+    }
+  }
+
+  function setFilterDefaults() {
+    const today = todayInTimezone(throughputState.siteTimezone);
+    const weekValue = isoWeekValueFromDate(today);
+    const monthValue = today.slice(0, 7);
+    const yearValue = today.slice(0, 4);
+    const sevenDaysAgo = addDays(today, -6);
+
+    const dayInput = document.getElementById('throughput-day');
+    const weekInput = document.getElementById('throughput-week');
+    const monthInput = document.getElementById('throughput-month');
+    const yearInput = document.getElementById('throughput-year');
+    const customStart = document.getElementById('throughput-custom-start');
+    const customEnd = document.getElementById('throughput-custom-end');
+
+    if (dayInput) dayInput.value = today;
+    if (weekInput) weekInput.value = weekValue;
+    if (monthInput) monthInput.value = monthValue;
+    if (yearInput) yearInput.value = yearValue;
+    if (customStart) customStart.value = sevenDaysAgo;
+    if (customEnd) customEnd.value = today;
+  }
+
+  const modeSelect = document.getElementById('throughput-mode');
+  const applyBtn = document.getElementById('throughput-apply');
+  const exportBtn = document.getElementById('throughput-export');
+  const deleteFilteredBtn = document.getElementById('throughput-delete-filtered');
+  const deleteAllBtn = document.getElementById('throughput-delete-all');
+  const prevBtn = document.getElementById('throughput-prev');
+  const nextBtn = document.getElementById('throughput-next');
+  const tzInput = document.getElementById('ui_timezone');
+
+  setFilterDefaults();
+  updateModeVisibility();
+
+  if (modeSelect) {
+    modeSelect.addEventListener('change', () => {
+      updateModeVisibility();
+    });
+  }
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      loadThroughput(1);
+    });
+  }
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      exportThroughputCsv();
+    });
+  }
+  if (deleteFilteredBtn) {
+    deleteFilteredBtn.addEventListener('click', () => {
+      deleteThroughputEvents(false);
+    });
+  }
+  if (deleteAllBtn) {
+    deleteAllBtn.addEventListener('click', () => {
+      deleteThroughputEvents(true);
+    });
+  }
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (throughputState.page > 1) {
+        loadThroughput(throughputState.page - 1);
+      }
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      const totalPages = Math.max(1, Math.ceil((throughputState.total || 0) / throughputState.pageSize));
+      if (throughputState.page < totalPages) {
+        loadThroughput(throughputState.page + 1);
+      }
+    });
+  }
+  if (tzInput) {
+    tzInput.addEventListener('change', () => {
+      const newTz = (tzInput.value || '').trim();
+      if (newTz) {
+        throughputState.siteTimezone = newTz;
+      }
+    });
+  }
+
+  window.loadThroughputData = function() {
+    loadThroughput(1);
+  };
+})();
 
 // Toggle switch
 function toggleSwitch(el, inputId) {
@@ -1797,7 +2635,13 @@ window.resetCliSettings = function() {
   }).then(() => alert('Board reset to factory.'));
 };
 
-document.getElementById('settingsForm').addEventListener('change', function() {
+document.getElementById('settingsForm').addEventListener('change', function(e) {
+  const target = e && e.target ? e.target : null;
+  const isThroughputFilter = target && target.closest && target.closest('#tab-throughput');
+  const isTimezoneSetting = target && target.id === 'ui_timezone';
+  if (isThroughputFilter && !isTimezoneSetting) {
+    return;
+  }
   formChanged = true;
   document.getElementById('saveStatus').textContent = '⚠️ You have unsaved changes';
   document.getElementById('saveStatus').style.color = 'var(--warn)';

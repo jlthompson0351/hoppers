@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, height=480, initial-scale=1, user-scalable=no">
+  <title>Scale Kiosk</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2b;
+      --text: #e6edf3;
+      --muted: #9fb0c0;
+      --accent: #61dafb;
+      --warn: #ffcc66;
+      --bad: #ff6b6b;
+      --ok: #2ecc71;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .kiosk-root {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-height: 480px;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+    .top-bar .scale-name { font-weight: 700; font-size: 18px; }
+    .top-bar .status-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .top-bar .status-pill {
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 2px solid;
+    }
+    .top-bar .status-pill.ok { color: var(--ok); border-color: var(--ok); background: rgba(46, 204, 113, 0.12); }
+    .top-bar .status-pill.warn { color: var(--warn); border-color: var(--warn); background: rgba(255, 204, 102, 0.12); }
+    .top-bar .status-pill.bad { color: var(--bad); border-color: var(--bad); background: rgba(255, 107, 107, 0.12); }
+    .top-bar .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .top-bar .dot.ok { background: var(--ok); }
+    .top-bar .dot.bad { background: var(--bad); }
+
+    .weight-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .weight-value {
+      font-size: 120px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -4px;
+      margin: 0;
+    }
+    .weight-unit { font-size: 24px; color: var(--muted); margin-top: 4px; }
+    .weight-meta {
+      display: flex;
+      gap: 20px;
+      margin-top: 12px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .weight-meta .tare-active { color: var(--warn); font-weight: 600; }
+
+    .action-row {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      padding: 16px;
+      flex-shrink: 0;
+    }
+    .kiosk-btn {
+      min-width: 140px;
+      min-height: 64px;
+      padding: 16px 28px;
+      font-size: 20px;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.1s, transform 0.05s;
+    }
+    .kiosk-btn:active { transform: scale(0.98); }
+    .kiosk-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .kiosk-btn.zero   { background: #3498db; color: white; }
+    .kiosk-btn.tare   { background: #9b59b6; color: white; }
+    .kiosk-btn.cal    { background: #27ae60; color: white; }
+
+    .feedback {
+      text-align: center;
+      padding: 8px;
+      font-size: 14px;
+      min-height: 36px;
+    }
+    .feedback.success { color: var(--ok); }
+    .feedback.error   { color: var(--bad); }
+
+    /* Calibration overlay panel */
+    .cal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(11, 18, 32, 0.95);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 20px;
+    }
+    .cal-overlay.visible { display: flex; }
+    .cal-panel {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      width: 100%;
+    }
+    .cal-panel h2 { margin: 0 0 16px 0; font-size: 20px; }
+    .cal-signal {
+      font-size: 16px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .cal-signal strong { color: var(--text); }
+    .cal-input-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .cal-input-row label { flex: 0 0 80px; font-weight: 600; }
+    .cal-input-row input {
+      flex: 1;
+      font-size: 24px;
+      padding: 12px;
+      background: #0d1526;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      color: var(--text);
+    }
+    .numpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .numpad button {
+      min-height: 52px;
+      font-size: 22px;
+      font-weight: 700;
+      background: #1a2a4a;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 10px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .numpad button:active { background: var(--accent); color: var(--bg); }
+    .numpad button.clear { font-size: 14px; color: var(--warn); }
+    .cal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .cal-actions button {
+      flex: 1;
+      min-height: 56px;
+      font-size: 18px;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .cal-actions .capture { background: var(--ok); color: white; }
+    .cal-actions .close   { background: var(--muted); color: var(--bg); }
+  </style>
+</head>
+<body>
+  <div class="kiosk-root">
+    <header class="top-bar">
+      <span class="scale-name" id="scale-name">{{ ((config or {}).get('display') or {}).get('name') or 'Scale' }}</span>
+      <div class="status-row">
+        <span class="status-pill" id="stable-pill">UNSTABLE</span>
+        <span class="status-pill" id="fault-pill">OK</span>
+        <span class="dot" id="conn-dot"></span>
+      </div>
+    </header>
+
+    <div class="weight-area">
+      <p class="weight-value" id="weight-value">0.0</p>
+      <p class="weight-unit">lb</p>
+      <div class="weight-meta">
+        <span id="tare-meta">Tare: 0.0 lb</span>
+        <span id="stable-hint"></span>
+      </div>
+    </div>
+
+    <div id="feedback" class="feedback"></div>
+
+    <div class="action-row">
+      <button type="button" class="kiosk-btn zero" id="btn-zero">ZERO</button>
+      <button type="button" class="kiosk-btn tare" id="btn-tare">TARE</button>
+      <button type="button" class="kiosk-btn cal" id="btn-cal">CALIBRATE</button>
+    </div>
+  </div>
+
+  <div class="cal-overlay" id="cal-overlay">
+    <div class="cal-panel">
+      <h2>Add calibration point</h2>
+      <p class="cal-signal">Signal: <strong id="cal-signal">0.000000</strong></p>
+      <div class="cal-input-row">
+        <label for="cal-weight">Weight (lb)</label>
+        <input type="text" id="cal-weight" inputmode="decimal" placeholder="0" readonly>
+      </div>
+      <div class="numpad">
+        <button type="button" data-n="7">7</button>
+        <button type="button" data-n="8">8</button>
+        <button type="button" data-n="9">9</button>
+        <button type="button" data-n="4">4</button>
+        <button type="button" data-n="5">5</button>
+        <button type="button" data-n="6">6</button>
+        <button type="button" data-n="1">1</button>
+        <button type="button" data-n="2">2</button>
+        <button type="button" data-n="3">3</button>
+        <button type="button" data-n="0">0</button>
+        <button type="button" data-n=".">.</button>
+        <button type="button" class="clear" id="numpad-clear">C</button>
+      </div>
+      <div class="cal-actions">
+        <button type="button" class="close" id="cal-close">Close</button>
+        <button type="button" class="capture" id="cal-capture">Capture point</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    const POLL_MS = {{ ((config or {}).get('ui') or {}).get('poll_rate_ms') or 500 }};
+    const WEIGHT_DECIMALS = {{ ((config or {}).get('display') or {}).get('weight_decimals') or 1 }};
+    const SHOW_DECIMAL_POINT = {{ 'true' if ((config or {}).get('display') or {}).get('show_decimal_point', True) else 'false' }};
+    let pollTimer = null;
+    let lastStable = false;
+    let lastSnapshot = null;
+
+    function formatWeight(w) {
+      var s = w.toFixed(WEIGHT_DECIMALS);
+      if (!SHOW_DECIMAL_POINT && Number.isInteger(w)) {
+        s = Math.round(w).toString();
+      }
+      return s;
+    }
+
+    function updateUI(data) {
+      if (!data || !data.weight) return;
+      lastSnapshot = data;
+      const w = data.weight;
+      const stable = w.stable;
+      const fault = (data.system && data.system.fault) || false;
+      lastStable = stable;
+
+      const weightEl = document.getElementById('weight-value');
+      weightEl.textContent = formatWeight(w.total_lbs != null ? w.total_lbs : 0);
+
+      const stablePill = document.getElementById('stable-pill');
+      stablePill.textContent = stable ? 'STABLE' : 'UNSTABLE';
+      stablePill.className = 'status-pill ' + (stable ? 'ok' : 'warn');
+
+      const faultPill = document.getElementById('fault-pill');
+      faultPill.textContent = fault ? 'FAULT' : 'OK';
+      faultPill.className = 'status-pill ' + (fault ? 'bad' : 'ok');
+
+      const connDot = document.getElementById('conn-dot');
+      const daqOk = data.boards && data.boards.online && data.boards.online.daq24b8vin;
+      connDot.className = 'dot ' + (daqOk ? 'ok' : 'bad');
+
+      const tareMeta = document.getElementById('tare-meta');
+      const tareOff = w.tare_offset_lbs || 0;
+      if (Math.abs(tareOff) > 0.01) {
+        tareMeta.textContent = 'Tare: -' + tareOff.toFixed(1) + ' lb';
+        tareMeta.classList.add('tare-active');
+      } else {
+        tareMeta.textContent = 'Tare: 0.0 lb';
+        tareMeta.classList.remove('tare-active');
+      }
+
+      document.getElementById('btn-zero').disabled = !stable;
+      document.getElementById('btn-tare').disabled = !stable;
+
+      if (document.getElementById('cal-overlay').classList.contains('visible')) {
+        document.getElementById('cal-signal').textContent = (w.signal_for_cal != null ? w.signal_for_cal : 0).toFixed(6);
+      }
+    }
+
+    function showFeedback(msg, isError) {
+      const el = document.getElementById('feedback');
+      el.textContent = msg;
+      el.className = 'feedback ' + (isError ? 'error' : 'success');
+      setTimeout(function() { el.className = 'feedback'; el.textContent = ''; }, 3000);
+    }
+
+    function poll() {
+      fetch('/api/snapshot')
+        .then(function(r) { return r.json(); })
+        .then(updateUI)
+        .catch(function() {});
+    }
+
+    document.getElementById('btn-zero').addEventListener('click', function() {
+      if (!lastStable) { showFeedback('Scale not stable', true); return; }
+      fetch('/api/zero', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success) showFeedback('Zero set', false);
+          else showFeedback(d.error || 'Zero failed', true);
+        })
+        .catch(function() { showFeedback('Zero failed', true); });
+    });
+
+    document.getElementById('btn-tare').addEventListener('click', function() {
+      if (!lastStable) { showFeedback('Scale not stable', true); return; }
+      fetch('/api/tare', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success) showFeedback('Tare set', false);
+          else showFeedback(d.error || 'Tare failed', true);
+        })
+        .catch(function() { showFeedback('Tare failed', true); });
+    });
+
+    document.getElementById('btn-cal').addEventListener('click', function() {
+      document.getElementById('cal-weight').value = '';
+      document.getElementById('cal-overlay').classList.add('visible');
+      if (lastSnapshot && lastSnapshot.weight)
+        document.getElementById('cal-signal').textContent = (lastSnapshot.weight.signal_for_cal || 0).toFixed(6);
+    });
+
+    document.getElementById('cal-close').addEventListener('click', function() {
+      document.getElementById('cal-overlay').classList.remove('visible');
+    });
+
+    document.querySelectorAll('.numpad button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const n = this.getAttribute('data-n');
+        const input = document.getElementById('cal-weight');
+        if (this.classList.contains('clear')) {
+          input.value = '';
+          return;
+        }
+        input.value = input.value + n;
+      });
+    });
+
+    document.getElementById('cal-capture').addEventListener('click', function() {
+      const weightStr = document.getElementById('cal-weight').value.trim();
+      const knownWeight = parseFloat(weightStr);
+      if (isNaN(knownWeight) || weightStr === '') {
+        showFeedback('Enter weight (lb)', true);
+        return;
+      }
+      if (!lastStable) {
+        showFeedback('Scale not stable', true);
+        return;
+      }
+      var form = new FormData();
+      form.append('known_weight_lbs', String(knownWeight));
+      fetch('/api/calibration/add', { method: 'POST', body: form })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success) {
+            showFeedback('Point added: ' + knownWeight + ' lb', false);
+            document.getElementById('cal-overlay').classList.remove('visible');
+          } else {
+            showFeedback(d.error || 'Failed', true);
+          }
+        })
+        .catch(function() { showFeedback('Capture failed', true); });
+    });
+
+    poll();
+    pollTimer = setInterval(poll, POLL_MS);
+    window.addEventListener('beforeunload', function() { if (pollTimer) clearInterval(pollTimer); });
+  })();
+  </script>
+</body>
+</html>

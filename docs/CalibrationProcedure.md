@@ -11,19 +11,20 @@ This document describes the calibration procedure in detail. For a complete step
 ## 1. Preconditions
 - Mechanical installation complete and load cells properly mounted.
 - All load cells wired to DAQ inputs (SIG+/SIG−) and excitation provided by SlimPak Ultra.
-- Excitation measurement wired: **EXC+ → MegaIND 0–10V AI**, **EXC− → reference**.
+- Optional (recommended): excitation measurement wired **EXC+ → MegaIND 0–10V AI**, **EXC− → reference**.
 - System has warmed up (recommend 10–20 minutes in production temperature).
 - The scale is free of debris and mechanically stable.
 
 ## 2. Verify Excitation and Health
 1. Open Dashboard.
-2. Confirm **excitation voltage** reads near nominal (target ~10V).
-3. Confirm no excitation warnings/faults.
+2. If excitation monitoring is enabled, confirm **excitation voltage** reads near nominal (target ~10V).
+3. If excitation monitoring is enabled, confirm no excitation warnings/faults.
 4. Confirm per-channel raw readings are not saturated and are plausible.
 
 If excitation is low:
 - Check SlimPak supply and wiring.
 - Check MegaIND AI wiring reference (EXC− must be the reference).
+- If excitation is intentionally not wired yet, disable **Enable Excitation Monitoring** in Settings.
 
 ## 3. Configure Channels
 1. Navigate to **Settings → DAQ Channels**.
@@ -56,37 +57,43 @@ Navigate to **Settings > Signal Tuning** and configure:
 ## 5. Perform Zero / Empty Stability
 1. Ensure scale is empty.
 2. Wait for the UI to indicate **STABLE**.
-3. Apply a “zero” action if provided (future button/UI command) or allow auto-zero feature if enabled.
+3. Apply **ZERO** from the dashboard/operator UI or allow auto-zero tracking if enabled.
 4. Confirm the weight reads near 0 lb.
 
-## 6. Multi-Point Calibration (Piecewise-Linear)
-Recommended: 3–10 points spanning the range used in production.
+## 6. Weight Calibration (Current Runtime)
+The current runtime supports:
+- **Single-point** calibration (one known point, zero-crossing assumption)
+- **Two-point linear** calibration (recommended for production use)
 
+For code-backed details, see `docs/CALIBRATION_CURRENT_STATE.md`.
+
+### Recommended weekly procedure (same check weight, e.g. 50 lb)
 1. Navigate to Calibration.
-2. Ensure **ratiometric mode** is ON unless there is a specific reason to disable it.
-3. For each point:
-   - Place a known weight on the scale.
-   - Wait for **STABLE**.
-   - Enter the known weight (lb) and click Add.
-   - Confirm an event is logged if a point is rejected as unstable.
-4. After collecting points, verify:
-   - intermediate readings are accurate within expected tolerance
-   - end points behave correctly (0 lb and near max)
+2. Ensure platform is empty, **CLEAR TARE** if needed, and wait for **STABLE**.
+3. Press **ZERO** (baseline correction), then confirm reading is near 0.
+4. Add or confirm a **0 lb** point when stable.
+5. Apply known check weight (e.g. 50 lb), wait for **STABLE**, add point.
+6. Verify reading with the same check weight and at least one secondary spot-check weight if available.
+7. If many duplicate legacy points exist for the same weight, clean up stale duplicates in Calibration Hub.
 
 ### Calibration Behavior
 
-**Minimum Points Required**: At least **2 calibration points** are required for the calibration curve to activate. With only 1 point, the system falls back to a default simulation formula (mV × 10 = lbs).
+**Point Persistence / Weekly Recalibration**:
+- Existing calibration points are preserved across sessions/weeks.
+- Adding a repeated weight appends a new history row; points are not auto-averaged.
+- Use the Calibration Hub to remove stale duplicates when needed.
 
-**Extrapolation**: The calibration curve **extrapolates linearly** beyond the calibrated range:
-- Weights **below** the lowest calibration point use the slope from the first two points
-- Weights **above** the highest calibration point use the slope from the last two points
-- This is standard industrial behavior for scales that may see occasional overload
+**Minimum Points Required**:
+- **1 point**: system uses a single-point zero-crossing slope fallback.
+- **2+ points**: system uses two-point linear conversion from endpoint points.
 
-**Example**: If you calibrate 0-75 lb, and then place 150 lb on the scale, the system will correctly extrapolate to ~150 lb using the slope from your last two calibration points.
+**Current limitation**:
+- Weight calibration does not currently run multi-point regression or piecewise interpolation.
+- Two-point linear behavior is deterministic for distinct low/high endpoint weights.
 
 Notes:
 - If vibration prevents stability, adjust filter/stability thresholds and retry.
-- If excitation sags under load, ratiometric calibration is strongly preferred.
+- If excitation monitoring is enabled and excitation sags under load, fix excitation wiring/health before accepting calibration results.
 
 ## 7. PLC Output Mapping (Hand-in-Hand Calibration)
 Use this to ensure the PLC display matches the true scale weight exactly. This process links the Pi output directly to the scale weight.
@@ -97,7 +104,8 @@ Use this to ensure the PLC display matches the true scale weight exactly. This p
    - Place the weight on the scale and wait for **STABLE**.
    - Use the **Live Slider** and **+/- buttons** to nudge the Pi's output.
    - Watch the PLC screen. When it matches the scale weight, click **ADD MATCH POINT**.
-4. The system will now use piece-wise linear math to "bend" the output signal so the PLC reads correctly across the entire span.
+4. Save match points for commissioning records and repeatability checks.
+   - Note: current runtime output command path remains proportional linear mapping from configured range.
 
 **Freeze Mode**: While you are nudging the slider, the Pi "freezes" its normal weight-based logic so the signal stays steady for your meter or PLC.
 
@@ -106,7 +114,7 @@ Use this to ensure the PLC display matches the true scale weight exactly. This p
   - web UI reads correct weight
   - PLC displayed value matches within tolerance (after PLC profile mapping if used)
 - Verify fault-safe output:
-  - simulate excitation fault and confirm analog output forces safe value and UI shows fault
+  - with excitation monitoring enabled, simulate excitation fault and confirm analog output forces safe value and UI shows fault
 
 **Automated validation helpers:**
 ```bash

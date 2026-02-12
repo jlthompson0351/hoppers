@@ -7,7 +7,7 @@
 
 ## 🎯 SYSTEM IS DEPLOYED AND LIVE (December 18, 2025)
 
-# 👉 Dashboard: http://172.16.190.15:8080
+# 👉 Dashboard: http://172.16.190.25:8080
 
 The Flask application is installed, configured, and running. Open the dashboard URL above in any browser to view live load cell readings.
 
@@ -17,7 +17,7 @@ The Flask application is installed, configured, and running. Open the dashboard 
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
@@ -26,8 +26,8 @@ The Flask application is installed, configured, and running. Open the dashboard 
 | Pi Property | Value |
 |-------------|-------|
 | **Hostname** | `Hoppers` |
-| **IP Address** | `172.16.190.15` |
-| **Dashboard URL** | http://172.16.190.15:8080 |
+| **IP Address** | `172.16.190.25` |
+| **Dashboard URL** | http://172.16.190.25:8080 |
 | **SSH User** | `pi` |
 | **OS** | Debian GNU/Linux, Kernel 6.12.47 (aarch64) |
 
@@ -369,7 +369,7 @@ Expected: No errors
 **Before calibration:**
 1. Connect all load cells to 24b8vin inputs (CH1-CH4)
 2. Wire excitation from SlimPak to load cells
-3. Wire excitation monitoring: EXC+ → MegaIND AI (0-10V input)
+3. Optional (recommended): wire excitation monitoring EXC+ → MegaIND AI (0-10V input)
 4. System powered on for 10-20 minutes (thermal stabilization)
 5. Scale empty and mechanically stable
 
@@ -389,6 +389,8 @@ Expected: No errors
 **Check "System Status" card:**
 - Excitation voltage: ~10.0V (target)
 - Status: GREEN (no warnings/faults)
+
+If excitation is not wired yet, disable **Enable Excitation Monitoring** in Settings and continue calibration using raw mV.
 
 **If excitation is low (<9.5V):**
 1. Check SlimPak output with multimeter
@@ -594,6 +596,8 @@ Weight (lb) | Dashboard (lb) | Expected (V) | Measured (V) | Pass/Fail
 
 **Test fault condition:**
 
+> This test applies when excitation monitoring is enabled.
+
 1. Disconnect SlimPak excitation (or simulate low excitation)
 2. Dashboard should show: **FAULT** (red indicator)
 3. Expected fault-safe output:
@@ -626,7 +630,7 @@ Weight (lb) | Dashboard (lb) | Expected (V) | Measured (V) | Pass/Fail
 - [ ] Watchdog (if present) is healthy
 
 ### ✅ Calibration Complete
-- [ ] Excitation voltage reads ~10V (within ±0.5V)
+- [ ] If excitation monitoring is enabled: excitation voltage reads ~10V (within ±0.5V)
 - [ ] All load cell channels show plausible raw mV
 - [ ] Stability detection works (STABLE/UNSTABLE toggles)
 - [ ] Zero point captured (0 lb)
@@ -639,7 +643,7 @@ Weight (lb) | Dashboard (lb) | Expected (V) | Measured (V) | Pass/Fail
 - [ ] Scale range configured (min/max lb)
 - [ ] Output voltage measured at 0%, 25%, 50%, 75%, 100%
 - [ ] All measurements within ±0.2V (or ±0.5mA) of expected
-- [ ] Fault-safe output verified (0V or 4mA on excitation fault)
+- [ ] Fault-safe output verified (0V or 4mA on excitation fault, if excitation monitoring is enabled)
 
 ### ✅ System Health
 - [ ] Dashboard shows live weight updates (no stale data)
@@ -706,6 +710,7 @@ sudo ufw status
 2. EXC+ → MegaIND AI wiring
 3. Load cell wiring (broken connection can cause sag)
 4. SlimPak power supply
+5. If excitation is intentionally not wired yet, turn OFF **Enable Excitation Monitoring** in Settings.
 
 ---
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -95,6 +96,7 @@ class _RuntimeConfig:
     nudge_value: float
     # MegaIND I/O (maintenance / extra controls)
     megaind_io: Dict[str, Any]
+    round_up_enabled: bool
 
 
 class AcquisitionService:
@@ -279,6 +281,7 @@ class AcquisitionService:
             calibration_active=bool(out.get("calibration_active", False)),
             nudge_value=float(out.get("nudge_value", 0.0) or 0.0),
             megaind_io=dict(megaind_io),
+            round_up_enabled=bool((cfg.get("display") or {}).get("round_up_enabled", False)),
         )
 
     @staticmethod
@@ -536,6 +539,10 @@ class AcquisitionService:
                 else:
                     filt_weight = self._filter_iir.update(pre_weight)
                 stable = bool(self._stable.update(filt_weight, dt_s=dt))
+
+                # Round UP (ceiling) if enabled
+                if cfg.round_up_enabled and filt_weight > 0:
+                    filt_weight = math.ceil(filt_weight)
 
                 # Apply software tare
                 filt_weight = float(filt_weight) - float(cfg.tare_offset_lbs)

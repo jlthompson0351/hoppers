@@ -1,7 +1,13 @@
 # TODAY: Unified Calibration Hub + Hand-in-Hand PLC Mapping + Conflict Guard
 
 **Date**: January 6, 2026  
-**Status**: ✅ **UNFUCKED CALIBRATION HUB DEPLOYED** + **HAND-IN-HAND MAPPING ACTIVE** + **PROPORTIONAL PWL OUTPUT** + **CLEAN SPLIT SETUP/TRAINING**
+**Status**: Historical milestone summary (January 2026)
+
+> Current-behavior note (Feb 2026):
+> - Treat this file as historical change-log context.
+> - For current calibration behavior in code, use:
+>   - `docs/CALIBRATION_CURRENT_STATE.md`
+>   - `docs/CalibrationProcedure.md`
 
 ---
 
@@ -36,6 +42,18 @@
 ### 5. Hardware Driver Extensions
 - Added support for **Relays** and **Open-Drain PWM** outputs to the MegaIND driver, preparing for custom ladder logic and buttons.
 
+### 6. HDMI Operator Interface & Kiosk Mode (Feb 2026)
+- **Problem**: Operators needed a dedicated, touch-friendly screen on the hopper itself.
+- **Solution**: Created a specialized `/hdmi` page with large weight and controls.
+- **Auto-Recovery**: Added `LAUNCH` and `FORCE RELAUNCH` buttons to the main dashboard to remotely manage the Pi's display.
+- **Persistence**: Configured `kiosk.service` to auto-start the UI at boot.
+
+### 7. Calibration Persistence + Replace-by-Weight (Feb 2026)
+- Calibration points are now preserved across weeks unless explicitly deleted.
+- Capturing a point at an existing known weight replaces the previous point at that weight (latest capture wins).
+- Historical note (Jan 2026): runtime mapping was documented as all-points piecewise interpolation/extrapolation.
+- Single-point mode remains supported via zero-crossing slope fallback.
+
 ---
 
 ## Bug Fixes (December 19, 2025 - Late PM)
@@ -50,17 +68,18 @@
 
 **Fixes Applied**:
 
-1. **`src/services/acquisition.py`**: Now ALWAYS reads excitation voltage regardless of ratiometric setting
-   - Excitation monitoring works for fault detection even in raw mV mode
+1. **`src/services/acquisition.py`**: Reads excitation voltage independent of calibration math and supports monitoring control from settings
+   - Excitation monitoring can participate in fault detection while enabled
    - Added try/except with proper error handling for read failures
-   - Status values: `OK`, `WARN`, `FAULT`, `NOT_READ`, `READ_ERROR`
+   - Status values: `OK`, `WARN`, `FAULT`, `NOT_READ`, `READ_ERROR`, `DISABLED`
 
 2. **Config fix**: Changed `excitation.ai_channel` from 4 back to 1
 
-**How Excitation Monitoring Now Works**:
-- Excitation is **always read** (for display and fault detection)
-- Excitation is only **used for math** when ratiometric mode is ON
-- Users can monitor excitation health even when using simple raw mV mode
+**How Excitation Monitoring Works**:
+- Excitation is read for display/fault handling when monitoring is enabled
+- Calibration math uses raw mV signal capture
+- Users can monitor excitation health independently of calibration math
+- Users can disable excitation monitoring during commissioning when excitation AI is not wired yet
 
 **Verification**: Dashboard now shows `Excitation: 10.15V OK`
 
@@ -74,9 +93,9 @@
 
 **Example**: User calibrated 0-75 lb range, but stepping on scale (signal ~10.3 mV) only showed 75 lb instead of the actual ~184 lb.
 
-**Root Cause**: The piecewise-linear interpolation function (`src/core/pwl.py`) was designed to clamp values at the endpoints instead of extrapolating.
+**Root Cause (historical)**: The piecewise-linear interpolation function (`src/core/pwl.py`) was documented as clamping endpoints instead of extrapolating.
 
-**Fix Applied** (`src/core/pwl.py`):
+**Fix Applied (historical)** (`src/core/pwl.py`):
 - Added `extrapolate` parameter (default: `True`)
 - When signal is **below** the lowest calibration point: extrapolates using the slope from the first two points
 - When signal is **above** the highest calibration point: extrapolates using the slope from the last two points
@@ -90,26 +109,22 @@
 
 **Answer**: Signals are **summed together** (industry standard for hopper/vessel scales):
 - Each load cell channel is read individually (raw mV)
-- If ratiometric mode is on, each is divided by excitation voltage (mV → mV/V)
 - All load cell signals are added to produce `total_signal`
 - Calibration curve converts `total_signal` → weight in lbs
 
 This is correct for multi-point suspension scales where each load cell carries a fraction of the total weight.
 
-### Ratiometric Mode (Confirmed Optional)
+### Calibration Signal Mode (Current)
 
-Users can run in either mode:
-- **Ratiometric (mV/V)**: Compensates for excitation voltage drift
-- **Raw mV**: Simpler, works fine if excitation supply is stable
+Calibration capture and runtime mapping use raw mV.
 
-**Excitation monitoring is now independent of ratiometric mode** (fixed Dec 19 late PM):
-- Excitation voltage is **always read and displayed** for fault monitoring
-- Ratiometric setting only controls whether the math uses mV/V or raw mV
-- System automatically falls back to raw mV if excitation reads <0.5V
+**Excitation monitoring is independent of calibration math**:
+- Excitation voltage monitoring is independent of calibration math
+- Excitation WARN/FAULT protects output safety when excitation monitoring is enabled
 
-**Settings locations**:
+**Settings location**:
 - **Excitation channel**: Settings > Quick Setup > Excitation Input Channel (1-4)
-- **Ratiometric toggle**: Settings > Zero & Scale > Use Ratiometric Measurement
+- **Enable/disable**: Settings > Quick Setup > Enable Excitation Monitoring
 
 ### Weight-Side Bulletproofing (Dec 19, 2025)
 
@@ -247,10 +262,10 @@ Cleared accidental tare offset that was causing 22 lb error in weight readings.
 - `src/app/templates/plc_profile.html` - Complete redesign
 - `src/app/templates/settings.html` - New tabbed Settings page
 - `src/app/templates/base.html` - Nav updated (Settings link, Config hidden unless maintenance enabled)
-- `src/services/acquisition.py` - Test mode support + ratiometric fallback for calibration + config refresh improvements + **Dec 19 late PM**: excitation always read regardless of ratiometric setting
+- `src/services/acquisition.py` - Test mode support + calibration mapping/runtime updates + config refresh improvements + excitation monitoring runtime support
 - `src/hw/sequent_megaind_stub.py` - Simulation improvements
 - `src/db/repo.py` - Expanded defaults + deep-merge for older configs
-- `src/core/pwl.py` - **Dec 19**: Added extrapolation support for calibration curves (was clamping)
+- `src/core/pwl.py` - **Dec 19 historical note**: extrapolation support was documented for calibration curves.
 
 ---
 
@@ -258,8 +273,8 @@ Cleared accidental tare offset that was causing 22 lb error in weight readings.
 
 ### What was changed
 
-- **Ratiometric fallback for calibration**: If ratiometric is enabled but excitation reads ~0V (not wired / missing), the acquisition loop now **falls back to raw mV** so calibration signal is not forced to 0.
-- **Calibration UI shows units**: Calibration page now shows **mV/V vs mV** based on effective ratiometric mode.
+- **Raw mV calibration path**: Calibration capture uses raw mV signal values.
+- **Calibration UI signal display**: Calibration page shows raw mV signal used for point capture.
 - **Output channels default to 1**: Default MegaIND analog I/O channels are treated as 1-indexed.
 - **Config refresh interval honored**: Acquisition loop refreshes config using `timing.config_refresh_s` (instead of hardcoded 2s).
 - **Filter parameter updates without state reset**: On config refresh, filter parameters are updated while trying to preserve filter state.
@@ -271,7 +286,7 @@ Cleared accidental tare offset that was causing 22 lb error in weight readings.
 
 ## 🎯 LIVE DASHBOARD
 
-# 👉 http://172.16.190.15:8080
+# 👉 http://172.16.190.25:8080
 
 Open in any browser to view live load cell readings.
 
@@ -281,7 +296,7 @@ Open in any browser to view live load cell readings.
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Dashboard** | ✅ LIVE | http://172.16.190.15:8080 |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4, 8 channels |
 | **MegaIND I/O** | ✅ Online | I2C 0x50, Firmware 4.08 |
@@ -303,7 +318,7 @@ sudo systemctl restart loadcell-transmitter  # Restart
 1. **`HardwareTestReadiness_TODAY.md`** — Complete runbook (2.5-3.5 hour timeline)
    - Phase 1: Bootstrap (SSH → Running Dashboard)
    - Phase 2: Hardware Smoke Tests (I2C scan, board detection)
-   - Phase 3: Calibration + Real Testing (multi-point calibration)
+   - Phase 3: Calibration + Real Testing
    - Phase 4: Analog Output Verification (0-10V/4-20mA testing)
    - Phase 5: Final Checklist
    - Full troubleshooting guide
@@ -331,7 +346,7 @@ Located in `scripts/`:
 - **Calibration UI**: Multi-point piecewise-linear calibration
 - **Stability Detection**: STABLE/UNSTABLE indicator
 - **Analog Output**: 0-10V and 4-20mA modes
-- **Fault-Safe Behavior**: Safe output on excitation fault
+- **Fault-Safe Behavior**: Safe output on excitation fault when excitation monitoring is enabled
 - **Systemd Service**: Auto-start on boot with restart on failure
 
 ---
@@ -440,11 +455,11 @@ Follow: `HardwareTestReadiness_TODAY.md` Phase 5
 
 ### ✅ Dashboard Must Show:
 - **Boards Online**: 2/2 (green DAQ and IO pills)
-- **Excitation**: ~10.0V (green status)
+- **Excitation**: ~10.0V (green status) when excitation monitoring is enabled
 - **Stability**: Toggles between STABLE/UNSTABLE correctly
 - **Weight**: Matches known test weights within ±2 lb
 - **Output**: Tracks weight correctly (within ±0.2V or ±0.5mA)
-- **Fault Behavior**: Safe output (0V or 4mA) when excitation fails
+- **Fault Behavior**: Safe output (0V or 4mA) when excitation fails and excitation monitoring is enabled
 
 ### ✅ System Must:
 - Start automatically on boot
@@ -498,10 +513,10 @@ cp /var/lib/loadcell-transmitter/app.sqlite3 ~/backup-$(date +%Y%m%d-%H%M%S).sql
 | Can't add calibration point | Wait for STABLE, increase stability threshold |
 | Output voltage wrong | Verify scale range config, check calibration loaded |
 | Excitation low | Check SlimPak output, verify wiring |
-| **Excitation shows 0.00V** | 1) Check Settings > Quick Setup > Excitation Input Channel matches your wiring (1-4). 2) Test with `megaind 0 uinrd 1` to verify hardware. 3) Update to latest `acquisition.py` if ratiometric is OFF. |
+| **Excitation shows 0.00V** | 1) Check Settings > Quick Setup > Excitation Input Channel matches your wiring (1-4). 2) Test with `megaind 0 uinrd 1` to verify hardware. 3) If excitation is not wired yet, turn OFF **Enable Excitation Monitoring**. |
 | Dashboard not accessible | Check service status, verify port 8080 binding |
-| Weight stuck at max calibrated value | Fixed Dec 19 - update `src/core/pwl.py` and restart service |
-| Weight shows ~47 lb with 1 cal point | Need at least 2 calibration points; with 1 point system uses fallback formula (mV × 10) |
+| Weight stuck at max calibrated value | Historical note from Dec 19 references `src/core/pwl.py` path. |
+| Weight off with 1 cal point | Add more points (recommended 3-10); with 1 point system uses a simple single-point slope fallback |
 | Added load cell, weight doubled | Expected - signals are summed. Clear calibration and recalibrate with new configuration |
 
 ---
