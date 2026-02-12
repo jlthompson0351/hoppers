@@ -227,7 +227,7 @@ class AppRepository:
                 "ao_channel_ma": 1,
                 "safe_v": 0.0,
                 "safe_ma": 4.0,
-                "armed": False,
+                "armed": True,
                 "test_mode": False,
                 "test_value": 0.0,
                 "calibration_active": False,
@@ -628,13 +628,43 @@ class AppRepository:
 
     def delete_throughput_event(self, event_id: int) -> bool:
         with self._conn() as conn:
+            # Get event data BEFORE deleting so we can update production_totals
+            cur = conn.execute(
+                "SELECT timestamp_utc, processed_lbs FROM throughput_events WHERE id = ?;",
+                (int(event_id),),
+            )
+            event = cur.fetchone()
+            if not event:
+                return False
+            
+            # Delete from throughput_events
             conn.execute(
                 "DELETE FROM throughput_events WHERE id = ?;",
                 (int(event_id),),
             )
-            cur = conn.execute("SELECT changes() AS cnt;")
-            row = cur.fetchone()
-            return (int(row["cnt"]) if row else 0) > 0
+            
+            # Update production_totals - subtract the deleted weight
+            timestamp_utc = event["timestamp_utc"]
+            processed_lbs = float(event["processed_lbs"])
+            
+            # Parse timestamp to get date
+            try:
+                dt = datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
+                event_date = dt.date()
+            except (ValueError, AttributeError):
+                # If we can't parse timestamp, skip production_totals update
+                return True
+            
+            # Update all period types (day, week, month, year)
+            for period_type in ["day", "week", "month", "year"]:
+                period_start = self._period_start(event_date, period_type)
+                conn.execute(
+                    "UPDATE production_totals SET total_lbs = total_lbs - ? "
+                    "WHERE period_type = ? AND period_start = ?;",
+                    (processed_lbs, period_type, period_start),
+                )
+            
+            return True
 
     def delete_throughput_events(
         self,
@@ -645,13 +675,44 @@ class AppRepository:
     ) -> int:
         where_sql, where_params = self._throughput_where_clause(start_utc, end_utc, device_id)
         with self._conn() as conn:
+            # Get events BEFORE deleting so we can update production_totals
+            cur = conn.execute(
+                f"SELECT timestamp_utc, processed_lbs FROM throughput_events{where_sql};",
+                tuple(where_params),
+            )
+            events = cur.fetchall()
+            
+            # Delete from throughput_events
             conn.execute(
                 f"DELETE FROM throughput_events{where_sql};",
                 tuple(where_params),
             )
             cur = conn.execute("SELECT changes() AS cnt;")
             row = cur.fetchone()
-            return int(row["cnt"]) if row else 0
+            deleted_count = int(row["cnt"]) if row else 0
+            
+            # Update production_totals - subtract each deleted event's weight
+            for event in events:
+                timestamp_utc = event["timestamp_utc"]
+                processed_lbs = float(event["processed_lbs"])
+                
+                # Parse timestamp to get date
+                try:
+                    dt = datetime.fromisoformat(timestamp_utc.replace("Z", "+00:00"))
+                    event_date = dt.date()
+                except (ValueError, AttributeError):
+                    continue
+                
+                # Update all period types (day, week, month, year)
+                for period_type in ["day", "week", "month", "year"]:
+                    period_start = self._period_start(event_date, period_type)
+                    conn.execute(
+                        "UPDATE production_totals SET total_lbs = total_lbs - ? "
+                        "WHERE period_type = ? AND period_start = ?;",
+                        (processed_lbs, period_type, period_start),
+                    )
+            
+            return deleted_count
 
     # -------- production totals --------
     @staticmethod
