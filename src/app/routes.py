@@ -333,12 +333,51 @@ def _active_point_for_weight(points: list, known_weight_lbs: float, eps_lb: floa
     return None
 
 
+def _reset_zero_offset(repo: AppRepository, state: Optional[LiveState], reason: str) -> None:
+    """Reset zero offset to 0 when calibration model changes.
+
+    Calibration captures raw signal, so any existing zero offset computed
+    against a previous calibration model would corrupt the new mapping.
+    """
+    cfg = repo.get_latest_config()
+    scale = cfg.get("scale") or {}
+    old_offset = float(scale.get("zero_offset_mv") or scale.get("zero_offset_signal") or 0.0)
+    if abs(old_offset) < 1e-12:
+        return  # Already zero, nothing to do.
+
+    updated_utc = _utc_now()
+    scale["zero_offset_mv"] = 0.0
+    scale["zero_offset_signal"] = 0.0
+    scale["zero_offset_updated_utc"] = updated_utc
+    cfg["scale"] = scale
+    repo.save_config(cfg)
+
+    if state is not None:
+        state.set(
+            zero_offset_mv=0.0,
+            zero_offset_signal=0.0,
+            zero_offset_updated_utc=updated_utc,
+        )
+
+    repo.log_event(
+        level="INFO",
+        code="ZERO_OFFSET_RESET",
+        message=f"Zero offset reset from {old_offset:.6f} mV to 0.0 ({reason}).",
+        details={
+            "old_zero_offset_mv": old_offset,
+            "new_zero_offset_mv": 0.0,
+            "reason": reason,
+        },
+    )
+
+
 def _apply_calibration_capture(
     repo: AppRepository,
     snap: dict,
     known_weight_lbs: float,
     requested_mode: str,
     confirm_average: bool,
+    state: Optional[LiveState] = None,
 ) -> dict:
     known_weight_lbs = float(known_weight_lbs)
     requested_mode = str(requested_mode or "overwrite").strip().lower()
@@ -362,6 +401,10 @@ def _apply_calibration_capture(
     point_id = repo.add_calibration_point(known_weight_lbs=known_weight_lbs, signal=applied_signal_mv)
     updated_points = repo.get_calibration_points(limit=500)
     model = calibration_model_from_points(updated_points)
+
+    # Calibration model changed — any existing zero offset was computed against
+    # the old model and would corrupt weight readings with the new one.
+    _reset_zero_offset(repo, state, reason="calibration_point_added")
 
     repo.log_event(
         level="INFO",
@@ -643,6 +686,7 @@ def calibration_add() -> Response:
         known_weight_lbs=known_weight,
         requested_mode=requested_mode,
         confirm_average=confirm_average,
+        state=state,
     )
     return redirect(url_for("routes.calibration_get"))
 
@@ -1456,6 +1500,22 @@ def api_zero() -> Response:
     )
 
 
+@bp.post("/api/zero/clear")
+def api_zero_clear() -> Response:
+    """Clear (reset) the zero offset to 0.0 without re-zeroing.
+
+    Useful when a stale offset from a previous calibration or testing session
+    is contaminating the current weight readings.
+    """
+    repo: AppRepository = current_app.config["REPO"]
+    state: LiveState = current_app.config["LIVE_STATE"]
+    _reset_zero_offset(repo, state, reason="manual_clear")
+    return Response(
+        json.dumps({"success": True, "zero_offset_mv": 0.0, "message": "Zero offset cleared"}),
+        mimetype="application/json",
+    )
+
+
 @bp.post("/api/tare")
 def api_tare() -> Response:
     """Tare the scale - set current weight as tare offset."""
@@ -1551,6 +1611,7 @@ def api_calibration_add() -> Response:
         known_weight_lbs=known_weight,
         requested_mode=requested_mode,
         confirm_average=confirm_average,
+        state=state,
     )
     return Response(json.dumps(result), mimetype="application/json")
 
@@ -1559,8 +1620,10 @@ def api_calibration_add() -> Response:
 def api_calibration_delete(point_id: int) -> Response:
     """Delete a calibration point."""
     repo: AppRepository = current_app.config["REPO"]
+    state: LiveState = current_app.config["LIVE_STATE"]
     try:
         repo.delete_calibration_point(point_id)
+        _reset_zero_offset(repo, state, reason="calibration_point_deleted")
         repo.log_event(
             level="INFO",
             code="CAL_POINT_DELETED",
@@ -1583,8 +1646,10 @@ def api_calibration_delete(point_id: int) -> Response:
 def api_calibration_clear() -> Response:
     """Delete all calibration points."""
     repo: AppRepository = current_app.config["REPO"]
+    state: LiveState = current_app.config["LIVE_STATE"]
     try:
         repo.clear_calibration_points()
+        _reset_zero_offset(repo, state, reason="calibration_points_cleared")
         repo.log_event(
             level="INFO",
             code="CAL_POINTS_CLEARED",

@@ -57,6 +57,7 @@
   .action-btn.zero { background: #3498db; color: white; }
   .action-btn.tare { background: #9b59b6; color: white; }
   .action-btn.clear { background: #7f8c8d; color: white; }
+  .action-btn.clear-zero { background: #e67e22; color: white; }
   .action-btn.launch { background: #27ae60; color: white; }
   .action-btn.force { background: #c0392b; color: white; }
 
@@ -176,6 +177,7 @@
     <button class="action-btn zero" id="btn-zero" onclick="doZero()">ZERO</button>
     <button class="action-btn tare" id="btn-tare" onclick="doTare()">TARE</button>
     <button class="action-btn clear" id="btn-clear" onclick="doClearTare()">CLEAR TARE</button>
+    <button class="action-btn clear-zero" id="btn-clear-zero" onclick="doClearZero()">CLEAR ZERO</button>
     <button class="action-btn launch" id="btn-launch-hdmi" onclick="doLaunchHdmi()">LAUNCH HDMI ON PI</button>
     <button class="action-btn force" id="btn-force-hdmi" onclick="doForceLaunchHdmi()">FORCE RELAUNCH HDMI</button>
   </div>
@@ -489,6 +491,21 @@
       })
       .catch(function(err) {
         showFeedback('Clear tare failed: ' + err.message, true);
+      });
+  };
+
+  window.doClearZero = function() {
+    fetch('/api/zero/clear', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          showFeedback('Zero offset cleared', false);
+        } else {
+          showFeedback(data.error || 'Clear zero failed', true);
+        }
+      })
+      .catch(function(err) {
+        showFeedback('Clear zero failed: ' + err.message, true);
       });
   };
 

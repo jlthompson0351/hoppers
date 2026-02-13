@@ -16,6 +16,7 @@
       --zero: #3498db;
       --tare: #9b59b6;
       --clear: #7f8c8d;
+      --clear-zero: #e67e22;
       --settings: #27ae60;
     }
 
@@ -219,7 +220,7 @@
 
     .button-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 6px;
     }
 
@@ -243,6 +244,7 @@
     .btn.zero { background: var(--zero); }
     .btn.tare { background: var(--tare); }
     .btn.clear { background: var(--clear); }
+    .btn.clear-zero { background: var(--clear-zero); }
     .btn.settings { background: var(--settings); }
 
     .bottom-meta {
@@ -330,6 +332,7 @@
       <button type="button" class="btn zero" id="btn-zero">ZERO</button>
       <button type="button" class="btn tare" id="btn-tare">TARE</button>
       <button type="button" class="btn clear" id="btn-clear">CLEAR TARE</button>
+      <button type="button" class="btn clear-zero" id="btn-clear-zero">CLEAR ZERO</button>
       <button type="button" class="btn settings" id="btn-settings">SETTINGS</button>
     </div>
 
@@ -529,6 +532,10 @@
 
       document.getElementById("btn-clear").addEventListener("click", function() {
         postAction("/api/tare/clear", "Tare cleared");
+      });
+
+      document.getElementById("btn-clear-zero").addEventListener("click", function() {
+        postAction("/api/zero/clear", "Zero offset cleared");
       });
 
       document.getElementById("btn-settings").addEventListener("click", function() {
