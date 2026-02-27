@@ -1,0 +1,8 @@
+### COMMAND: hostnamectl
+ Static hostname: Hoppers
+       Icon name: computer
+      Machine ID: f1a7f255f2f24f99a9abda456d46558e
+         Boot ID: 4398878e1018400685f2320739ae2bbb
+Operating System: Debian GNU/Linux 13 (trixie)
+          Kernel: Linux 6.12.47+rpt-rpi-v8
+    Architecture: arm64

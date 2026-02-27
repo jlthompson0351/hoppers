@@ -11,11 +11,14 @@ FILES TO COPY:
 2. `src/services/acquisition.py`
 3. `src/db/repo.py`
 4. `src/core/zero_tracking.py`
-5. `src/core/zeroing.py`
-6. `src/app/templates/dashboard.html`
-7. `src/app/templates/settings.html`
-8. `src/app/templates/scale_settings.html`
-9. `src/app/templates/calibration.html`
+5. `src/core/throughput_cycle.py`
+6. `src/core/post_dump_rezero.py`
+7. `src/core/zeroing.py`
+8. `src/app/templates/dashboard.html`
+9. `src/app/templates/hdmi.html`
+10. `src/app/templates/settings.html`
+11. `src/app/templates/scale_settings.html`
+12. `src/app/templates/calibration.html`
 
 DEPLOYMENT STEPS:
 -----------------
@@ -32,3 +35,4 @@ NOTES:
 - If `routes.py` is root-owned, upload to `/tmp/routes.py` then:
   `sudo cp /tmp/routes.py /opt/loadcell-transmitter/src/app/routes.py`
 - Hard refresh browser after deploy (`Ctrl+Shift+R`).
+- Verify Settings page shows Post-Dump Re-Zero fields after deploy.

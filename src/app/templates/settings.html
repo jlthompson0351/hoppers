@@ -4,7 +4,7 @@
 {% set filter = cfg.get('filter', {}) %}
 {% set range_cfg = cfg.get('range', {}) %}
 {% set output = cfg.get('output', {}) %}
-{% set excitation = cfg.get('excitation', {}) %}
+{% set job_control = cfg.get('job_control', {}) %}
 {% set zero_tracking = cfg.get('zero_tracking', {}) %}
 {% set startup = cfg.get('startup', {}) %}
 {% set alarms = cfg.get('alarms', {}) %}
@@ -111,6 +111,7 @@
 
 <div class="tabs" id="settingsTabs">
   <div class="tab active" data-tab="quick-setup">Quick Setup</div>
+  <div class="tab" data-tab="job-target">Job Target Mode</div>
   <div class="tab" data-tab="signal">Signal Tuning</div>
   <div class="tab" data-tab="zero">Zero &amp; Scale</div>
   <div class="tab" data-tab="output">Output Control</div>
@@ -126,7 +127,7 @@
   <div class="tab" data-tab="system">System</div>
 </div>
 
-<form id="settingsForm" method="post" action="{{ url_for('routes.settings_post') }}">
+<form id="settingsForm" method="post" action="{{ url_for('routes.settings_post') }}" novalidate>
   
   <!-- ============== QUICK SETUP TAB ============== -->
   <div class="tab-content active" id="tab-quick-setup">
@@ -134,34 +135,7 @@
       <strong>Start Here!</strong> These are the essential settings to get your scale up and running. 
       Most installations only need to adjust these settings.
       <br><br>
-      <strong>Mapping priority:</strong> when Calibration Hub has 2+ saved PLC output mapping points for the active mode,
-      runtime uses that profile curve. The min/max range below is used as linear fallback and for quick commissioning.
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Weight Range</div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Minimum Weight</div>
-          <div class="setting-help">The weight value that corresponds to <strong>0V</strong> (or 4mA) output. Usually set to 0 for most scales.</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="range_min_lb" step="0.1" value="{{ range_cfg.get('min_lb', 0) }}">
-          <div class="setting-unit">lb</div>
-        </div>
-      </div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Maximum Weight</div>
-          <div class="setting-help">The weight value that corresponds to <strong>10V</strong> (or 20mA) output for linear mode. Set this to your scale's full capacity (or use Calibration Hub to sync this from saved profile points).</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="range_max_lb" step="0.1" value="{{ range_cfg.get('max_lb', 300) }}">
-          <div class="setting-unit">lb</div>
-        </div>
-      </div>
+      <strong>PLC Output mapping</strong> is configured in <strong>Calibration Hub</strong> &mdash; train the scale on known weights, then train the PLC output voltage at each weight. The system calculates volts-per-pound from your saved points automatically.
     </div>
     
     <div class="section">
@@ -204,63 +178,183 @@
           <div class="setting-unit">{{ 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' }}</div>
         </div>
       </div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Excitation Monitoring</div>
-      
+
       <div class="setting-row">
         <div>
-          <div class="setting-label">Enable Excitation Monitoring</div>
-          <div class="setting-help">Turn this off if excitation is not wired yet. Fault and safe-output logic will ignore excitation until re-enabled.</div>
+          <div class="setting-label">Max Cycle Weight (Throughput Guard)</div>
+          <div class="setting-help">
+            Hard cap for processed dump events. Any cycle above this value is rejected from throughput totals and logged as an anomaly.
+            Set this to your machine's physical max load.
+          </div>
         </div>
         <div class="setting-control">
-          <div class="toggle-wrapper">
-            <div class="toggle {% if excitation.get('enabled', true) %}on{% endif %}" id="toggle_excitation_enabled" onclick="toggleSwitch(this, 'excitation_enabled')"></div>
-            <input type="hidden" name="excitation_enabled" id="excitation_enabled" value="{{ '1' if excitation.get('enabled', true) else '0' }}">
-            <span class="toggle-label">{{ 'Enabled' if excitation.get('enabled', true) else 'Disabled' }}</span>
-          </div>
+          <input type="number" name="max_lb" min="1" step="0.1" value="{{ range_cfg.get('max_lb', 300.0) }}">
+          <div class="setting-unit">lb</div>
         </div>
       </div>
 
       <div class="setting-row">
         <div>
-          <div class="setting-label">Excitation Input Channel</div>
-          <div class="setting-help">Which MegaIND analog input monitors the load cell excitation voltage. This is used for <strong>ratiometric</strong> measurements.</div>
+          <div class="setting-label">Scale Output Strategy</div>
+          <div class="setting-help">
+            <strong>Legacy:</strong> continuous weight-to-analog mapping (current behavior).<br>
+            <strong>Job Target Signal:</strong> webhook-driven target trigger mode with separate settings and one-point signal calibration workflow.
+          </div>
         </div>
         <div class="setting-control">
-          <select name="excitation_ai_channel">
-            {% for ch in [1,2,3,4] %}
-            <option value="{{ ch }}" {% if excitation.get('ai_channel', 1) == ch %}selected{% endif %}>Channel {{ ch }}</option>
-            {% endfor %}
+          <select name="job_control_mode" id="job_control_mode_select">
+            <option value="legacy_weight_mapping" {% if job_control.get('mode', 'legacy_weight_mapping') == 'legacy_weight_mapping' %}selected{% endif %}>Legacy Weight Mapping</option>
+            <option value="target_signal_mode" {% if job_control.get('mode', 'legacy_weight_mapping') == 'target_signal_mode' %}selected{% endif %}>Job Target Signal Mode</option>
           </select>
         </div>
       </div>
-      
+
+      <div class="info-box" id="job-mode-hint" style="display: {% if job_control.get('mode', 'legacy_weight_mapping') == 'target_signal_mode' %}block{% else %}none{% endif %};">
+        <strong>Job Target Signal Mode is ON.</strong>
+        Use the <strong>Job Target Mode</strong> tab to configure trigger behavior and signal calibration settings.
+      </div>
+    </div>
+    
+  </div>
+  
+  <!-- ============== JOB TARGET MODE TAB ============== -->
+  <div class="tab-content" id="tab-job-target">
+    <div class="info-box">
+      <strong>Target Mode Panel</strong> Configure webhook-driven trigger behavior without changing load cell calibration points.
+      This mode only changes how PLC output is commanded.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Trigger Behavior</div>
+
       <div class="setting-row">
         <div>
-          <div class="setting-label">Warning Voltage</div>
-          <div class="setting-help">Below this voltage, a <strong>warning</strong> is displayed but the scale continues operating.</div>
+          <div class="setting-label">Mode</div>
+          <div class="setting-help">
+            Keep this in sync with Quick Setup mode selector.
+          </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="excitation_warn_v" step="0.1" value="{{ excitation.get('warn_v', 9.0) }}">
-          <div class="setting-unit">V</div>
+          <select id="job_control_mode_select_tab">
+            <option value="legacy_weight_mapping" {% if job_control.get('mode', 'legacy_weight_mapping') == 'legacy_weight_mapping' %}selected{% endif %}>Legacy Weight Mapping</option>
+            <option value="target_signal_mode" {% if job_control.get('mode', 'legacy_weight_mapping') == 'target_signal_mode' %}selected{% endif %}>Job Target Signal Mode</option>
+          </select>
         </div>
       </div>
-      
+
       <div class="setting-row">
         <div>
-          <div class="setting-label">Fault Voltage</div>
-          <div class="setting-help">Below this voltage, a <strong>fault</strong> is triggered and safe output is sent to PLC. This protects against power supply failure.</div>
+          <div class="setting-label">Trigger Timing</div>
+          <div class="setting-help">
+            <strong>Exact:</strong> trigger at target weight.<br>
+            <strong>Early:</strong> trigger before target by configured offset.
+          </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="excitation_fault_v" step="0.1" value="{{ excitation.get('fault_v', 8.0) }}">
-          <div class="setting-unit">V</div>
+          <select name="job_trigger_mode" id="job_trigger_mode_select">
+            <option value="exact" {% if job_control.get('trigger_mode', 'exact') == 'exact' %}selected{% endif %}>Exact at target</option>
+            <option value="early" {% if job_control.get('trigger_mode', 'exact') == 'early' %}selected{% endif %}>Early trigger</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row" id="job_pretrigger_row" style="display: {% if job_control.get('trigger_mode', 'exact') == 'early' %}grid{% else %}none{% endif %};">
+        <div>
+          <div class="setting-label">Early Offset</div>
+          <div class="setting-help">
+            Trigger early by this many pounds (target - offset).
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="job_pretrigger_lb" min="0" step="0.1" value="{{ job_control.get('pretrigger_lb', 0.0) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Signal Output</div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Target-Reached Signal Value</div>
+          <div class="setting-help">
+            Pick the PLC output point to use as the trigger signal. These come from your saved PLC profile in Calibration Hub.
+          </div>
+        </div>
+        <div class="setting-control">
+          {% set units = 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' %}
+          {% set current_trigger = job_control.get('trigger_signal_value', 1.0)|float %}
+          {% if plc_points|length > 0 %}
+          <select name="job_trigger_signal_value" id="job_trigger_signal_value_input">
+            {% for pt in plc_points %}
+            <option value="{{ pt.analog_value }}"
+              {% if (pt.analog_value - current_trigger)|abs < 0.01 %}selected{% endif %}>
+              {{ "%.2f"|format(pt.analog_value) }} {{ units }} &mdash; PLC reads {{ "%.1f"|format(pt.plc_displayed_lbs) }} lbs
+            </option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <div class="setting-help" style="color:var(--warning, #f0ad4e);">
+            No PLC profile points saved yet.
+            <a href="{{ url_for('routes.calibration_get') }}" target="_blank" style="text-decoration:underline;">Open Calibration Hub</a> to create output mapping points first.
+          </div>
+          <input type="hidden" name="job_trigger_signal_value" value="{{ current_trigger }}">
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Idle / Not-At-Weight Output</div>
+          <div class="setting-help">
+            Analog output value used while below trigger, after reset, or with no active job.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input
+            type="number"
+            name="job_low_signal_value"
+            min="0"
+            max="20"
+            step="0.01"
+            value="{{ job_control.get('low_signal_value', 0.0) }}"
+          >
+          <div class="setting-unit">{{ 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' }}</div>
+        </div>
+      </div>
+
+      {% if plc_points|length > 0 %}
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Need a different signal value?</div>
+          <div class="setting-help">
+            Add more output mapping points in
+            <a href="{{ url_for('routes.calibration_get') }}" target="_blank" style="text-decoration:underline;">Calibration Hub</a>,
+            then reload this page to see them in the dropdown above.
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Webhook Security</div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Webhook Token</div>
+          <div class="setting-help">
+            Required token for <code>/api/job/webhook</code>, <code>/api/job/status</code>, and <code>/api/job/clear</code>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="password" id="job_webhook_token" name="job_webhook_token" autocomplete="new-password" value="{{ job_control.get('webhook_token', '') }}">
         </div>
       </div>
     </div>
   </div>
-  
+
   <!-- ============== SIGNAL TUNING TAB ============== -->
   <div class="tab-content" id="tab-signal">
     <div class="info-box">
@@ -359,11 +453,11 @@
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Window</div>
+          <div class="setting-label">How Long to Watch</div>
           <div class="setting-help">
-            Number of samples to analyze for stability. At 20Hz loop rate, 25 samples = ~1.25 seconds.<br>
-            <strong>Larger (40-100):</strong> More confident stability, but takes longer to show STABLE.<br>
-            <strong>Smaller (10-20):</strong> Faster stability detection, but may trigger on brief pauses.
+            How many readings the scale looks at before deciding if the weight is steady. Think of it like a patience setting &mdash; higher means it watches longer before making up its mind.<br>
+            <strong>Larger (40-100):</strong> More sure it's really stable, but takes longer to show STABLE.<br>
+            <strong>Smaller (10-20):</strong> Decides faster, but might say STABLE during a brief pause in movement.
           </div>
         </div>
         <div class="setting-control">
@@ -374,30 +468,30 @@
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Stddev Threshold</div>
+          <div class="setting-label">Weight Bounce Tolerance</div>
           <div class="setting-help">
-            Maximum standard deviation of weight readings to be considered stable.<br>
-            <strong>Lower (0.2-0.5 lb):</strong> Stricter - requires very steady weight for STABLE.<br>
-            <strong>Higher (1.0-3.0 lb):</strong> More lenient - allows minor fluctuation as STABLE.
+            How much the weight reading is allowed to jump around and still count as "stable." If the scale keeps saying UNSTABLE even when nothing is moving, raise this number.<br>
+            <strong>Lower (0.2-0.5 lb):</strong> Very picky &mdash; the weight has to be almost perfectly still.<br>
+            <strong>Higher (1.0-3.0 lb):</strong> More forgiving &mdash; small bounces in the reading are OK.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="stability_stddev_lb" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_stddev_lb', 0.8) }}">
+          <input type="number" name="stability_stddev_lb" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_stddev_lb', 1.5) }}">
           <div class="setting-unit">lb</div>
         </div>
       </div>
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Slope Threshold</div>
+          <div class="setting-label">Weight Drift Tolerance</div>
           <div class="setting-help">
-            Maximum rate of change to be considered stable.<br>
-            <strong>Lower (0.2-0.5 lb/s):</strong> Weight must be nearly motionless.<br>
-            <strong>Higher (1.0-3.0 lb/s):</strong> Allows slow drift as STABLE.
+            How fast the weight can be creeping up or down and still count as "stable." If the reading slowly drifts and the scale keeps flipping to UNSTABLE, raise this number.<br>
+            <strong>Lower (0.2-0.5 lb/s):</strong> Very strict &mdash; the weight must be barely moving at all.<br>
+            <strong>Higher (1.0-5.0 lb/s):</strong> More relaxed &mdash; a gentle drift is still considered stable.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="stability_slope_lbs" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_slope_lbs', 0.8) }}">
+          <input type="number" name="stability_slope_lbs" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_slope_lbs', 3.0) }}">
           <div class="setting-unit">lb/s</div>
         </div>
       </div>
@@ -560,12 +654,12 @@
         <div>
           <div class="setting-label">Zero Tracking Range</div>
           <div class="setting-help">
-            Only adjust zero when scale reads within ±this amount. Prevents corrections when real weight is on the scale.
-            <strong>1 lb is good for overnight drift.</strong> Higher = catches bigger drifts but less safe.
+            Industrial AZT only corrects within a tiny band near true zero. This prevents it from ever zeroing real material.
+            <strong>Recommended: 0.05 lb</strong> on a 0.1 lb division scale. Bigger is not recommended; use Post-Dump Re-Zero for larger drift.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_range" min="0.1" max="10" step="0.1" value="{{ zero_tracking.get('range_lb', 0.5) }}">
+          <input type="number" name="zero_tracking_range" min="0.01" max="1.0" step="0.01" value="{{ zero_tracking.get('range_lb', 0.05) }}">
           <div class="setting-unit">lb</div>
         </div>
       </div>
@@ -574,12 +668,12 @@
         <div>
           <div class="setting-label">Zero Tracking Rate</div>
           <div class="setting-help">
-            How fast corrections happen. <strong>0.08-0.12 lb/s:</strong> Smooth, won't see it move. 
-            <strong>0.2+ lb/s:</strong> Faster but display may flicker. <strong>Recommended: 0.1 lb/s</strong>
+            How fast AZT corrections happen near zero. Industrial systems limit this heavily.
+            <strong>Recommended: 0.05 lb/s</strong>. Post-Dump Re-Zero handles larger one-shot corrections.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_rate" min="0.01" max="1" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.1) }}">
+          <input type="number" name="zero_tracking_rate" min="0.01" max="0.50" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.05) }}">
           <div class="setting-unit">lb/s</div>
         </div>
       </div>
@@ -589,11 +683,11 @@
           <div class="setting-label">Zero Tracking Deadband</div>
           <div class="setting-help">
             Stop correcting when reading is within ±this amount. Prevents constant tiny adjustments.
-            <strong>0.1 lb means "close enough."</strong> Scale won't chase perfect 0.000 lb.
+            <strong>Recommended: 0.02 lb</strong> so AZT stops close to zero without hunting.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_deadband" min="0.01" max="2" step="0.01" value="{{ zero_tracking.get('deadband_lb', 0.1) }}">
+          <input type="number" name="zero_tracking_deadband" min="0.01" max="0.50" step="0.01" value="{{ zero_tracking.get('deadband_lb', 0.02) }}">
           <div class="setting-unit">lb</div>
         </div>
       </div>
@@ -602,13 +696,12 @@
         <div>
           <div class="setting-label">Zero Tracking Hold Time</div>
           <div class="setting-help">
-            Wait this long after scale becomes empty before starting corrections. 
-            <strong>6-10 seconds:</strong> Quick response after operator walks away. 
-            <strong>30+ seconds:</strong> Only for scales that vibrate/settle slowly.
+            Optional delay after becoming stable/empty before AZT starts. Stability gating already prevents motion corrections.
+            <strong>Recommended: 1 second</strong> (or 0 for immediate).
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_hold_s" min="0" max="60" step="0.5" value="{{ zero_tracking.get('hold_s', 6.0) }}">
+          <input type="number" name="zero_tracking_hold_s" min="0" max="30" step="0.5" value="{{ zero_tracking.get('hold_s', 1.0) }}">
           <div class="setting-unit">s</div>
         </div>
       </div>
@@ -624,6 +717,80 @@
         <div class="setting-control">
           <input type="number" name="zero_tracking_persist_interval_s" min="0.2" max="10" step="0.1" value="{{ zero_tracking.get('persist_interval_s', 1.0) }}">
           <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <!-- Post-Dump Re-Zero -->
+      <div class="setting-row" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+        <div>
+          <div class="setting-label">Post-Dump Re-Zero (One-Shot)</div>
+          <div class="setting-help">
+            Industrial scales use two layers: micro AZT near zero, plus a post-dump re-zero that can correct larger drift after each cycle.
+            This only runs after a detected dump and only if the hopper is empty and stable.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if zero_tracking.get('post_dump_enabled', true) %}on{% endif %}" id="toggle_post_dump_enabled" onclick="toggleSwitch(this, 'post_dump_enabled')"></div>
+            <input type="hidden" name="post_dump_enabled" id="post_dump_enabled" value="{{ '1' if zero_tracking.get('post_dump_enabled', true) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if zero_tracking.get('post_dump_enabled', true) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Post-Dump Minimum Delay</div>
+          <div class="setting-help">
+            Wait this long after a detected dump before attempting re-zero. Lets the door bounce settle.
+            <strong>Recommended: 5 seconds</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_min_delay_s" min="0" max="30" step="0.5" value="{{ zero_tracking.get('post_dump_min_delay_s', 5.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Post-Dump Window</div>
+          <div class="setting-help">
+            Maximum time to wait for stable + empty conditions after a dump before skipping re-zero.
+            <strong>Recommended: 10 seconds</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_window_s" min="1" max="60" step="1" value="{{ zero_tracking.get('post_dump_window_s', 10.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Empty Threshold</div>
+          <div class="setting-help">
+            Only attempt re-zero if the gross weight is within ±this amount (hopper empty).
+            <strong>Recommended: 4 lb</strong> (~2% of a 200 lb scale).
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_empty_threshold_lb" min="0" max="20" step="0.5" value="{{ zero_tracking.get('post_dump_empty_threshold_lb', 4.0) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Max Correction</div>
+          <div class="setting-help">
+            Safety limit: if the required correction exceeds this, re-zero is skipped.
+            <strong>Recommended: 8 lb</strong> (~4% of a 200 lb scale).
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_max_correction_lb" min="0.5" max="50" step="0.5" value="{{ zero_tracking.get('post_dump_max_correction_lb', 8.0) }}">
+          <div class="setting-unit">lb</div>
         </div>
       </div>
     </div>
@@ -1949,7 +2116,7 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">MegaIND (Industrial I/O)</div>
-          <div class="setting-help">Analog outputs for PLC, excitation monitoring.</div>
+          <div class="setting-help">Analog outputs for PLC.</div>
         </div>
         <div class="setting-control" style="text-align: right;">
           <span class="pill {% if snap.megaind_online %}ok{% else %}fault{% endif %}">{{ 'ONLINE' if snap.megaind_online else 'OFFLINE' }}</span>
@@ -2040,8 +2207,8 @@
   <!-- ============== SAVE BAR ============== -->
   <div class="save-bar">
     <div class="save-bar-inner">
-      <div class="status" id="saveStatus">Changes will be saved when you click Save Settings</div>
-      <button type="submit">Save Settings</button>
+      <div class="status" id="saveStatus">Auto-save enabled &mdash; changes save automatically</div>
+      <button type="submit">Save Now</button>
     </div>
   </div>
   
@@ -2071,6 +2238,105 @@ document.querySelectorAll('.tab').forEach(tab => {
     }
   });
 });
+
+function switchToTab(tabName) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  const tab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const content = document.getElementById('tab-' + tabName);
+  if (tab) tab.classList.add('active');
+  if (content) content.classList.add('active');
+  if (tabName === 'megaind') {
+    startMegaIndPolling();
+  } else {
+    stopMegaIndPolling();
+  }
+  if (tabName === 'throughput' && typeof window.loadThroughputData === 'function') {
+    window.loadThroughputData();
+  }
+}
+
+function updateJobTriggerModeUI() {
+  const triggerSelect = document.getElementById('job_trigger_mode_select');
+  const pretriggerRow = document.getElementById('job_pretrigger_row');
+  if (!triggerSelect || !pretriggerRow) return;
+  pretriggerRow.style.display = (triggerSelect.value === 'early') ? 'grid' : 'none';
+}
+
+function syncJobModeSelectors(nextMode, sourceId) {
+  const quick = document.getElementById('job_control_mode_select');
+  const tab = document.getElementById('job_control_mode_select_tab');
+  const hint = document.getElementById('job-mode-hint');
+  if (quick && sourceId !== 'job_control_mode_select') quick.value = nextMode;
+  if (tab && sourceId !== 'job_control_mode_select_tab') tab.value = nextMode;
+  if (hint) {
+    hint.style.display = (nextMode === 'target_signal_mode') ? 'block' : 'none';
+  }
+}
+
+function setupJobTargetModeUX() {
+  const quick = document.getElementById('job_control_mode_select');
+  const tab = document.getElementById('job_control_mode_select_tab');
+  if (quick) {
+    quick.addEventListener('change', function() {
+      const nextMode = this.value || 'legacy_weight_mapping';
+      syncJobModeSelectors(nextMode, 'job_control_mode_select');
+      if (nextMode === 'target_signal_mode') {
+        switchToTab('job-target');
+      }
+    });
+  }
+  if (tab) {
+    tab.addEventListener('change', function() {
+      const nextMode = this.value || 'legacy_weight_mapping';
+      syncJobModeSelectors(nextMode, 'job_control_mode_select_tab');
+      if (nextMode !== 'target_signal_mode') {
+        switchToTab('quick-setup');
+      }
+    });
+  }
+  syncJobModeSelectors(
+    (quick && quick.value) || (tab && tab.value) || 'legacy_weight_mapping',
+    'init'
+  );
+
+  const triggerSelect = document.getElementById('job_trigger_mode_select');
+  if (triggerSelect) {
+    triggerSelect.addEventListener('change', updateJobTriggerModeUI);
+  }
+  updateJobTriggerModeUI();
+
+  const captureBtn = document.getElementById('capture-trigger-from-nudge');
+  if (captureBtn) {
+    captureBtn.addEventListener('click', async function() {
+      const token = (document.getElementById('job_webhook_token')?.value || '').trim();
+      const status = document.getElementById('capture-trigger-status');
+      if (!token) {
+        if (status) status.textContent = 'Set webhook token first, then capture.';
+        return;
+      }
+      if (status) status.textContent = 'Capturing current nudge value...';
+      try {
+        const resp = await fetch('/api/job/trigger/from-nudge', {
+          method: 'POST',
+          headers: {
+            'X-Scale-Token': token,
+          },
+        });
+        const body = await resp.json();
+        if (!resp.ok || !body.success) {
+          throw new Error(body.error || 'Capture failed');
+        }
+        const input = document.getElementById('job_trigger_signal_value_input');
+        if (input) input.value = Number(body.trigger_signal_value).toFixed(3);
+        if (status) status.textContent = `Captured ${Number(body.trigger_signal_value).toFixed(3)} ${body.units}. Click Save Now.`;
+      } catch (err) {
+        if (status) status.textContent = String(err && err.message ? err.message : err);
+      }
+    });
+  }
+}
+setupJobTargetModeUX();
 
 let _megaindPollTimer = null;
 function startMegaIndPolling() {
@@ -2607,13 +2873,107 @@ function updateSliderValue(slider) {
   }
 }
 
-// Form change detection
-let formChanged = false;
+// ============== AUTO-SAVE ==============
+let _autoSaveTimer = null;
+let _isSaving = false;
+let _hasPendingChanges = false;
 
+function _updateSaveStatus(state) {
+  const el = document.getElementById('saveStatus');
+  if (!el) return;
+  if (state === 'pending') {
+    el.textContent = 'Unsaved changes\u2026';
+    el.style.color = 'var(--warn)';
+  } else if (state === 'saving') {
+    el.textContent = 'Saving\u2026';
+    el.style.color = 'var(--accent)';
+  } else if (state === 'saved') {
+    el.textContent = '\u2713 Saved';
+    el.style.color = 'var(--ok)';
+  } else if (state === 'error') {
+    el.textContent = '\u2717 Save failed \u2014 retrying\u2026';
+    el.style.color = 'var(--bad)';
+  } else {
+    el.textContent = 'Auto-save enabled';
+    el.style.color = 'var(--muted)';
+  }
+}
+
+function _doAutoSave() {
+  if (_isSaving) { _hasPendingChanges = true; return; }
+  _isSaving = true;
+  _hasPendingChanges = false;
+  _updateSaveStatus('saving');
+
+  const form = document.getElementById('settingsForm');
+  const formData = new FormData(form);
+
+  fetch(form.action, {
+    method: 'POST',
+    body: formData,
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+  .then(function(r) {
+    if (r.ok) {
+      _updateSaveStatus('saved');
+    } else {
+      _updateSaveStatus('error');
+      // Retry once after 3s on failure
+      setTimeout(function() { if (!_isSaving) _doAutoSave(); }, 3000);
+    }
+  })
+  .catch(function() {
+    _updateSaveStatus('error');
+    setTimeout(function() { if (!_isSaving) _doAutoSave(); }, 3000);
+  })
+  .finally(function() {
+    _isSaving = false;
+    // If more changes came in while saving, save again
+    if (_hasPendingChanges) {
+      _hasPendingChanges = false;
+      _scheduleAutoSave();
+    }
+  });
+}
+
+function _scheduleAutoSave() {
+  clearTimeout(_autoSaveTimer);
+  _updateSaveStatus('pending');
+  _autoSaveTimer = setTimeout(_doAutoSave, 1200);
+}
+
+// Listen for change events (selects, checkboxes, radio buttons, toggle switches)
+document.getElementById('settingsForm').addEventListener('change', function(e) {
+  const target = e && e.target ? e.target : null;
+  // Skip throughput filter inputs (they aren't settings)
+  const isThroughputFilter = target && target.closest && target.closest('#tab-throughput');
+  const isTimezoneSetting = target && target.id === 'ui_timezone';
+  if (isThroughputFilter && !isTimezoneSetting) return;
+  _scheduleAutoSave();
+});
+
+// Listen for input events (sliders, number fields, text fields)
+document.getElementById('settingsForm').addEventListener('input', function(e) {
+  const target = e && e.target ? e.target : null;
+  if (!target) return;
+  var isThroughputFilter = target.closest && target.closest('#tab-throughput');
+  if (isThroughputFilter) return;
+  if (target.type === 'range' || target.type === 'number' || target.type === 'text') {
+    _scheduleAutoSave();
+  }
+});
+
+// Manual "Save Now" button - immediate save, no page reload
+document.getElementById('settingsForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  clearTimeout(_autoSaveTimer);
+  _doAutoSave();
+});
+
+// CLI Calibration helpers (MegaIND tab)
 window.captureCliSettings = function(point) {
   const type = document.getElementById('cli-cal-type-settings').value;
   const channel = {{ (cfg.get('output') or {}).get('ao_channel_v', 1) }};
-  // Get nudge value from state snapshot
   fetch('/api/snapshot').then(r => r.json()).then(data => {
     const val = data.plcOutput.nudge_value;
     fetch('/api/output/calibrate', {
@@ -2634,31 +2994,6 @@ window.resetCliSettings = function() {
     body: JSON.stringify({type: type, channel: channel})
   }).then(() => alert('Board reset to factory.'));
 };
-
-document.getElementById('settingsForm').addEventListener('change', function(e) {
-  const target = e && e.target ? e.target : null;
-  const isThroughputFilter = target && target.closest && target.closest('#tab-throughput');
-  const isTimezoneSetting = target && target.id === 'ui_timezone';
-  if (isThroughputFilter && !isTimezoneSetting) {
-    return;
-  }
-  formChanged = true;
-  document.getElementById('saveStatus').textContent = '⚠️ You have unsaved changes';
-  document.getElementById('saveStatus').style.color = 'var(--warn)';
-});
-
-// Warn before leaving with unsaved changes
-window.addEventListener('beforeunload', function(e) {
-  if (formChanged) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-
-// Clear warning on submit
-document.getElementById('settingsForm').addEventListener('submit', function() {
-  formChanged = false;
-});
 </script>
 
 {% endblock %}

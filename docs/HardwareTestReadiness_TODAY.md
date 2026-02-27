@@ -1,6 +1,6 @@
 # Hardware Test Readiness Runbook — TODAY
 **Target**: Fresh Raspberry Pi OS → Calibrated scale with verified analog output  
-**Hardware**: Pi → MegaIND (bottom) → 24b8vin (top)  
+**Hardware**: Pi → 24b8vin (bottom) → MegaIND (top)  
 **Comms**: I2C bus 1
 
 ---
@@ -20,7 +20,7 @@ The Flask application is installed, configured, and running. Open the dashboard 
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
-| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
 
 | Pi Property | Value |
@@ -230,16 +230,16 @@ sudo i2cdetect -y 1
 00:          -- -- -- -- -- -- -- -- -- -- -- -- -- 
 10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-30: 30 31 -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+30: -- 31 -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-50: 50 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- 52 -- -- -- -- -- -- -- -- -- -- -- -- -- 
 60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 70: -- -- -- -- -- -- -- --
 ```
 
-**Expected devices (VERIFIED December 18, 2025):**
+**Expected devices:**
 - `0x31`: **24b8vin** DAQ (stack 0) — 8x 24-bit analog inputs
-- `0x50`: **MegaIND** (stack 0) — Industrial I/O (analog outputs, opto inputs, etc.)
+- `0x52`: **MegaIND** (stack 2) — Industrial I/O (analog outputs, opto inputs, etc.)
 - `0x30`: Super Watchdog (if present — not currently installed)
 
 **⚠️ STOP: Send screenshot of i2cdetect output before proceeding.**
@@ -247,7 +247,7 @@ sudo i2cdetect -y 1
 **If devices are missing:**
 1. Check physical HAT seating (40-pin GPIO connection)
 2. Check power connections (24V to boards, 5V to Pi from Watchdog)
-3. Verify stack order: Pi → MegaIND → 24b8vin
+3. Verify stack order: Pi → 24b8vin → MegaIND
 4. Check for loose jumper wires or damaged connectors
 
 ### 2.2 Dashboard Board Discovery
@@ -256,7 +256,7 @@ sudo i2cdetect -y 1
 **Look for "Boards Online" status:**
 - Expected: `Boards Online: 2/2` (green indicators)
 - DAQ (24b8vin): 0x31 — Online
-- MegaIND: 0x50 — Online
+- MegaIND: 0x52 — Online
 
 **If "Boards Online: 0/2" or "I/O OFFLINE":**
 1. Check systemd logs: `sudo journalctl -u loadcell-transmitter -n 50`
@@ -308,7 +308,7 @@ make
 **Test 0-10V output (set to 5V):**
 
 ```bash
-./megaind -stack 0 uout 5
+./megaind -stack 2 uout 5
 ```
 
 **Measure with multimeter between MegaIND AO+ and AO-**
@@ -319,15 +319,15 @@ Expected: ~5V
 
 ```bash
 # 0V
-./megaind -stack 0 uout 0
+./megaind -stack 2 uout 0
 # Measure: ~0V
 
 # 10V
-./megaind -stack 0 uout 10
+./megaind -stack 2 uout 10
 # Measure: ~10V
 
 # Back to 0V for safety
-./megaind -stack 0 uout 0
+./megaind -stack 2 uout 0
 ```
 
 **⚠️ STOP: Confirm voltage measurements match commanded values within ±0.1V.**
@@ -524,13 +524,13 @@ sudo reboot
 ## Phase 4: Analog Output Verification
 
 ### 4.1 Configure Output Mode
-**Navigate to**: Config → MegaIND Settings
+**Navigate to**: Calibration Hub
 
 1. Set output mode: `0-10V` (start with voltage mode)
-2. Set scale range:
-   - Min weight: `0` lb
-   - Max weight: `150` lb (or your max calibrated weight)
-3. Save configuration
+2. Train PLC profile points:
+   - Example: 0 lb = 0.0V, 150 lb = 10.0V
+   - System will interpolate between trained points
+3. If no profile points are trained, system uses internal 0-250 lb fallback (0.04V per lb)
 
 ### 4.2 Output Voltage Test Points
 **Equipment needed**: Multimeter
@@ -553,12 +553,11 @@ sudo reboot
 2. Wait for **STABLE** indicator
 3. Read dashboard weight: `___ lb`
 4. Measure output voltage: `___ V`
-5. Calculate expected voltage: `(weight / max_weight) * 10.0`
-6. Verify measured voltage within ±0.2V of expected
+5. Verify measured voltage matches your trained profile curve (±0.2V tolerance)
 
-**Example for 75 lb weight:**
+**Example for 75 lb weight (with 0 lb = 0V, 150 lb = 10V profile):**
 - Dashboard: 74.8 lb
-- Expected: (74.8 / 150) * 10.0 = 4.99 V
+- Expected (linear interpolation): 74.8 / 150 * 10.0 = 4.99 V
 - Measured: 4.95 V ✓ (within ±0.2V)
 
 **⚠️ STOP: Record all test point measurements.**
@@ -640,9 +639,9 @@ Weight (lb) | Dashboard (lb) | Expected (V) | Measured (V) | Pass/Fail
 
 ### ✅ Analog Output Verified
 - [ ] Output mode configured (0-10V or 4-20mA)
-- [ ] Scale range configured (min/max lb)
-- [ ] Output voltage measured at 0%, 25%, 50%, 75%, 100%
-- [ ] All measurements within ±0.2V (or ±0.5mA) of expected
+- [ ] PLC profile points trained in Calibration Hub (or using internal 0-250 lb fallback)
+- [ ] Output voltage measured at multiple weight points
+- [ ] All measurements within ±0.2V (or ±0.5mA) of expected based on profile curve
 - [ ] Fault-safe output verified (0V or 4mA on excitation fault, if excitation monitoring is enabled)
 
 ### ✅ System Health
@@ -697,11 +696,12 @@ sudo ufw status
 ### Issue: Output voltage incorrect
 
 **Check:**
-1. Verify scale range settings (min/max lb)
+1. Verify PLC profile points are trained in Calibration Hub
 2. Check output mode (0-10V vs 4-20mA)
 3. Measure with multimeter directly at MegaIND terminals
 4. Check for wiring issues or loose connections
-5. Verify calibration is loaded (check dashboard weight reading first)
+5. Verify weight calibration is loaded (check dashboard weight reading first)
+6. If no profile points, system uses internal 0-250 lb fallback (0.04V per lb)
 
 ### Issue: Excitation voltage low
 
@@ -727,14 +727,14 @@ sudo journalctl -u loadcell-transmitter -f
 # I2C diagnostics
 i2cdetect -y 1
 i2cget -y 1 0x31 0x00  # Read from 24b8vin (address 0x31)
-i2cget -y 1 0x50 0x00  # Read from MegaIND (address 0x50)
+i2cget -y 1 0x52 0x00  # Read from MegaIND (address 0x52, stack 2)
 
 # CLI tools
 cd /opt/loadcell-transmitter/.vendor/24b8vin-rpi
 ./24b8vin -stack 0 rd 1
 
 cd /opt/loadcell-transmitter/.vendor/megaind-rpi
-./megaind -stack 0 uout 5
+./megaind -stack 2 uout 5
 
 # Database backup
 cp /var/lib/loadcell-transmitter/app.sqlite3 ~/backup-$(date +%Y%m%d-%H%M%S).sqlite3

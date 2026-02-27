@@ -1,6 +1,6 @@
 # MegaIND Quick Reference Card
 
-**Hardware Stack:** Raspberry Pi → MegaIND (ID 0..7) → 24b8vin (top)  
+**Hardware Stack:** Raspberry Pi → 24b8vin (stack 0) → MegaIND (stack 2)  
 **I2C Bus:** 1 (`/dev/i2c-1`)  
 **I2C Base Address:** **0x50** (stack 0) — Address = 0x50 + stack_id  
 **Python Package:** `SMmegaind` (PyPI) — import as `import megaind`  
@@ -17,8 +17,8 @@
 | Property | Value |
 |----------|-------|
 | **Dashboard** | http://172.16.190.25:8080 |
-| **I2C Address** | **0x50** (stack 0) |
-| **Firmware Version** | 04.08 |
+| **I2C Address** | **0x52** (stack 2) |
+| **Firmware Version** | 04.8 |
 | **Status** | ✅ Online, connected to Flask service |
 | **CPU Temperature** | 41°C |
 | **Power Source** | 24.13V |
@@ -31,10 +31,10 @@
 $ sudo i2cdetect -y 1
      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 30: -- 31 -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-50: 50 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- 52 -- -- -- -- -- -- -- -- -- -- -- -- -- 
 
-$ megaind 0 board
-Firmware ver 04.08, CPU temperature 41 C, Power source 24.13 V, Raspberry 5.23 V
+$ megaind 2 board
+Firmware ver 04.8, CPU temperature 41 C, Power source 24.13 V, Raspberry 5.23 V
 ```
 
 ---
@@ -296,7 +296,7 @@ subsystem, channel, old_value, new_value, reason
 - Check I2C enabled: `sudo raspi-config`
 - Check address jumpers match stack level
 - Check physical connection (HAT seated properly)
-- Run: `i2cdetect -y 1` (should see device at 0x20 + stack_level)
+- Run: `i2cdetect -y 1` (should see device at 0x50 + stack_level)
 
 **Analog input reads wrong value:**
 - Verify jumper position (0–10V vs ±10V)

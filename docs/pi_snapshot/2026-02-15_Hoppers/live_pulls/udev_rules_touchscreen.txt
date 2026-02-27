@@ -1,0 +1,11 @@
+sudo_nopass=no
+
+### /etc/udev/rules.d (listing)
+total 16
+drwxr-xr-x 2 root root 4096 Feb 13 08:53 .
+drwxr-xr-x 4 root root 4096 Dec  4 09:39 ..
+-rw-rw-r-- 1 pi   pi    100 Feb 13 08:53 98-touchscreen-rotate.rules
+-rw-r--r-- 1 root root  337 Dec  4 09:41 99-rpi-keyboard.rules
+
+### 98-touchscreen-rotate.rules
+ATTRS{idVendor}=="0484", ATTRS{idProduct}=="5750", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"

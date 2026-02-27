@@ -335,17 +335,17 @@ SlimPak Ultra (Excitation Supply)
 
 ### PLC Output (0–10V Mode)
 ```
-MegaIND (Stack ID 0)
+MegaIND (Stack ID 2, addr 0x52)
     AO_CH1+ ───────► PLC Analog Input+ (AI0)
     AO_CH1− ───────► PLC Analog Input− (AI0 COM)
 
 Python:
-    megaind.set0_10Out(0, 1, 5.0)  # 5V output on CH1
+    megaind.set0_10Out(2, 1, 5.0)  # 5V output on CH1 (stack 2)
 ```
 
 ### PLC Output (4–20mA Mode)
 ```
-MegaIND (Stack ID 0)
+MegaIND (Stack ID 2, addr 0x52)
     AO_CH2+ ───────► PLC Analog Input+ (AI1, current mode)
     AO_CH2− ───────► PLC Analog Input− (AI1 COM)
 

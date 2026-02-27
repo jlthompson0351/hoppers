@@ -163,7 +163,18 @@ create_tar() {
   for rel_path in "${existing[@]}"; do
     rel_list="$rel_list '$rel_path'"
   done
+
+  # GNU tar returns exit=1 for non-fatal warnings like:
+  #   - "file changed as we read it" (common for WAL sqlite + logs)
+  # This baseline pull is best-effort; record the warning and continue so the
+  # rest of the bundle still downloads.
+  set +e
   sudo_shell "tar --numeric-owner --xattrs --acls -czf '$ARTIFACTS/$archive_name' -C /$rel_list"
+  local tar_status=$?
+  set -e
+  if [ "$tar_status" -ne 0 ]; then
+    echo "WARN: tar exited $tar_status for $archive_name" >"$ARTIFACTS/$archive_name.WARN.txt"
+  fi
 }
 
 capture_cmd "$REPORTS/date_utc.txt" "date -u --iso-8601=seconds"
@@ -193,12 +204,114 @@ if sudo_shell "test -x /opt/loadcell-transmitter/.venv/bin/pip"; then
   capture_sudo "$REPORTS/venv_pip_freeze.txt" "/opt/loadcell-transmitter/.venv/bin/pip freeze"
 fi
 
-if sudo_shell "command -v sqlite3 >/dev/null 2>&1"; then
-  if sudo_shell "test -f /var/lib/loadcell-transmitter/data/app.sqlite3"; then
-    capture_sudo "$REPORTS/sqlite_integrity_check.txt" "sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 'PRAGMA integrity_check;'"
-  elif sudo_shell "test -f /var/lib/loadcell-transmitter/app.sqlite3"; then
-    capture_sudo "$REPORTS/sqlite_integrity_check.txt" "sqlite3 /var/lib/loadcell-transmitter/app.sqlite3 'PRAGMA integrity_check;'"
-  fi
+DB_PATH=""
+if sudo_shell "test -f /var/lib/loadcell-transmitter/data/app.sqlite3"; then
+  DB_PATH="/var/lib/loadcell-transmitter/data/app.sqlite3"
+elif sudo_shell "test -f /var/lib/loadcell-transmitter/app.sqlite3"; then
+  DB_PATH="/var/lib/loadcell-transmitter/app.sqlite3"
+fi
+
+if [ -n "$DB_PATH" ]; then
+  echo "$DB_PATH" >"$REPORTS/sqlite_db_path.txt"
+fi
+
+if [ -n "$DB_PATH" ] && sudo_shell "command -v sqlite3 >/dev/null 2>&1"; then
+  capture_sudo "$REPORTS/sqlite_integrity_check.txt" "sqlite3 '$DB_PATH' 'PRAGMA integrity_check;'"
+  capture_sudo "$REPORTS/sqlite_pragmas.txt" "sqlite3 '$DB_PATH' 'PRAGMA journal_mode; PRAGMA synchronous; PRAGMA wal_autocheckpoint; PRAGMA foreign_keys; PRAGMA busy_timeout; PRAGMA user_version;'"
+  capture_sudo "$REPORTS/sqlite_tables.txt" "sqlite3 '$DB_PATH' '.tables'"
+  capture_sudo "$REPORTS/sqlite_schema.txt" "sqlite3 '$DB_PATH' '.schema'"
+
+  # Capture the latest app config JSON (this is what the UI toggles map to).
+  capture_sudo "$REPORTS/app_config_latest.json" "sqlite3 '$DB_PATH' 'SELECT config_json FROM config_versions ORDER BY id DESC LIMIT 1;' | python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read()), indent=2, sort_keys=True))'"
+
+  # Create a consistent DB snapshot (avoids churn from WAL/shm while service runs).
+  capture_sudo "$REPORTS/sqlite_backup.txt" "sqlite3 '$DB_PATH' '.backup $ARTIFACTS/app.sqlite3.backup'"
+fi
+
+# Fallback: many production images don't have the sqlite3 CLI installed.
+# Use Python stdlib sqlite3 to capture the same "DB settings" artifacts.
+if [ -n "$DB_PATH" ] && ! command -v sqlite3 >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  {
+    echo "### COMMAND: python3 sqlite snapshot fallback"
+    python3 - "$DB_PATH" "$REPORTS" "$ARTIFACTS" <<'PY'
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+reports_dir = pathlib.Path(sys.argv[2])
+artifacts_dir = pathlib.Path(sys.argv[3])
+reports_dir.mkdir(parents=True, exist_ok=True)
+artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+conn = sqlite3.connect(db_path, timeout=30.0)
+conn.row_factory = sqlite3.Row
+
+def write_text(path: pathlib.Path, content: str) -> None:
+    path.write_text(content, encoding="ascii", errors="replace")
+
+def pragma_value(name: str):
+    row = conn.execute(f"PRAGMA {name};").fetchone()
+    return row[0] if row else None
+
+integrity_rows = conn.execute("PRAGMA integrity_check;").fetchall()
+write_text(reports_dir / "sqlite_integrity_check.txt", "\n".join([r[0] for r in integrity_rows]) + "\n")
+
+pragmas = {
+    "journal_mode": pragma_value("journal_mode"),
+    "synchronous": pragma_value("synchronous"),
+    "wal_autocheckpoint": pragma_value("wal_autocheckpoint"),
+    "foreign_keys": pragma_value("foreign_keys"),
+    "busy_timeout": pragma_value("busy_timeout"),
+    "user_version": pragma_value("user_version"),
+}
+write_text(
+    reports_dir / "sqlite_pragmas.txt",
+    "".join([f"{k}={v}\n" for k, v in pragmas.items()]),
+)
+
+tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;").fetchall()]
+write_text(reports_dir / "sqlite_tables.txt", "\n".join(tables) + "\n")
+
+schema_sql = [
+    r[0]
+    for r in conn.execute("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;").fetchall()
+    if r[0]
+]
+write_text(reports_dir / "sqlite_schema.txt", ";\n\n".join(schema_sql) + ";\n")
+
+latest_row = conn.execute(
+    "SELECT id, ts, config_json FROM config_versions ORDER BY id DESC LIMIT 1;"
+).fetchone()
+latest = {"id": None, "ts": None, "config": None}
+if latest_row is not None:
+    latest["id"] = int(latest_row["id"])
+    latest["ts"] = latest_row["ts"]
+    try:
+        latest["config"] = json.loads(latest_row["config_json"] or "{}")
+    except Exception:
+        latest["config"] = {"_error": "Failed to parse config_json"}
+
+write_text(reports_dir / "app_config_latest.json", json.dumps(latest, indent=2, sort_keys=True))
+
+# Create a consistent DB snapshot (online backup API).
+dest_path = artifacts_dir / "app.sqlite3.backup"
+try:
+    dest_path.unlink()
+except FileNotFoundError:
+    pass
+
+dest_conn = sqlite3.connect(str(dest_path))
+conn.backup(dest_conn)
+dest_conn.close()
+
+write_text(reports_dir / "sqlite_backup.txt", f"python_backup_dest={dest_path}\n")
+
+conn.close()
+print("python sqlite snapshot complete")
+PY
+  } >"$REPORTS/sqlite_snapshot_python.txt" 2>&1 || true
 fi
 
 capture_sudo "$REPORTS/find_opt_loadcell_transmitter.txt" "if [ -d /opt/loadcell-transmitter ]; then find /opt/loadcell-transmitter -xdev -printf '%M\t%u:%g\t%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n'; else echo '/opt/loadcell-transmitter missing'; fi"
@@ -216,8 +329,20 @@ else
   echo "SKIPPED: /opt/loadcell-transmitter missing" >"$ARTIFACTS/opt_loadcell_transmitter.tar.gz.SKIPPED.txt"
 fi
 
-create_tar "var_lib_loadcell_transmitter.tar.gz" \
-  "var/lib/loadcell-transmitter"
+# NOTE: The live SQLite DB can churn (WAL/shm) while the service is running.
+# We capture a consistent SQLite `.backup` above, and exclude the live sqlite
+# files from the /var/lib tar so tar doesn't error out mid-stream.
+if sudo_shell "test -d /var/lib/loadcell-transmitter"; then
+  set +e
+  sudo_shell "tar --numeric-owner --xattrs --acls --exclude='var/lib/loadcell-transmitter/data/app.sqlite3*' --exclude='var/lib/loadcell-transmitter/app.sqlite3*' -czf '$ARTIFACTS/var_lib_loadcell_transmitter.tar.gz' -C / var/lib/loadcell-transmitter"
+  var_tar_status=$?
+  set -e
+  if [ "$var_tar_status" -ne 0 ]; then
+    echo "WARN: tar exited $var_tar_status for var_lib_loadcell_transmitter.tar.gz" >"$ARTIFACTS/var_lib_loadcell_transmitter.tar.gz.WARN.txt"
+  fi
+else
+  echo "SKIPPED: /var/lib/loadcell-transmitter missing" >"$ARTIFACTS/var_lib_loadcell_transmitter.tar.gz.SKIPPED.txt"
+fi
 
 create_tar "etc_loadcell_service.tar.gz" \
   "etc/systemd/system/loadcell-transmitter.service"
@@ -260,7 +385,10 @@ rm -f /tmp/lcs_pull_baseline.sh || true
 '@
 
 $remoteScriptB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
-$launchCommand = "echo '$remoteScriptB64' | base64 -d > /tmp/lcs_pull_baseline.sh && chmod +x /tmp/lcs_pull_baseline.sh && /tmp/lcs_pull_baseline.sh '$remoteStage' '$includeVenvFlag' '$JournalLines' '$passwordB64'"
+# IMPORTANT: $remoteScript comes from a PowerShell here-string (CRLF).
+# If we decode it verbatim on Linux, the shebang becomes `#!/usr/bin/env bash\r`
+# and the script will not execute. Strip CR to force LF line endings.
+$launchCommand = "echo '$remoteScriptB64' | base64 -d | tr -d '\r' > /tmp/lcs_pull_baseline.sh && chmod +x /tmp/lcs_pull_baseline.sh && /tmp/lcs_pull_baseline.sh '$remoteStage' '$includeVenvFlag' '$JournalLines' '$passwordB64'"
 
 Invoke-PlinkCommand -PlinkPath $plinkPath -Target $target -Command $launchCommand
 Invoke-PscpDownload -PscpPath $pscpPath -Target $target -RemotePath $remoteStage -LocalPath $backupRootPath -Recursive

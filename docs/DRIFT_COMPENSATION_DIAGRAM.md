@@ -223,13 +223,79 @@ ZERO TRACKING ALGORITHM (runs every acquisition cycle ~20Hz)
 └─────────────────────────────────────────────────┘
 ```
 
-**Key Features:**
+**Key Features (Normal Positive Path):**
 - **Hold timer:** Prevents tracking during transient settle periods
 - **Deadband:** Stops at ±0.1 lb (prevents zero hunting)
 - **Rate limited:** Smooth 0.1 lb/s max (no sudden jumps)
 - **Load locked:** Stops immediately when weight added
 - **Spike rejection:** Ignores sudden motion/vibration
 - **Persistence throttled:** Saves every 1 sec (not every cycle)
+
+---
+
+## Fast Negative Auto-Zero (v3.0 — Hopper Scales)
+
+```
+NEGATIVE WEIGHT FAST PATH (runs when filtered_lbs < -deadband)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On hopper scales, negative weight = ALWAYS drift (can't weigh negative).
+After a dump, the correction window is tiny (1-2 seconds before fill).
+
+┌─────────────────────────────────────────────────┐
+│ 1. Read current weight: -8 lbs                  │
+│    (negative = impossible = drift)              │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 2. Check: Is |weight| < zero_tracking_range?    │
+│    (8 lbs < 10 lbs)  ✓ YES                      │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 3. Stability: RELAXED for negatives             │
+│    Only extreme spikes block correction.        │
+│    Post-dump vibration does NOT block it.        │
+│    ✓ PASS (normal bouncing tolerated)           │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 4. Holdoff: negative_hold_s (default 1 sec)     │
+│    Much shorter than normal 6-sec hold.         │
+│    Elapsed: 1.1 sec > 1.0 sec  ✓ YES            │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 5. FULL CORRECTION in one shot:                 │
+│    weight_correction = -8.0 lb (entire error)   │
+│    signal_correction = -8.0 / lbs_per_mv        │
+│    NO rate limiting — instant snap to zero       │
+└────────────────────┬────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────┐
+│ 6. Persist IMMEDIATELY (no throttling)          │
+│    Weight: -8 lb → 0 lb in one cycle            │
+│    Ready for next fill cycle!                   │
+└─────────────────────────────────────────────────┘
+```
+
+**Hopper Cycle Timeline:**
+```
+Time    Event                Weight      Auto-Zero
+─────   ─────────────────    ──────      ─────────────────
+0.0s    Hopper full          120 lb      LOCKED (load_present)
+0.5s    Dump starts          dropping    LOCKED (load_present)
+2.0s    Material gone        -5 lb       neg_holdoff starts
+2.5s    Door bouncing        -8 lb       neg_holdoff counting
+3.0s    Holdoff complete     -8 lb       neg_tracking → CORRECTED!
+3.0s    Weight corrected     0 lb        Ready for fill
+4.0s    Fill starts          +2 lb       LOCKED (load_present)
+```
 
 ---
 
@@ -277,15 +343,26 @@ The ZERO button now properly shifts the baseline without changing your calibrati
 └────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────┐
-│                     ZERO TRACKING                              │
+│                  ZERO TRACKING (Positive Weight)               │
 ├────────────────────────────────────────────────────────────────┤
 │  Purpose:     Automatic drift compensation (no operator action)│
 │  How:         Gradually adjusts zero offset when empty         │
-│  When:        Scale stable + unloaded for 6+ sec + |weight|<1lb│
+│  When:        Scale stable + unloaded for 6+ sec + |wt|<range │
 │  Rate:        0.1 lb/s max (smooth, won't see it move)         │
 │  Stops:       At ±0.1 lb deadband (close enough!)              │
-│  Safety:      Locks when weight >1 lb (real load detected)     │
+│  Safety:      Locks when weight > range (real load detected)   │
 │  Benefit:     Fixes overnight drift automatically!             │
+└────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────┐
+│            FAST NEGATIVE AUTO-ZERO (v3.0 — Hopper)            │
+├────────────────────────────────────────────────────────────────┤
+│  Purpose:     Instant correction of negative drift after dump  │
+│  How:         Full correction in one shot, no rate limiting    │
+│  When:        Weight < -deadband, after 1 sec neg holdoff      │
+│  Stability:   Relaxed — tolerates post-dump vibration          │
+│  Rate:        UNLIMITED — entire error corrected instantly     │
+│  Benefit:     Scale reads 0 lb before next fill begins!        │
 └────────────────────────────────────────────────────────────────┘
 ```
 

@@ -1,0 +1,21 @@
+### COMMAND (sudo): systemctl status loadcell-transmitter --no-pager
+● loadcell-transmitter.service - Load Cell Scale Transmitter (Flask + acquisition loop)
+     Loaded: loaded (/etc/systemd/system/loadcell-transmitter.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-02-15 14:33:22 EST; 33min ago
+ Invocation: 2159f34f365b474e91e33629d11927c0
+   Main PID: 1129 (python)
+      Tasks: 10 (limit: 3913)
+        CPU: 5min 40.719s
+     CGroup: /system.slice/loadcell-transmitter.service
+             └─1129 /opt/loadcell-transmitter/.venv/bin/python -m src.app
+
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,013 INFO src.hw.factory: DAQ (24b8vin) initialized: stack=0, bus=1
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,013 INFO src.hw.sequent_24b8vin: Sample rate set to 250 SPS (code 0)
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,014 INFO src.hw.factory: DAQ channel 7: gain=6, sample_rate=0
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,020 INFO src.hw.sequent_megaind: SequentMegaInd initialized: stack=2, bus=1, addr=0x52, fw=4.8
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,020 INFO src.hw.factory: MegaIND initialized: stack=2, bus=1
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,020 INFO src.hw.factory: Hardware bundle created successfully
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,020 INFO __main__: Hardware initialized successfully - I/O is LIVE
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,092 INFO __main__: Starting web UI on http://0.0.0.0:8080
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,098 INFO src.services.acquisition: Kalman filter reset to 0.16 lb (calibration became valid)
+Feb 15 14:33:25 Hoppers python[1129]: 2026-02-15 14:33:25,102 INFO waitress: Serving on http://0.0.0.0:8080

@@ -1,144 +1,43 @@
 ---
 name: ssh-fleet-manager
-description: SSH into Raspberry Pi kiosks using Desktop Commander with plink for password-based authentication. Use when connecting to Pis, running remote commands, checking kiosk status, or troubleshooting devices in the fleet.
+description: Safely connects to remote devices (Raspberry Pi/Linux) using Desktop Commander. Handles authentication, command execution, and log retrieval.
 ---
 
 # SSH Fleet Manager
 
-Connect to and manage Raspberry Pi kiosks using Desktop Commander's `start_process` MCP tool with plink.
+This skill provides a robust, safe way to interact with remote devices without using raw shell commands.
+It uses `Desktop Commander` to manage the SSH session, ensuring stability and preventing "Access Denied" errors.
 
-## When to Use
+## Workflow
 
-- User wants to SSH into a Pi (PLP5, kiosk-001, etc.)
-- Running commands remotely on kiosks
-- Checking service status or logs
-- Troubleshooting kiosk issues
-- Deploying configuration changes
+### 1. Identify Target
+*   Ask the user for the target IP address if not provided.
+*   Check for stored credentials (e.g., in `.env` or a secure config file).
+*   **Default Credentials:** User: `pi`, Password: `raspberry` (or ask user).
 
-## Fleet Device Lookup
+### 2. Connect via Desktop Commander
+*   **DO NOT** run `ssh` or `plink` directly in the `Shell` tool.
+*   **USE** `user-desktop-commander-start_process` with the command:
+    `plink -ssh -pw [PASSWORD] [USER]@[IP] "[COMMAND]"`
+    *(Note: On Windows, `plink` is preferred for automation. Ensure it's in the PATH or use the full path to `plink.exe`)*
 
-Read `fleet/devices.json` to find device information:
+### 3. Execute Commands
+*   For simple commands (e.g., `ls`, `cat`), run them directly via `plink`.
+*   For complex tasks (e.g., deployment), consider using `scp` or `rsync` via `Desktop Commander`.
 
-```javascript
-// Device structure
-{
-  "id": "kiosk-001",
-  "displayName": "Receiving (Line 1)",
-  "ssh": {
-    "host": "192.168.9.39",  // or piconnect hostname
-    "port": 22,
-    "user": "plp5_screen"
-  }
-}
-```
+### 4. Retrieve Logs
+*   **DO NOT** use `tail -f` (blocking).
+*   **USE** `journalctl -u [SERVICE] -n [LINES] --no-pager` to get a snapshot.
+*   Parse the output for errors or anomalies.
 
-## SSH Using Desktop Commander
+## Example Usage
+**User:** "Check the logs on the Pi."
+**Agent:**
+1.  Identifies IP (e.g., 172.16.190.25).
+2.  Constructs command: `plink -ssh -pw raspberry pi@172.16.190.25 "journalctl -u loadcell-transmitter -n 50 --no-pager"`
+3.  Executes via `Desktop Commander`.
+4.  Returns parsed logs.
 
-**CRITICAL**: Always use Desktop Commander's `start_process` MCP tool for SSH commands. The built-in Cursor terminal doesn't handle plink password authentication well.
-
-### Basic Pattern
-
-```javascript
-start_process({
-  command: 'plink.exe -pw PASSWORD USERNAME@HOST "COMMAND"',
-  timeout_ms: 15000,
-  shell: "powershell.exe"
-})
-```
-
-### First Connection (Accept Host Key)
-
-```javascript
-start_process({
-  command: 'echo y | plink.exe -pw depor plp5_screen@192.168.9.39 "hostname"',
-  timeout_ms: 15000,
-  shell: "powershell.exe"
-})
-```
-
-## Common Commands
-
-### Health Checks
-
-**Check if kiosk is running:**
-```bash
-ps aux | grep chromium | grep -v grep
-```
-
-**System resources:**
-```bash
-free -h && df -h && uptime
-```
-
-**Kiosk services (Gold Standard):**
-```bash
-systemctl --user list-units 'kiosk-*'
-```
-
-### Service Management
-
-**Restart chromium:**
-```bash
-systemctl --user restart kiosk-chromium.service
-```
-
-**Check service status:**
-```bash
-systemctl --user status kiosk-chromium.service
-```
-
-**View watchdog logs:**
-```bash
-tail -50 kiosk/chromium-watchdog.log
-```
-
-### Diagnostics
-
-**System info:**
-```bash
-uname -a && hostname
-```
-
-**Network status:**
-```bash
-ip addr show && ping -c 3 8.8.8.8
-```
-
-**Recent errors:**
-```bash
-journalctl --user -u kiosk-chromium.service -n 20
-```
-
-## Fleet CLI Integration
-
-The project has a Node.js CLI that can generate SSH commands:
-
-```bash
-# Dry-run (prints command)
-npm run fleet -- ssh kiosk-001 -- uptime
-
-# Execute
-npm run fleet -- ssh kiosk-001 --run -- uptime
-```
-
-Use this to get device info, then execute via Desktop Commander for better reliability.
-
-## Default Credentials
-
-- **Username**: `plp5_screen`
-- **Password**: `depor`
-- **Port**: 22
-
-## Quick Reference
-
-| Task | Command Pattern |
-|------|----------------|
-| Health check | `ps aux \| grep chromium && free -h` |
-| Restart kiosk | `systemctl --user restart kiosk-chromium.service` |
-| Check logs | `tail -50 kiosk/chromium-watchdog.log` |
-| System info | `uname -a && uptime` |
-| Reboot Pi | `sudo reboot` |
-
-## Gold Standard Reference
-
-For complete kiosk architecture details, see `docs/KIOSK_GOLD_STANDARD.md`.
+## Error Handling
+*   If `plink` fails with "Access Denied", ask the user for the correct password.
+*   If the connection times out, verify the IP and network status.

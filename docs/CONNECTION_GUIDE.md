@@ -1,8 +1,8 @@
 # Raspberry Pi Connection Guide
 **Target System:** Hoppers (Load Cell Scale Transmitter)
 
-**Document Version:** 1.1  
-**Date:** December 18, 2025  
+**Document Version:** 1.2  
+**Date:** February 13, 2026  
 **Purpose:** How to connect to the Raspberry Pi for development and maintenance
 
 ---
@@ -22,7 +22,7 @@ Open this URL in any browser on your network to view live load cell readings.
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | `loadcell-transmitter.service` |
 | **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4 |
-| **MegaIND** | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND** | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
 
 ## ✅ Connection Details
@@ -166,7 +166,7 @@ sudo i2cdetect -y 1
 # 50: 50 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
 # 
 # 0x31 = 24b8vin (8x analog inputs DAQ)
-# 0x50 = MegaIND (industrial I/O)
+# 0x52 = MegaIND (industrial I/O, stack 2)
 ```
 
 ### 24b8vin (Analog Inputs DAQ)
@@ -296,13 +296,33 @@ nmap -sn 172.16.190.0/24
 │   24b8vin HAT (TOP)             │ ← I2C: 0x31, Firmware 1.4
 │   8x 24-bit Analog Inputs       │
 ├─────────────────────────────────┤
-│   MegaIND HAT (BOTTOM)          │ ← I2C: 0x50, Firmware 04.08
+│   MegaIND HAT (TOP)             │ ← I2C: 0x52 (Stack 2), Firmware 4.8
 │   Industrial Automation I/O     │
 ├─────────────────────────────────┤
 │   Raspberry Pi 4B               │ ← Hostname: Hoppers
 │   IP: 172.16.190.25             │
+├─────────────────────────────────┤
+│   QDtech MPI5001 5" Touchscreen │ ← HDMI + USB touch (0484:5750)
+│   800x480, mounted upside down  │
 └─────────────────────────────────┘
 ```
+
+## Display Rotation (Upside-Down Mounting)
+
+The touchscreen is mounted inverted to fit the enclosure. Two config files handle this:
+
+**1. Framebuffer rotation** — `/boot/firmware/cmdline.txt`:
+```
+video=HDMI-A-1:800x480@60,rotate=180
+```
+Appended to the end of the existing kernel command line.
+
+**2. Touchscreen calibration** — `/etc/udev/rules.d/98-touchscreen-rotate.rules`:
+```
+ATTRS{idVendor}=="0484", ATTRS{idProduct}=="5750", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
+```
+
+**Important:** Do NOT use `wlr-randr --transform 180` (Wayland compositor rotation). It conflicts with the udev touch calibration and breaks touch input.
 
 ---
 
@@ -411,6 +431,6 @@ sudo systemctl enable loadcell-transmitter
 
 ---
 
-**Document Version:** 1.1  
-**Last Updated:** December 18, 2025  
+**Document Version:** 1.2  
+**Last Updated:** February 13, 2026  
 **System Deployed:** December 18, 2025

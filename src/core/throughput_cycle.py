@@ -119,7 +119,12 @@ class ThroughputCycleDetector:
                     # not overcount processed weight because of this transient.
                     raw_empty_lbs = gross_lbs
                     empty_lbs = max(raw_empty_lbs, self._empty_baseline_lbs)
-                    processed_lbs = max(0.0, full_lbs - empty_lbs)
+                    
+                    # If empty weight is negative (drift), ignore it for the processed total
+                    # so we don't inflate the dump size. We still report the negative empty_lbs
+                    # for diagnostics and auto-zero tracking.
+                    effective_empty_lbs = max(0.0, empty_lbs)
+                    processed_lbs = max(0.0, full_lbs - effective_empty_lbs)
                     duration_ms = int(max(0.0, (now_s - (self._fill_started_s or now_s))) * 1000.0)
                     confidence = self._confidence(
                         processed_lbs=processed_lbs,

@@ -10,9 +10,11 @@ from typing import Dict, List, Optional, Any
 
 from src.core.drift import DriftDetector
 from src.core.dump_detection import DumpDetector
-from src.core.calibration import CalibrationCurve
 from src.core.filtering import IIRLowPass, KalmanFilter, MedianFilter, NotchFilter, StabilityDetector
+from src.core.post_dump_rezero import PostDumpRezeroConfig, PostDumpRezeroController
 from src.core.plc_profile import PlcProfileCurve
+from src.core.zero_tracking import ZeroTracker, ZeroTrackingConfig
+from src.core.zeroing import map_signal_to_weight
 from src.db.repo import AppRepository
 from src.hw.interfaces import HardwareBundle
 from src.services.output_writer import OutputCommand, OutputWriter
@@ -57,9 +59,6 @@ class _RuntimeConfig:
     notch_freq: int
     min_lb: float
     max_lb: float
-    excitation_ai_ch: int
-    excitation_warn_v: float
-    excitation_fault_v: float
     output_mode: str
     ao_channel_v: int
     ao_channel_ma: int
@@ -79,7 +78,15 @@ class _RuntimeConfig:
     zero_offset_signal: float
     zero_tracking_enabled: bool
     zero_tracking_range_lb: float
+    zero_tracking_deadband_lb: float
+    zero_tracking_hold_s: float
     zero_tracking_rate_lbs: float
+    zero_tracking_persist_interval_s: float
+    post_dump_rezero_enabled: bool
+    post_dump_rezero_min_delay_s: float
+    post_dump_rezero_window_s: float
+    post_dump_rezero_empty_threshold_lb: float
+    post_dump_rezero_max_correction_lb: float
     loop_rate_hz: float
     config_refresh_s: float
     log_interval_s: float
@@ -136,6 +143,18 @@ class AcquisitionService:
         self._dump = DumpDetector()
         self._drift = DriftDetector()
         self._writer = OutputWriter()
+        self._zero_tracker = ZeroTracker()
+        self._post_dump_rezero = PostDumpRezeroController(event_sink=self.repo.log_event)
+        self._pending_zero_tracking_delta_mv = 0.0
+        self._zero_tracking_active = False
+        self._zero_tracking_locked = True
+        self._zero_tracking_reason = "disabled"
+        self._zero_tracking_hold_elapsed_s = 0.0
+        self._post_dump_rezero_active = False
+        self._post_dump_rezero_state = "idle"
+        self._post_dump_rezero_reason = "idle"
+        self._post_dump_rezero_dump_age_s = 0.0
+        self._post_dump_rezero_last_apply_utc: Optional[str] = None
 
         self._trend_last = 0.0
         self._maintenance_last = 0.0
@@ -214,7 +233,6 @@ class AcquisitionService:
 
         flt = cfg.get("filter") or {}
         rng = cfg.get("range") or {}
-        exc = cfg.get("excitation") or {}
         out = cfg.get("output") or {}
         dump = cfg.get("dump_detection") or {}
         drift = cfg.get("drift") or {}
@@ -235,17 +253,14 @@ class AcquisitionService:
             kalman_process_noise=float(flt.get("kalman_process_noise", 1.0)),
             kalman_measurement_noise=float(flt.get("kalman_measurement_noise", 50.0)),
             stability_window=int(flt.get("stability_window", 25)),
-            stability_stddev_lb=float(flt.get("stability_stddev_lb", 0.8)),
-            stability_slope_lbs=float(flt.get("stability_slope_lbs", 0.8)),
+            stability_stddev_lb=float(flt.get("stability_stddev_lb", 1.5)),
+            stability_slope_lbs=float(flt.get("stability_slope_lbs", 3.0)),
             median_enabled=bool(flt.get("median_enabled", False)),
             median_window=int(flt.get("median_window", 5)),
             notch_enabled=bool(flt.get("notch_enabled", False)),
             notch_freq=int(flt.get("notch_freq", 60)),
             min_lb=float(rng.get("min_lb", 0.0)),
             max_lb=float(rng.get("max_lb", 300.0)),
-            excitation_ai_ch=int(exc.get("ai_channel", 1)),
-            excitation_warn_v=float(exc.get("warn_v", 9.0)),
-            excitation_fault_v=float(exc.get("fault_v", 8.0)),
             output_mode=str(out.get("mode", "0_10V")),
             ao_channel_v=int(out.get("ao_channel_v", 1)),
             ao_channel_ma=int(out.get("ao_channel_ma", 1)),
@@ -262,10 +277,34 @@ class AcquisitionService:
             drift_ema_alpha=float(drift.get("ema_alpha", 0.02)),
             drift_consecutive=int(drift.get("consecutive_required", 20)),
             tare_offset_lbs=float(scale.get("tare_offset_lbs", 0.0) or 0.0),
-            zero_offset_signal=float(scale.get("zero_offset_signal", 0.0) or 0.0),
+            zero_offset_signal=float(
+                scale.get("zero_offset_mv", scale.get("zero_offset_signal", 0.0)) or 0.0
+            ),
             zero_tracking_enabled=bool(cfg.get("zero_tracking", {}).get("enabled", False)),
-            zero_tracking_range_lb=float(cfg.get("zero_tracking", {}).get("range_lb", 0.5)),
-            zero_tracking_rate_lbs=float(cfg.get("zero_tracking", {}).get("rate_lbs", 0.1)),
+            zero_tracking_range_lb=float(cfg.get("zero_tracking", {}).get("range_lb", 0.05)),
+            zero_tracking_deadband_lb=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("deadband_lb", 0.02) or 0.02)
+            ),
+            zero_tracking_hold_s=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("hold_s", 1.0) or 1.0)
+            ),
+            zero_tracking_rate_lbs=float(cfg.get("zero_tracking", {}).get("rate_lbs", 0.05)),
+            zero_tracking_persist_interval_s=max(
+                0.2, float(cfg.get("zero_tracking", {}).get("persist_interval_s", 1.0) or 1.0)
+            ),
+            post_dump_rezero_enabled=bool(cfg.get("zero_tracking", {}).get("post_dump_enabled", True)),
+            post_dump_rezero_min_delay_s=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("post_dump_min_delay_s", 5.0) or 5.0)
+            ),
+            post_dump_rezero_window_s=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("post_dump_window_s", 10.0) or 10.0)
+            ),
+            post_dump_rezero_empty_threshold_lb=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("post_dump_empty_threshold_lb", 4.0) or 4.0)
+            ),
+            post_dump_rezero_max_correction_lb=max(
+                0.0, float(cfg.get("zero_tracking", {}).get("post_dump_max_correction_lb", 8.0) or 8.0)
+            ),
             loop_rate_hz=float(timing.get("loop_rate_hz", 20) or 20.0),
             config_refresh_s=float(timing.get("config_refresh_s", 2.0) or 2.0),
             log_interval_s=float(logging_cfg.get("interval_s", 1) or 1.0),
@@ -429,24 +468,6 @@ class AcquisitionService:
                 cfg = self._cfg
                 assert cfg is not None
 
-                # Excitation monitoring
-                excitation_v = 0.0
-                excitation_status = "NOT_READ"
-                try:
-                    excitation_v = float(self.hw.megaind.read_analog_in_v(cfg.excitation_ai_ch))
-                    self.state.set(last_megaind_comm_utc=_utc_now())
-                    self._megaind_online = True
-                    if excitation_v <= cfg.excitation_fault_v:
-                        excitation_status = "FAULT"
-                    elif excitation_v <= cfg.excitation_warn_v:
-                        excitation_status = "WARN"
-                    else:
-                        excitation_status = "OK"
-                except Exception as e:
-                    log.warning("Failed to read excitation voltage: %s", e)
-                    excitation_status = "READ_ERROR"
-                    self._megaind_online = False
-
                 # MegaIND extra I/O polling (safe read-only)
                 megaind_ai_v: Dict[int, float] = {}
                 megaind_di: Dict[int, bool] = {}
@@ -466,8 +487,7 @@ class AcquisitionService:
                 self.state.set(megaind_ai_v=megaind_ai_v, megaind_di=megaind_di)
 
                 # NOTE: Ratiometric removed - always use raw mV
-                # Excitation fault only matters for monitoring, not for signal calculation
-                fault = False  # No ratiometric = no excitation-based fault
+                fault = False
                 fault_reason = None
 
                 # Read DAQ channels
@@ -512,13 +532,19 @@ class AcquisitionService:
 
                 # Calibration mapping (all points use raw mV now)
                 cal_points = self.repo.get_calibration_points(limit=200)
+                local_lbs_per_signal: Optional[float] = None
                 if len(cal_points) >= 2:
-                    curve = CalibrationCurve(
-                        points=[(float(p.signal), float(p.known_weight_lbs)) for p in cal_points],
-                        ratiometric=False,  # Always raw mV
+                    mapped_weight, local_lbs_per_signal = map_signal_to_weight(
+                        float(calibrated_signal), cal_points
                     )
-                    raw_weight = curve.weight_from_signal(float(calibrated_signal))
-                    cal_points_used = len(cal_points)
+                    if mapped_weight is None:
+                        raw_weight = 0.0
+                        cal_points_used = len(cal_points)
+                        fault = True
+                        fault_reason = "Calibration mapping unavailable for current signal"
+                    else:
+                        raw_weight = float(mapped_weight)
+                        cal_points_used = len(cal_points)
                 else:
                     # NOT CALIBRATED: Force fault and zero output
                     raw_weight = 0.0
@@ -544,41 +570,132 @@ class AcquisitionService:
                 if cfg.round_up_enabled and filt_weight > 0:
                     filt_weight = math.ceil(filt_weight)
 
-                # Apply software tare
-                filt_weight = float(filt_weight) - float(cfg.tare_offset_lbs)
+                # Apply software tare (weight domain)
+                gross_lbs = float(filt_weight)
+                net_lbs = gross_lbs - float(cfg.tare_offset_lbs)
+                filt_weight = float(net_lbs)
 
-                # Zero Tracking
-                if cfg.zero_tracking_enabled and stable:
-                    if abs(filt_weight) <= cfg.zero_tracking_range_lb:
-                        if len(cal_points) >= 2 and cal_points_used >= 2:
-                            p0_sig, p0_wt = float(cal_points[0].signal), float(cal_points[0].known_weight_lbs)
-                            p1_sig, p1_wt = float(cal_points[1].signal), float(cal_points[1].known_weight_lbs)
-                            if abs(p1_sig - p0_sig) > 1e-9:
-                                lb_per_signal = (p1_wt - p0_wt) / (p1_sig - p0_sig)
-                                signal_correction = filt_weight / lb_per_signal if abs(lb_per_signal) > 1e-9 else 0.0
-                                max_correction = cfg.zero_tracking_rate_lbs / abs(lb_per_signal) if abs(lb_per_signal) > 1e-9 else 0.0
-                                max_correction_this_cycle = max_correction * dt
-                                if abs(signal_correction) > max_correction_this_cycle:
-                                    signal_correction = max_correction_this_cycle if signal_correction > 0 else -max_correction_this_cycle
-                                if abs(signal_correction) > 1e-9:
-                                    fresh_cfg = self.repo.get_latest_config()
-                                    fresh_scale = fresh_cfg.get("scale") or {}
-                                    current_zero_offset = float(fresh_scale.get("zero_offset_signal", 0.0) or 0.0)
-                                    new_zero_offset = current_zero_offset + signal_correction
-                                    fresh_scale["zero_offset_signal"] = new_zero_offset
-                                    fresh_cfg["scale"] = fresh_scale
-                                    self.repo.save_config(fresh_cfg)
-                                    if abs(signal_correction * lb_per_signal) > 0.1:
-                                        self.repo.log_event(
-                                            level="INFO",
-                                            code="ZERO_TRACKING_ADJUSTMENT",
-                                            message=f"Zero tracking adjusted offset by {signal_correction:.6f} signal units",
-                                            details={
-                                                "weight_error_lb": filt_weight,
-                                                "signal_correction": signal_correction,
-                                                "new_zero_offset": new_zero_offset,
-                                            },
-                                        )
+                cal_valid = (
+                    (not fault)
+                    and len(cal_points) >= 2
+                    and cal_points_used >= 2
+                    and local_lbs_per_signal is not None
+                    and abs(float(local_lbs_per_signal)) > 1e-9
+                )
+
+                # Post-dump re-zero (industrial layer 2: event-driven, one-shot capture)
+                post_dump_cfg = PostDumpRezeroConfig(
+                    enabled=(
+                        cfg.zero_tracking_enabled
+                        and cfg.post_dump_rezero_enabled
+                        and cal_valid
+                        and abs(cfg.tare_offset_lbs) <= 1e-6
+                    ),
+                    min_delay_s=cfg.post_dump_rezero_min_delay_s,
+                    window_s=cfg.post_dump_rezero_window_s,
+                    empty_threshold_lb=cfg.post_dump_rezero_empty_threshold_lb,
+                    max_correction_lb=cfg.post_dump_rezero_max_correction_lb,
+                )
+                post_dump_step = self._post_dump_rezero.update(
+                    now_s=t,
+                    raw_mv=float(total_signal),
+                    gross_lbs=float(gross_lbs),
+                    is_stable=stable,
+                    current_zero_offset_mv=float(cfg.zero_offset_signal),
+                    cal_points=cal_points,
+                    cfg=post_dump_cfg,
+                )
+                self._post_dump_rezero_active = bool(post_dump_step.active)
+                self._post_dump_rezero_state = str(post_dump_step.state)
+                self._post_dump_rezero_reason = str(post_dump_step.reason)
+                self._post_dump_rezero_dump_age_s = float(post_dump_step.dump_age_s)
+
+                if post_dump_step.should_apply and post_dump_step.new_zero_offset_mv is not None:
+                    updated_utc = _utc_now()
+                    new_offset_mv = float(post_dump_step.new_zero_offset_mv)
+                    try:
+                        def _set_post_dump_zero(scale: dict, _: dict) -> None:
+                            scale["zero_offset_mv"] = new_offset_mv
+                            scale["zero_offset_signal"] = new_offset_mv
+                            scale["zero_offset_updated_utc"] = updated_utc
+
+                        self.repo.update_config_section("scale", _set_post_dump_zero)
+                        cfg.zero_offset_signal = new_offset_mv
+                        self._pending_zero_tracking_delta_mv = 0.0
+                        self._zero_tracker.reset()
+                        self._post_dump_rezero_last_apply_utc = updated_utc
+                        if cfg.use_kalman:
+                            self._filter_kalman.reset(0.0)
+                        self.repo.log_event(
+                            level="INFO",
+                            code="POST_DUMP_REZERO_APPLIED",
+                            message="Post-dump re-zero applied (one-shot capture).",
+                            details={
+                                "updated_utc": updated_utc,
+                                "dump_age_s": float(post_dump_step.dump_age_s),
+                                "gross_lbs": float(gross_lbs),
+                                "new_zero_offset_mv": new_offset_mv,
+                            },
+                        )
+                    except Exception as rez_err:  # noqa: BLE001
+                        log.warning("Post-dump re-zero persistence failed: %s", rez_err)
+                        self.repo.log_event(
+                            level="WARNING",
+                            code="POST_DUMP_REZERO_PERSIST_FAILED",
+                            message="Post-dump re-zero persistence failed.",
+                            details={"error": str(rez_err)[:500]},
+                        )
+
+                # Continuous AZT (industrial layer 1: micro-range, stable-only, rate-limited)
+                tracker_cfg = ZeroTrackingConfig(
+                    enabled=(
+                        cfg.zero_tracking_enabled
+                        and cal_valid
+                        and abs(cfg.tare_offset_lbs) <= 1e-6
+                    ),
+                    range_lb=float(cfg.zero_tracking_range_lb),
+                    deadband_lb=float(cfg.zero_tracking_deadband_lb),
+                    hold_s=float(cfg.zero_tracking_hold_s),
+                    rate_lbs=float(cfg.zero_tracking_rate_lbs),
+                    persist_interval_s=float(cfg.zero_tracking_persist_interval_s),
+                )
+                tracking_step = self._zero_tracker.step(
+                    now_s=t,
+                    dt_s=dt,
+                    display_lbs=float(gross_lbs),
+                    tare_offset_lbs=float(cfg.tare_offset_lbs),
+                    is_stable=stable,
+                    current_zero_offset_lbs=0.0,
+                    cfg=tracker_cfg,
+                    spike_detected=False,
+                )
+                self._zero_tracking_active = bool(tracking_step.active)
+                self._zero_tracking_locked = bool(tracking_step.locked)
+                self._zero_tracking_reason = str(tracking_step.reason)
+                self._zero_tracking_hold_elapsed_s = float(tracking_step.hold_elapsed_s)
+
+                if abs(float(tracking_step.zero_offset_delta_lbs)) > 1e-12 and cal_valid:
+                    lb_per_signal = float(local_lbs_per_signal)
+                    delta_mv = float(tracking_step.zero_offset_delta_lbs) / lb_per_signal
+                    cfg.zero_offset_signal = float(cfg.zero_offset_signal) + float(delta_mv)
+                    self._pending_zero_tracking_delta_mv += float(delta_mv)
+
+                if tracking_step.should_persist and abs(self._pending_zero_tracking_delta_mv) > 1e-12:
+                    pending_delta_mv = float(self._pending_zero_tracking_delta_mv)
+                    updated_utc = _utc_now()
+                    try:
+                        def _apply_azt_delta(scale: dict, _: dict) -> None:
+                            old_mv = float(scale.get("zero_offset_mv", scale.get("zero_offset_signal", 0.0)) or 0.0)
+                            new_mv = old_mv + pending_delta_mv
+                            scale["zero_offset_mv"] = new_mv
+                            scale["zero_offset_signal"] = new_mv
+                            scale["zero_offset_updated_utc"] = updated_utc
+
+                        self.repo.update_config_section("scale", _apply_azt_delta)
+                        cfg.zero_offset_signal = float(cfg.zero_offset_signal)
+                        self._pending_zero_tracking_delta_mv = 0.0
+                    except Exception as persist_err:  # noqa: BLE001
+                        log.warning("Failed to persist AZT delta: %s", persist_err)
 
                 # Channel ratios for drift diagnostics
                 denom = sum(abs(signals[ch]) for ch in cfg.loadcell_channels) or 1e-9
@@ -598,6 +715,8 @@ class AcquisitionService:
 
                 dump_evt = self._dump.update(weight_lbs=filt_weight, stable=stable)
                 if dump_evt is not None:
+                    if cfg.zero_tracking_enabled and cfg.post_dump_rezero_enabled:
+                        self._post_dump_rezero.trigger(now_s=t)
                     self.repo.log_event(
                         level="INFO",
                         code="DUMP_DETECTED",
@@ -752,8 +871,6 @@ class AcquisitionService:
                     stable=stable,
                     fault=final_fault,
                     fault_reason=final_fault_reason,
-                    excitation_v=excitation_v,
-                    excitation_status=excitation_status,
                     ratiometric=False,  # Always raw mV now
                     signal_for_cal=float(total_signal),
                     total_signal=float(total_signal),
@@ -767,7 +884,19 @@ class AcquisitionService:
                     channels=per_ch,
                     loop_hz=float(loop_hz),
                     tare_offset_lbs=float(cfg.tare_offset_lbs),
+                    zero_offset_mv=float(cfg.zero_offset_signal),
                     zero_offset_signal=float(cfg.zero_offset_signal),
+                    zero_tracking_enabled=bool(cfg.zero_tracking_enabled),
+                    zero_tracking_active=bool(self._zero_tracking_active),
+                    zero_tracking_locked=bool(self._zero_tracking_locked),
+                    zero_tracking_reason=str(self._zero_tracking_reason),
+                    zero_tracking_hold_elapsed_s=float(self._zero_tracking_hold_elapsed_s),
+                    post_dump_rezero_enabled=bool(cfg.post_dump_rezero_enabled),
+                    post_dump_rezero_active=bool(self._post_dump_rezero_active),
+                    post_dump_rezero_state=str(self._post_dump_rezero_state),
+                    post_dump_rezero_reason=str(self._post_dump_rezero_reason),
+                    post_dump_rezero_dump_age_s=float(self._post_dump_rezero_dump_age_s),
+                    post_dump_rezero_last_apply_utc=self._post_dump_rezero_last_apply_utc,
                     io_live=self._io_live,
                     daq_online=self._daq_online,
                     megaind_online=self._megaind_online,
@@ -795,7 +924,6 @@ class AcquisitionService:
                 if do_log:
                     self._trend_last = t
                     if cfg.log_raw:
-                        self.repo.add_excitation_sample(excitation_v=excitation_v)
                         for r in per_ch:
                             if bool(r.get("polled", False)):
                                 self.repo.add_channel_sample(

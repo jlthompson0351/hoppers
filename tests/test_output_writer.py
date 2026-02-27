@@ -7,38 +7,40 @@ from src.services.output_writer import OutputWriter
 
 
 class OutputWriterTests(unittest.TestCase):
-    def test_linear_mapping_0_10v(self) -> None:
+    # Fallback is 0-250 lb → 0-10V (25 lb/V) or 0-250 lb → 4-20mA.
+
+    def test_linear_fallback_0_10v(self) -> None:
         writer = OutputWriter()
         self.assertAlmostEqual(
-            writer.compute(weight_lb=0, output_mode="0_10V", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=0, output_mode="0_10V").value,
             0.0,
             places=6,
         )
         self.assertAlmostEqual(
-            writer.compute(weight_lb=150, output_mode="0_10V", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=125, output_mode="0_10V").value,
             5.0,
             places=6,
         )
         self.assertAlmostEqual(
-            writer.compute(weight_lb=300, output_mode="0_10V", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=250, output_mode="0_10V").value,
             10.0,
             places=6,
         )
 
-    def test_linear_mapping_4_20ma(self) -> None:
+    def test_linear_fallback_4_20ma(self) -> None:
         writer = OutputWriter()
         self.assertAlmostEqual(
-            writer.compute(weight_lb=0, output_mode="4_20mA", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=0, output_mode="4_20mA").value,
             4.0,
             places=6,
         )
         self.assertAlmostEqual(
-            writer.compute(weight_lb=150, output_mode="4_20mA", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=125, output_mode="4_20mA").value,
             12.0,
             places=6,
         )
         self.assertAlmostEqual(
-            writer.compute(weight_lb=300, output_mode="4_20mA", min_lb=0, max_lb=300).value,
+            writer.compute(weight_lb=250, output_mode="4_20mA").value,
             20.0,
             places=6,
         )
@@ -70,16 +72,12 @@ class OutputWriterTests(unittest.TestCase):
         first = writer.compute(
             weight_lb=100.0,
             output_mode="0_10V",
-            min_lb=0,
-            max_lb=300,
             deadband_enabled=False,
             deadband_lb=10.0,
         )
         second = writer.compute(
             weight_lb=101.0,
             output_mode="0_10V",
-            min_lb=0,
-            max_lb=300,
             deadband_enabled=False,
             deadband_lb=10.0,
         )
@@ -90,18 +88,14 @@ class OutputWriterTests(unittest.TestCase):
         writer.compute(
             weight_lb=0.0,
             output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=300.0,
             ramp_enabled=True,
             ramp_rate_v=1.0,  # 1 V/s
             dt_s=0.1,         # max 0.1 V step
             deadband_enabled=False,
         )
         stepped = writer.compute(
-            weight_lb=300.0,
+            weight_lb=250.0,
             output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=300.0,
             ramp_enabled=True,
             ramp_rate_v=1.0,
             dt_s=0.1,
@@ -109,52 +103,34 @@ class OutputWriterTests(unittest.TestCase):
         )
         self.assertAlmostEqual(stepped.value, 0.1, places=6)
 
-    def test_profile_curve_overrides_linear_range(self) -> None:
+    def test_profile_curve_overrides_linear_fallback(self) -> None:
         writer = OutputWriter()
         profile = PlcProfileCurve(
             output_mode="0_10V",
             points=[(0.0, 0.0), (25.0, 1.0), (50.0, 2.0)],
         )
-        # Deliberately mismatched linear range; profile should still win.
+        # Profile should win over the fallback.
         cmd_25 = writer.compute(
             weight_lb=25.0,
             output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=500.0,
             plc_profile=profile,
             deadband_enabled=False,
         )
         cmd_50 = writer.compute(
             weight_lb=50.0,
             output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=500.0,
             plc_profile=profile,
             deadband_enabled=False,
         )
         self.assertAlmostEqual(cmd_25.value, 1.0, places=6)
         self.assertAlmostEqual(cmd_50.value, 2.0, places=6)
 
-    def test_half_scale_when_range_is_double(self) -> None:
+    def test_hw_clamp_prevents_over_range(self) -> None:
+        """Even with extrapolation, output cannot exceed hardware limits."""
         writer = OutputWriter()
-        # Reproduces the field issue: expected 1.0V@25 lb and 2.0V@50 lb,
-        # but range max at 500 lb halves the output.
-        cmd_25 = writer.compute(
-            weight_lb=25.0,
-            output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=500.0,
-            deadband_enabled=False,
-        )
-        cmd_50 = writer.compute(
-            weight_lb=50.0,
-            output_mode="0_10V",
-            min_lb=0.0,
-            max_lb=500.0,
-            deadband_enabled=False,
-        )
-        self.assertAlmostEqual(cmd_25.value, 0.5, places=6)
-        self.assertAlmostEqual(cmd_50.value, 1.0, places=6)
+        # 500 lb on 0-250 fallback = 20V unclamped, but hardware cap = 10V
+        cmd = writer.compute(weight_lb=500.0, output_mode="0_10V", deadband_enabled=False)
+        self.assertAlmostEqual(cmd.value, 10.0, places=6)
 
 
 if __name__ == "__main__":

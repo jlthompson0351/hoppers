@@ -14,7 +14,9 @@ cfg = json.loads(cfg_json)
 # Reset zero offset to 0
 if 'scale' not in cfg:
     cfg['scale'] = {}
+cfg['scale']['zero_offset_mv'] = 0.0
 cfg['scale']['zero_offset_signal'] = 0.0
+cfg['scale']['zero_offset_updated_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 # Save updated config
 import datetime

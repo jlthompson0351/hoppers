@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hmac
 import json
 import platform
 import subprocess
 import csv
 import io
+import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,6 +15,8 @@ from flask import Blueprint, Response, current_app, redirect, render_template, r
 
 from src.core.zeroing import (
     calibration_model_from_points,
+    calibration_signal_at_weight,
+    calibration_zero_signal,
     compute_zero_offset,
     estimate_lbs_per_mv,
     select_active_calibration_points,
@@ -276,7 +280,15 @@ def dashboard() -> str:
     ui = cfg.get("ui", {}) or {}
     poll_rate_ms = int(ui.get("poll_rate_ms", 500) or 500)
     poll_rate_ms = max(100, min(5000, poll_rate_ms))
-    return render_template("dashboard.html", snap=snap, display=display, poll_rate_ms=poll_rate_ms, now=_utc_now())
+    job_control = cfg.get("job_control", {}) or {}
+    return render_template(
+        "dashboard.html",
+        snap=snap,
+        display=display,
+        poll_rate_ms=poll_rate_ms,
+        now=_utc_now(),
+        job_control=job_control,
+    )
 
 
 @bp.get("/hdmi")
@@ -339,21 +351,28 @@ def _reset_zero_offset(repo: AppRepository, state: Optional[LiveState], reason: 
     Calibration captures raw signal, so any existing zero offset computed
     against a previous calibration model would corrupt the new mapping.
     """
-    cfg = repo.get_latest_config()
-    scale = cfg.get("scale") or {}
-    old_offset = float(scale.get("zero_offset_mv") or scale.get("zero_offset_signal") or 0.0)
-    if abs(old_offset) < 1e-12:
+    scale = (repo.get_latest_config().get("scale") or {})
+    old_offset_lbs = float(scale.get("zero_offset_lbs", 0.0) or 0.0)
+    old_offset_mv = float(scale.get("zero_offset_mv", 0.0) or 0.0)
+    if abs(old_offset_lbs) < 1e-12 and abs(old_offset_mv) < 1e-12:
         return  # Already zero, nothing to do.
 
     updated_utc = _utc_now()
-    scale["zero_offset_mv"] = 0.0
-    scale["zero_offset_signal"] = 0.0
-    scale["zero_offset_updated_utc"] = updated_utc
-    cfg["scale"] = scale
-    repo.save_config(cfg)
+    repo.update_config_section(
+        "scale",
+        lambda section, _cfg: section.update(
+            {
+                "zero_offset_mv": 0.0,
+                "zero_offset_signal": 0.0,
+                "zero_offset_lbs": 0.0,
+                "zero_offset_updated_utc": updated_utc,
+            }
+        ),
+    )
 
     if state is not None:
         state.set(
+            zero_offset_lbs=0.0,
             zero_offset_mv=0.0,
             zero_offset_signal=0.0,
             zero_offset_updated_utc=updated_utc,
@@ -362,9 +381,11 @@ def _reset_zero_offset(repo: AppRepository, state: Optional[LiveState], reason: 
     repo.log_event(
         level="INFO",
         code="ZERO_OFFSET_RESET",
-        message=f"Zero offset reset from {old_offset:.6f} mV to 0.0 ({reason}).",
+        message=f"Zero offset reset from {old_offset_lbs:.3f} lb to 0.0 ({reason}).",
         details={
-            "old_zero_offset_mv": old_offset,
+            "old_zero_offset_lbs": old_offset_lbs,
+            "old_zero_offset_mv": old_offset_mv,
+            "new_zero_offset_lbs": 0.0,
             "new_zero_offset_mv": 0.0,
             "reason": reason,
         },
@@ -384,7 +405,13 @@ def _apply_calibration_capture(
     if requested_mode not in ("overwrite", "average"):
         requested_mode = "overwrite"
 
-    captured_signal_mv = float(snap.get("signal_for_cal", 0.0) or 0.0)
+    raw_signal_mv = float(
+        snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
+    )
+    # Store the RAW signal (no zero adjustment). Calibration maps raw signal → weight,
+    # and zero is applied AFTER calibration in the weight domain. This keeps calibration
+    # completely independent of zero offset changes.
+    captured_signal_mv = raw_signal_mv
     existing_points = repo.get_calibration_points(limit=500)
     previous_active_point = _active_point_for_weight(existing_points, known_weight_lbs)
     previous_active_signal_mv = (
@@ -399,12 +426,9 @@ def _apply_calibration_capture(
         applied_signal_mv = (previous_active_signal_mv + captured_signal_mv) / 2.0
 
     point_id = repo.add_calibration_point(known_weight_lbs=known_weight_lbs, signal=applied_signal_mv)
+    _reset_zero_offset(repo, state, reason="calibration_point_added")
     updated_points = repo.get_calibration_points(limit=500)
     model = calibration_model_from_points(updated_points)
-
-    # Calibration model changed — any existing zero offset was computed against
-    # the old model and would corrupt weight readings with the new one.
-    _reset_zero_offset(repo, state, reason="calibration_point_added")
 
     repo.log_event(
         level="INFO",
@@ -418,6 +442,7 @@ def _apply_calibration_capture(
             "requested_mode": requested_mode,
             "applied_mode": applied_mode,
             "captured_signal_mv": captured_signal_mv,
+            "raw_signal_mv": raw_signal_mv,
             "applied_signal_mv": applied_signal_mv,
             "previous_active_signal_mv": previous_active_signal_mv,
             "calibration_method": model.method,
@@ -438,6 +463,7 @@ def _apply_calibration_capture(
         "requested_mode": requested_mode,
         "applied_mode": applied_mode,
         "captured_signal_mv": captured_signal_mv,
+        "raw_signal_mv": raw_signal_mv,
         "signal": applied_signal_mv,  # Backward-compatible key.
         "applied_signal_mv": applied_signal_mv,
         "previous_active_signal_mv": previous_active_signal_mv,
@@ -757,6 +783,10 @@ def settings_get() -> str:
             "raw_v": raw_mv / 1000.0,
         })
 
+    output_cfg = cfg.get("output", {})
+    current_output_mode = str(output_cfg.get("mode", "0_10V"))
+    plc_points = repo.get_plc_profile_points(output_mode=current_output_mode)
+
     return render_template(
         "settings.html",
         now=_utc_now(),
@@ -765,6 +795,7 @@ def settings_get() -> str:
         rows=rows,
         gain_labels=GAIN_CODE_LABELS,
         roles=DAQ_ROLES,
+        plc_points=plc_points,
     )
 
 
@@ -812,9 +843,8 @@ def settings_post() -> Response:
             return default
 
     # === Quick Setup ===
-    cfg.setdefault("range", {})
-    cfg["range"]["min_lb"] = parse_float("range_min_lb", 0.0)
-    cfg["range"]["max_lb"] = parse_float("range_max_lb", 300.0)
+    # max_lb is also used as a hard throughput plausibility guard.
+    # Keep it operator-editable from settings to reject impossible cycles.
 
     cfg.setdefault("output", {})
     cfg["output"]["mode"] = request.form.get("output_mode", "0_10V")
@@ -828,19 +858,74 @@ def settings_post() -> Response:
     else:
         cfg["output"]["safe_v"] = safe
 
-    cfg.setdefault("excitation", {})
-    cfg["excitation"]["enabled"] = parse_bool("excitation_enabled", True)
-    cfg["excitation"]["ai_channel"] = parse_int("excitation_ai_channel", 1)
-    cfg["excitation"]["warn_v"] = parse_float("excitation_warn_v", 9.0)
-    cfg["excitation"]["fault_v"] = parse_float("excitation_fault_v", 8.0)
+    cfg.setdefault("range", {})
+    cfg["range"]["min_lb"] = float((cfg["range"].get("min_lb", 0.0) or 0.0))
+    cfg["range"]["max_lb"] = max(
+        1.0,
+        parse_float("max_lb", float(cfg["range"].get("max_lb", 300.0) or 300.0)),
+    )
+
+    # === Job Target Mode (webhook-driven threshold signal) ===
+    cfg.setdefault("job_control", {})
+    job_mode = str(
+        request.form.get("job_control_mode", cfg["job_control"].get("mode", "legacy_weight_mapping"))
+        or "legacy_weight_mapping"
+    ).strip()
+    if job_mode not in ("legacy_weight_mapping", "target_signal_mode"):
+        job_mode = "legacy_weight_mapping"
+    cfg["job_control"]["mode"] = job_mode
+    cfg["job_control"]["enabled"] = (job_mode == "target_signal_mode")
+    trigger_mode = str(
+        request.form.get("job_trigger_mode", cfg["job_control"].get("trigger_mode", "exact"))
+        or "exact"
+    ).strip().lower()
+    if trigger_mode not in ("exact", "early"):
+        trigger_mode = "exact"
+    cfg["job_control"]["trigger_mode"] = trigger_mode
+
+    is_ma_mode = (cfg["output"]["mode"] == "4_20mA")
+    trigger_default = 12.0 if cfg["output"]["mode"] == "4_20mA" else 1.0
+    low_default = 4.0 if cfg["output"]["mode"] == "4_20mA" else 0.0
+    trigger_signal = parse_float(
+        "job_trigger_signal_value",
+        float(cfg["job_control"].get("trigger_signal_value", trigger_default) or trigger_default),
+    )
+    low_signal = parse_float(
+        "job_low_signal_value",
+        float(cfg["job_control"].get("low_signal_value", low_default) or low_default),
+    )
+    if is_ma_mode:
+        trigger_signal = max(4.0, min(20.0, float(trigger_signal)))
+        low_signal = max(4.0, min(20.0, float(low_signal)))
+    else:
+        trigger_signal = max(0.0, min(10.0, float(trigger_signal)))
+        low_signal = max(0.0, min(10.0, float(low_signal)))
+    if abs(trigger_signal - low_signal) < 1e-6:
+        low_signal = low_default
+        if abs(trigger_signal - low_signal) < 1e-6:
+            trigger_signal = min((20.0 if is_ma_mode else 10.0), low_signal + 0.5)
+    cfg["job_control"]["trigger_signal_value"] = float(trigger_signal)
+    cfg["job_control"]["low_signal_value"] = float(low_signal)
+    cfg["job_control"]["pretrigger_lb"] = max(
+        0.0,
+        parse_float(
+            "job_pretrigger_lb",
+            float(cfg["job_control"].get("pretrigger_lb", 0.0) or 0.0),
+        ),
+    )
+    if trigger_mode != "early":
+        cfg["job_control"]["pretrigger_lb"] = 0.0
+    token_raw = request.form.get("job_webhook_token")
+    if token_raw is not None:
+        cfg["job_control"]["webhook_token"] = str(token_raw).strip()
 
     # === Signal Tuning ===
     cfg.setdefault("filter", {})
     cfg["filter"]["use_kalman"] = parse_bool("use_kalman", True)
     kalman_q = parse_float("kalman_process_noise", 1.0)
     kalman_r = parse_float("kalman_measurement_noise", 50.0)
-    stability_std = parse_float("stability_stddev_lb", 0.8)
-    stability_slope = parse_float("stability_slope_lbs", 0.8)
+    stability_std = parse_float("stability_stddev_lb", 1.5)
+    stability_slope = parse_float("stability_slope_lbs", 3.0)
     cfg["filter"]["kalman_process_noise"] = kalman_q
     cfg["filter"]["kalman_measurement_noise"] = kalman_r
     # Legacy aliases retained so old runtime readers still work.
@@ -865,11 +950,27 @@ def settings_post() -> Response:
     # === Zero & Scale ===
     cfg.setdefault("zero_tracking", {})
     cfg["zero_tracking"]["enabled"] = parse_bool("zero_tracking_enabled", False)
-    cfg["zero_tracking"]["range_lb"] = parse_float("zero_tracking_range", 0.5)
-    cfg["zero_tracking"]["deadband_lb"] = parse_float("zero_tracking_deadband", 0.1)
-    cfg["zero_tracking"]["hold_s"] = parse_float("zero_tracking_hold_s", 6.0)
-    cfg["zero_tracking"]["rate_lbs"] = parse_float("zero_tracking_rate", 0.1)
+    # Industrial-style AZT: micro range, slow rate (post-dump handles big corrections).
+    cfg["zero_tracking"]["range_lb"] = parse_float("zero_tracking_range", 0.05)
+    cfg["zero_tracking"]["deadband_lb"] = parse_float("zero_tracking_deadband", 0.02)
+    cfg["zero_tracking"]["hold_s"] = parse_float("zero_tracking_hold_s", 1.0)
+    cfg["zero_tracking"]["rate_lbs"] = parse_float("zero_tracking_rate", 0.05)
     cfg["zero_tracking"]["persist_interval_s"] = parse_float("zero_tracking_persist_interval_s", 1.0)
+    cfg["zero_tracking"]["post_dump_enabled"] = parse_bool("post_dump_enabled", True)
+    cfg["zero_tracking"]["post_dump_min_delay_s"] = parse_float("post_dump_min_delay_s", 5.0)
+    cfg["zero_tracking"]["post_dump_window_s"] = parse_float("post_dump_window_s", 10.0)
+    cfg["zero_tracking"]["post_dump_empty_threshold_lb"] = parse_float("post_dump_empty_threshold_lb", 4.0)
+    cfg["zero_tracking"]["post_dump_max_correction_lb"] = parse_float("post_dump_max_correction_lb", 8.0)
+    # Strip deprecated zero-tracking keys so the saved config stays clean.
+    # (Backwards compatibility is handled by tolerant readers, not by preserving legacy knobs.)
+    for _k in (
+        "negative_hold_s",
+        "smart_clear_enabled",
+        "smart_clear_load_threshold_lb",
+        "smart_clear_rezero_threshold_lb",
+        "max_correction_lb",
+    ):
+        cfg["zero_tracking"].pop(_k, None)
 
     cfg.setdefault("startup", {})
     cfg["startup"]["auto_zero"] = parse_bool("startup_auto_zero", False)
@@ -1050,6 +1151,12 @@ def settings_post() -> Response:
         details={},
     )
 
+    # Return JSON for AJAX auto-save requests, redirect for traditional form posts
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return Response(
+            json.dumps({"success": True, "message": "Settings saved"}),
+            mimetype="application/json",
+        )
     return redirect(url_for("routes.settings_get"))
 
 
@@ -1420,81 +1527,92 @@ def api_zero() -> Response:
 
     cfg = repo.get_latest_config()
     scale = cfg.get("scale") or {}
-    
-    # Use the same live signal path shown in UI/calibration endpoints.
-    current_signal = float(
-        snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
+    zero_target_lb = float(scale.get("zero_target_lb", 0.0) or 0.0)
+
+    raw_signal = float(
+        snap.get("signal_for_cal", snap.get("raw_signal_mv", snap.get("total_signal", 0.0))) or 0.0
     )
-    old_offset = scale.get("zero_offset_signal")
-    if old_offset is None:
-        old_offset = scale.get("zero_offset_mv", 0.0)
-    old_offset = float(old_offset or 0.0)
-    
-    cal_points = repo.get_calibration_points(limit=200)
+    cal_points = repo.get_calibration_points()
+    slope_near_zero = estimate_lbs_per_mv(cal_points)
 
-    # Prefer weight-based zeroing so ZERO forces gross weight to 0 immediately.
-    # This preserves calibration slope and only shifts baseline.
-    current_gross_lbs = snap.get("filtered_weight_lbs")
-    if current_gross_lbs is None:
-        current_gross_lbs = float(snap.get("total_weight_lbs", 0.0) or 0.0) + float(
-            snap.get("tare_offset_lbs", 0.0) or 0.0
+    if slope_near_zero is None or abs(slope_near_zero) <= 1e-9:
+        repo.log_event(
+            level="WARNING",
+            code="ZERO_REJECTED_NO_CAL",
+            message="Zero rejected: calibration slope unavailable.",
+            details={},
         )
-    current_gross_lbs = float(current_gross_lbs or 0.0)
+        return Response(
+            json.dumps({"success": False, "error": "Calibration not available"}),
+            mimetype="application/json",
+            status=400,
+        )
 
-    lbs_per_mv = snap.get("lbs_per_mv")
-    if lbs_per_mv is None:
-        lbs_per_mv = estimate_lbs_per_mv(cal_points)
-    lbs_per_mv = float(lbs_per_mv or 0.0)
+    new_offset_mv, cal_target_sig = compute_zero_offset(
+        raw_signal, cal_points, zero_target_lb=zero_target_lb,
+    )
+    new_offset_lbs = new_offset_mv * slope_near_zero
 
-    if abs(lbs_per_mv) > 1e-9:
-        correction_signal_mv = current_gross_lbs / lbs_per_mv
-        new_offset = old_offset + correction_signal_mv
-        cal_zero_signal = current_signal - new_offset
-        drift = new_offset - old_offset
-        zero_method = "weight_based"
-    else:
-        # Fallback for uncalibrated startup scenarios.
-        new_offset, cal_zero_signal = compute_zero_offset(current_signal, cal_points)
-        drift = new_offset - old_offset
-        zero_method = "cal_zero_fallback"
     updated_utc = _utc_now()
-    scale["zero_offset_mv"] = new_offset
-    scale["zero_offset_signal"] = new_offset
-    scale["zero_offset_updated_utc"] = updated_utc
+    persisted: dict[str, float] = {}
 
-    cfg["scale"] = scale
-    repo.save_config(cfg)
+    def _apply_manual_zero(section: dict, _: dict) -> None:
+        old_lbs = float(section.get("zero_offset_lbs", 0.0) or 0.0)
+        old_mv = float(section.get("zero_offset_mv", 0.0) or 0.0)
+        section["zero_offset_mv"] = float(new_offset_mv)
+        section["zero_offset_signal"] = float(new_offset_mv)
+        section["zero_offset_lbs"] = float(new_offset_lbs)
+        section["zero_offset_updated_utc"] = updated_utc
+        persisted["old_lbs"] = old_lbs
+        persisted["old_mv"] = old_mv
+
+    repo.update_config_section("scale", _apply_manual_zero)
+    old_offset_lbs = float(persisted.get("old_lbs", 0.0))
+    old_offset_mv = float(persisted.get("old_mv", 0.0))
+    drift_lbs = new_offset_lbs - old_offset_lbs
+    drift_mv = new_offset_mv - old_offset_mv  # In mV units, computed BEFORE logging
+    
     state.set(
-        zero_offset_mv=new_offset,
-        zero_offset_signal=new_offset,
+        zero_offset_lbs=new_offset_lbs,
+        zero_offset_mv=new_offset_mv,
+        zero_offset_signal=new_offset_mv,
         zero_offset_updated_utc=updated_utc,
     )
+    svc = current_app.config.get("ACQ_SERVICE")
+    if svc is not None and hasattr(svc, "mark_manual_zero_seen"):
+        try:
+            svc.mark_manual_zero_seen(source="api_zero")
+        except Exception:
+            pass
     repo.log_event(
         level="INFO",
         code="SCALE_ZEROED",
-        message=f"Scale zeroed: drift={drift:.6f}, offset updated from {old_offset:.6f} to {new_offset:.6f}",
+        message=f"Scale zeroed: offset {old_offset_lbs:.3f} → {new_offset_lbs:.3f} lb (drift {drift_lbs:.3f})",
         details={
-            "old_zero_offset": old_offset,
-            "new_zero_offset": new_offset,
-            "current_signal": current_signal,
-            "current_gross_lbs": current_gross_lbs,
-            "lbs_per_mv": lbs_per_mv,
-            "method": zero_method,
-            "calibration_zero_signal": cal_zero_signal,
-            "drift": drift,
+            "old_zero_offset_lbs": old_offset_lbs,
+            "new_zero_offset_lbs": new_offset_lbs,
+            "old_zero_offset_mv": float(persisted.get("old_mv", 0.0)),
+            "new_zero_offset_mv": new_offset_mv,
+            "raw_signal_mv": raw_signal,
+            "cal_zero_signal_mv": cal_target_sig,
+            "drift_mv": drift_mv,
+            "slope_lbs_per_mv": slope_near_zero,
+            "drift_lbs": drift_lbs,
+            "method": "calibration_signal",
         },
     )
 
     return Response(
         json.dumps({
             "success": True,
-            "zero_offset_mv": new_offset,
-            "zero_offset_signal": new_offset,
-            "drift": drift,
-            "method": zero_method,
-            "current_gross_lbs": current_gross_lbs,
-            "lbs_per_mv": lbs_per_mv,
-            "message": "Calibration baseline updated"
+            "zero_offset_lbs": new_offset_lbs,
+            "zero_offset_mv": new_offset_mv,
+            "zero_offset_signal": new_offset_mv,
+            "drift": drift_lbs,
+            "drift_mv": drift_mv,
+            "cal_zero_signal_mv": cal_target_sig,
+            "method": "calibration_signal",
+            "message": "Zero offset updated (calibration signal reference)",
         }),
         mimetype="application/json",
     )
@@ -1522,13 +1640,20 @@ def api_tare() -> Response:
     repo: AppRepository = current_app.config["REPO"]
     state: LiveState = current_app.config["LIVE_STATE"]
     snap = state.snapshot()
+    source_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    source_user_agent = request.headers.get("User-Agent")
+    source_referer = request.headers.get("Referer")
 
     if not snap.get("stable", False):
         repo.log_event(
             level="WARNING",
             code="TARE_REJECTED_UNSTABLE",
             message="Tare rejected: scale not stable.",
-            details={},
+            details={
+                "source_ip": source_ip,
+                "source_user_agent": source_user_agent,
+                "source_referer": source_referer,
+            },
         )
         return Response(
             json.dumps({"success": False, "error": "Scale not stable"}),
@@ -1540,20 +1665,69 @@ def api_tare() -> Response:
     scale = cfg.get("scale") or {}
     current_weight = float(snap.get("total_weight_lbs", 0.0) or 0.0)
     current_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
+    cooldown_s = 2.0
+    now_utc = datetime.now(timezone.utc)
+    last_tare_utc_raw = str(scale.get("last_tare_utc") or "").strip()
+    if last_tare_utc_raw:
+        try:
+            last_tare_utc = datetime.fromisoformat(last_tare_utc_raw.replace("Z", "+00:00"))
+            if last_tare_utc.tzinfo is None:
+                last_tare_utc = last_tare_utc.replace(tzinfo=timezone.utc)
+            elapsed_s = (now_utc - last_tare_utc).total_seconds()
+            if elapsed_s < cooldown_s:
+                remaining_s = max(0.0, cooldown_s - elapsed_s)
+                repo.log_event(
+                    level="WARNING",
+                    code="TARE_REJECTED_COOLDOWN",
+                    message=f"Tare rejected: cooldown active ({remaining_s:.2f}s remaining).",
+                    details={
+                        "cooldown_s": cooldown_s,
+                        "elapsed_s": elapsed_s,
+                        "remaining_s": remaining_s,
+                        "source_ip": source_ip,
+                        "source_user_agent": source_user_agent,
+                        "source_referer": source_referer,
+                    },
+                )
+                return Response(
+                    json.dumps({"success": False, "error": "Tare cooldown active; try again in a moment"}),
+                    mimetype="application/json",
+                    status=429,
+                )
+        except Exception:
+            pass
     
     # Add current displayed weight to tare
-    scale["tare_offset_lbs"] = current_weight + current_tare
-    cfg["scale"] = scale
-    repo.save_config(cfg)
+    updated_utc = _utc_now()
+    persisted_tare: dict[str, float] = {}
+
+    def _apply_tare(section: dict, _: dict) -> None:
+        previous = float(section.get("tare_offset_lbs", 0.0) or 0.0)
+        new_tare = float(current_weight) + previous
+        section["tare_offset_lbs"] = new_tare
+        section["last_tare_utc"] = updated_utc
+        persisted_tare["previous"] = previous
+        persisted_tare["new"] = new_tare
+
+    repo.update_config_section("scale", _apply_tare)
+    previous_tare = float(persisted_tare.get("previous", current_tare))
+    new_tare = float(persisted_tare.get("new", current_weight + current_tare))
     repo.log_event(
         level="INFO",
         code="SCALE_TARED",
         message=f"Scale tared at {current_weight:.2f} lb.",
-        details={"weight": current_weight, "new_tare": scale["tare_offset_lbs"]},
+        details={
+            "weight": current_weight,
+            "previous_tare": previous_tare,
+            "new_tare": new_tare,
+            "source_ip": source_ip,
+            "source_user_agent": source_user_agent,
+            "source_referer": source_referer,
+        },
     )
 
     return Response(
-        json.dumps({"success": True, "tare_offset_lbs": scale["tare_offset_lbs"]}),
+        json.dumps({"success": True, "tare_offset_lbs": new_tare}),
         mimetype="application/json",
     )
 
@@ -1562,17 +1736,26 @@ def api_tare() -> Response:
 def api_tare_clear() -> Response:
     """Clear tare offset - show gross weight."""
     repo: AppRepository = current_app.config["REPO"]
+    source_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    source_user_agent = request.headers.get("User-Agent")
+    source_referer = request.headers.get("Referer")
     cfg = repo.get_latest_config()
     scale = cfg.get("scale") or {}
     old_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
-    scale["tare_offset_lbs"] = 0.0
-    cfg["scale"] = scale
-    repo.save_config(cfg)
+    repo.update_config_section(
+        "scale",
+        lambda section, _cfg: section.update({"tare_offset_lbs": 0.0}),
+    )
     repo.log_event(
         level="INFO",
         code="TARE_CLEARED",
         message=f"Tare cleared (was {old_tare:.2f} lb).",
-        details={"old_tare": old_tare},
+        details={
+            "old_tare": old_tare,
+            "source_ip": source_ip,
+            "source_user_agent": source_user_agent,
+            "source_referer": source_referer,
+        },
     )
 
     return Response(
@@ -2373,6 +2556,36 @@ def api_daq_channels() -> Response:
     )
 
 
+@bp.post("/api/job/mode")
+def api_job_mode() -> Response:
+    """Toggle job control mode between legacy_weight_mapping and target_signal_mode."""
+    repo: AppRepository = current_app.config["REPO"]
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode", "") or "").strip()
+    if mode not in ("legacy_weight_mapping", "target_signal_mode"):
+        return Response(
+            json.dumps({"success": False, "error": "mode must be legacy_weight_mapping or target_signal_mode"}),
+            mimetype="application/json",
+            status=400,
+        )
+    cfg = repo.get_latest_config()
+    cfg.setdefault("job_control", {})
+    cfg["job_control"]["mode"] = mode
+    cfg["job_control"]["enabled"] = (mode == "target_signal_mode")
+    repo.save_config(cfg)
+    repo.log_event(
+        level="INFO",
+        code="JOB_MODE_SWITCHED",
+        message=f"Output mode switched to {mode} via dashboard.",
+        details={"mode": mode},
+    )
+    return Response(
+        json.dumps({"success": True, "mode": mode}),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @bp.get("/api/snapshot")
 def api_snapshot() -> Response:
     """Return a unified JSON snapshot for dashboard polling.
@@ -2383,7 +2596,6 @@ def api_snapshot() -> Response:
         "timestamp": "...",
         "system": { ... },
         "boards": { ... },
-        "excitation": { ... },
         "weight": { ... },
         "channels": [ ... ],
         "plcOutput": { ... },
@@ -2400,6 +2612,7 @@ def api_snapshot() -> Response:
     last_dump = repo.get_last_dump()
     latest_cfg = repo.get_latest_config()
     out_cfg = latest_cfg.get("output", {}) if isinstance(latest_cfg, dict) else {}
+    job_cfg = latest_cfg.get("job_control", {}) if isinstance(latest_cfg, dict) else {}
     range_cfg = latest_cfg.get("range", {}) if isinstance(latest_cfg, dict) else {}
     scale_cfg = latest_cfg.get("scale", {}) if isinstance(latest_cfg, dict) else {}
     zero_tracking_cfg = latest_cfg.get("zero_tracking", {}) if isinstance(latest_cfg, dict) else {}
@@ -2407,18 +2620,25 @@ def api_snapshot() -> Response:
     shift_start_utc = production_cfg.get("shift_start_utc")
     shift_total_lbs = repo.get_shift_total(shift_start_utc)
 
+    # zero_offset_mv is canonical; zero_offset_lbs is derived when slope is known.
+    # Keep a legacy lbs fallback for older persisted configs.
     zero_offset_mv = float(
-        snap.get(
-            "zero_offset_mv",
-            snap.get(
-                "zero_offset_signal",
-                scale_cfg.get("zero_offset_mv", scale_cfg.get("zero_offset_signal", 0.0)),
-            ),
-        )
-        or 0.0
+        snap.get("zero_offset_mv", scale_cfg.get("zero_offset_mv", 0.0)) or 0.0
+    )
+    legacy_zero_offset_lbs = float(
+        snap.get("zero_offset_lbs", scale_cfg.get("zero_offset_lbs", 0.0)) or 0.0
     )
     lbs_per_mv = float(snap.get("lbs_per_mv") or 0.0)
-    zero_offset_lbs = zero_offset_mv * lbs_per_mv if abs(lbs_per_mv) > 1e-9 else 0.0
+    if (
+        abs(zero_offset_mv) <= 1e-12
+        and abs(legacy_zero_offset_lbs) > 1e-12
+        and abs(lbs_per_mv) > 1e-9
+    ):
+        # Migration compatibility: derive canonical mV from older lbs-only state.
+        zero_offset_mv = legacy_zero_offset_lbs / lbs_per_mv
+    zero_offset_lbs = (
+        zero_offset_mv * lbs_per_mv if abs(lbs_per_mv) > 1e-9 else legacy_zero_offset_lbs
+    )
     zero_offset_updated_utc = snap.get("zero_offset_updated_utc") or scale_cfg.get("zero_offset_updated_utc")
 
     zero_tracking_enabled = bool(
@@ -2473,18 +2693,14 @@ def api_snapshot() -> Response:
             "di": snap.get("megaind_di") or {},
             "ao_v_cmd": snap.get("megaind_ao_v_cmd") or {},
         },
-        "excitation": {
-            "voltage_v": float(snap.get("excitation_v") or 0.0),
-            "status": snap.get("excitation_status", "UNKNOWN"),
-            "ratiometric": False,  # Always raw mV now
-        },
         "weight": {
             "total_lbs": float(snap.get("total_weight_lbs") or 0.0),
             "raw_lbs": float(snap.get("raw_weight_lbs") or 0.0),
             "stable": bool(snap.get("stable", False)),
             "tare_offset_lbs": float(snap.get("tare_offset_lbs") or 0.0),
-            "zero_offset_signal": zero_offset_mv,
-            "zero_offset_mv": zero_offset_mv,
+            "zero_target_lb": float(snap.get("zero_target_lb", scale_cfg.get("zero_target_lb", 0.0)) or 0.0),
+            "zero_offset_signal": float(zero_offset_mv),
+            "zero_offset_mv": float(zero_offset_mv),
             "zero_offset_lbs": float(zero_offset_lbs),
             "zero_offset_updated_utc": zero_offset_updated_utc,
             "zero_tracking_enabled": zero_tracking_enabled,
@@ -2492,6 +2708,21 @@ def api_snapshot() -> Response:
             "zero_tracking_locked": zero_tracking_locked,
             "zero_tracking_reason": str(zero_tracking_reason),
             "zero_tracking_hold_elapsed_s": float(snap.get("zero_tracking_hold_elapsed_s") or 0.0),
+            "post_dump_rezero_enabled": bool(
+                snap.get("post_dump_rezero_enabled", zero_tracking_cfg.get("post_dump_enabled", False))
+            ),
+            "post_dump_rezero_active": bool(snap.get("post_dump_rezero_active", False)),
+            "post_dump_rezero_state": str(snap.get("post_dump_rezero_state") or "idle"),
+            "post_dump_rezero_reason": str(snap.get("post_dump_rezero_reason") or "idle"),
+            "post_dump_rezero_dump_age_s": float(snap.get("post_dump_rezero_dump_age_s") or 0.0),
+            "post_dump_rezero_time_to_stable_s": snap.get("post_dump_rezero_time_to_stable_s"),
+            "post_dump_rezero_time_to_empty_s": snap.get("post_dump_rezero_time_to_empty_s"),
+            "post_dump_rezero_time_to_fill_resume_s": snap.get("post_dump_rezero_time_to_fill_resume_s"),
+            "post_dump_rezero_last_apply_utc": snap.get("post_dump_rezero_last_apply_utc"),
+            "auto_zero_armed": bool(snap.get("auto_zero_armed", False)),
+            "require_manual_zero_before_auto_zero": bool(
+                snap.get("startup_require_manual_zero_before_auto_zero", True)
+            ),
             "raw_signal_mv": float(
                 snap.get("total_signal", snap.get("raw_signal_mv", snap.get("signal_for_cal", 0.0))) or 0.0
             ),
@@ -2537,6 +2768,32 @@ def api_snapshot() -> Response:
             "range_min_lb": float(range_cfg.get("min_lb", 0.0) or 0.0),
             "range_max_lb": float(range_cfg.get("max_lb", 300.0) or 300.0),
         },
+        "jobControl": {
+            "enabled": bool(
+                snap.get("job_control_enabled", bool(job_cfg.get("enabled", False)))
+            ),
+            "mode": str(
+                snap.get(
+                    "job_control_mode",
+                    str(job_cfg.get("mode", "legacy_weight_mapping") or "legacy_weight_mapping"),
+                )
+                or "legacy_weight_mapping"
+            ),
+            "trigger_mode": str(
+                snap.get(
+                    "job_control_trigger_mode",
+                    str(job_cfg.get("trigger_mode", "exact") or "exact"),
+                )
+                or "exact"
+            ),
+            "pretrigger_lb": float(
+                snap.get("job_control_pretrigger_lb", job_cfg.get("pretrigger_lb", 0.0)) or 0.0
+            ),
+            # set_weight: the current target from the last webhook (0 = no active job)
+            "set_weight": float(snap.get("job_set_weight", 0.0) or 0.0),
+            "active": bool(snap.get("job_active", False)),
+            "meta": snap.get("job_meta"),
+        },
         "production": {
             "totals": production_totals,
             "shift_total_lbs": shift_total_lbs,
@@ -2581,6 +2838,373 @@ def api_production_shift_clear() -> Response:
     return Response(
         json.dumps({"success": True, "shift_start_utc": new_shift_start}),
         mimetype="application/json",
+    )
+
+
+def _extract_job_auth_tokens(job_cfg: dict[str, Any]) -> list[str]:
+    """Collect all supported webhook auth token values from request headers."""
+    tokens: list[str] = []
+
+    # API-key style headers
+    for header_name in ("X-Scale-Token", "X-API-Key"):
+        value = str(request.headers.get(header_name, "") or "").strip()
+        if value:
+            tokens.append(value)
+
+    # Authorization header (Bearer / Basic / raw token)
+    auth_raw = str(request.headers.get("Authorization", "") or "").strip()
+    if auth_raw:
+        auth_lower = auth_raw.lower()
+        if auth_lower.startswith("bearer "):
+            token = auth_raw[7:].strip()
+            if token:
+                tokens.append(token)
+        elif auth_lower.startswith("basic "):
+            token = auth_raw[6:].strip()
+            if token:
+                tokens.append(token)
+        else:
+            tokens.append(auth_raw)
+
+    # Optional custom header names (comma-separated string or list of names)
+    custom_headers_raw = (job_cfg or {}).get("webhook_custom_auth_headers", [])
+    custom_headers: list[str] = []
+    if isinstance(custom_headers_raw, str):
+        custom_headers = [h.strip() for h in custom_headers_raw.split(",") if h.strip()]
+    elif isinstance(custom_headers_raw, list):
+        custom_headers = [str(h).strip() for h in custom_headers_raw if str(h).strip()]
+
+    for header_name in custom_headers:
+        value = str(request.headers.get(header_name, "") or "").strip()
+        if value:
+            tokens.append(value)
+
+    return tokens
+
+
+def _is_authorized_job_request(expected_token: str, job_cfg: dict[str, Any]) -> bool:
+    expected = str(expected_token or "").strip()
+    if not expected:
+        return False
+    for supplied in _extract_job_auth_tokens(job_cfg):
+        if hmac.compare_digest(supplied, expected):
+            return True
+    return False
+
+
+@bp.post("/api/job/webhook")
+def api_job_webhook() -> Response:
+    """Receive job target updates from external systems via HTTPS webhook."""
+    repo: AppRepository = current_app.config["REPO"]
+    svc = current_app.config.get("ACQ_SERVICE")
+    if svc is None or not hasattr(svc, "ingest_job_webhook"):
+        return Response(
+            json.dumps({"success": False, "error": "Acquisition service unavailable"}),
+            mimetype="application/json",
+            status=503,
+        )
+
+    latest_cfg = repo.get_latest_config()
+    job_cfg = latest_cfg.get("job_control", {}) if isinstance(latest_cfg, dict) else {}
+    mode = str(job_cfg.get("mode", "legacy_weight_mapping") or "legacy_weight_mapping")
+    enabled = bool(job_cfg.get("enabled", False)) and mode == "target_signal_mode"
+    if not enabled:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": "Job target mode is disabled. Enable target signal mode in settings first.",
+                }
+            ),
+            mimetype="application/json",
+            status=409,
+        )
+
+    expected_token = str(os.environ.get("LCS_JOB_WEBHOOK_TOKEN", "") or "").strip()
+    if not expected_token:
+        expected_token = str(job_cfg.get("webhook_token", "") or "").strip()
+    if not expected_token:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        "Webhook token not configured. Set job_control.webhook_token "
+                        "or LCS_JOB_WEBHOOK_TOKEN before using /api/job/webhook. "
+                        "Supported auth headers: Authorization (Bearer/Basic), X-API-Key, X-Scale-Token."
+                    ),
+                }
+            ),
+            mimetype="application/json",
+            status=503,
+        )
+
+    if not _is_authorized_job_request(expected_token, job_cfg):
+        repo.log_event(
+            level="WARNING",
+            code="JOB_WEBHOOK_UNAUTHORIZED",
+            message="Rejected job webhook: invalid token.",
+            details={"source_ip": request.remote_addr},
+        )
+        return Response(
+            json.dumps({"success": False, "error": "Unauthorized"}),
+            mimetype="application/json",
+            status=401,
+        )
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return Response(
+            json.dumps({"success": False, "error": "Expected JSON object payload"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    event_name = str(payload.get("event", "") or "").strip()
+    if event_name != "job.load_size_updated":
+        return Response(
+            json.dumps({"success": False, "error": "event must be job.load_size_updated"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    job_id = str(payload.get("jobId", "") or "").strip()
+    if not job_id:
+        return Response(
+            json.dumps({"success": False, "error": "jobId is required"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    machine_key = str(payload.get("machineKey", "") or "").strip()
+    if not machine_key:
+        return Response(
+            json.dumps({"success": False, "error": "machineKey is required"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    idempotency_key = str(payload.get("idempotencyKey", "") or "").strip()
+    if not idempotency_key:
+        return Response(
+            json.dumps({"success": False, "error": "idempotencyKey is required"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    timestamp_raw = str(payload.get("timestamp", "") or "").strip()
+    if not timestamp_raw:
+        return Response(
+            json.dumps({"success": False, "error": "timestamp is required"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    target_raw = payload.get("loadSize", None)
+    try:
+        target_weight_lb = float(target_raw)
+    except (TypeError, ValueError):
+        return Response(
+            json.dumps({"success": False, "error": "loadSize must be a number"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    source_ip = request.remote_addr
+    try:
+        result = svc.ingest_job_webhook(
+            job_id=job_id,
+            target_weight_lb=target_weight_lb,
+            step_id=None,
+            event_id=idempotency_key,
+            source=f"api_job_webhook:{source_ip}:{machine_key}:{event_name}:{timestamp_raw}",
+        )
+    except ValueError as e:
+        return Response(
+            json.dumps({"success": False, "error": str(e)}),
+            mimetype="application/json",
+            status=400,
+        )
+    except Exception as e:  # noqa: BLE001
+        repo.log_event(
+            level="ERROR",
+            code="JOB_WEBHOOK_PROCESSING_FAILED",
+            message="Webhook processing failed.",
+            details={"error": str(e)[:500]},
+        )
+        return Response(
+            json.dumps({"success": False, "error": "Webhook processing failed"}),
+            mimetype="application/json",
+            status=500,
+        )
+
+    return Response(
+        json.dumps({"success": True, **result}),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@bp.get("/api/job/status")
+def api_job_status() -> Response:
+    """Return active/pending webhook-driven job control state."""
+    repo: AppRepository = current_app.config["REPO"]
+    svc = current_app.config.get("ACQ_SERVICE")
+    if svc is None or not hasattr(svc, "get_job_control_status"):
+        return Response(
+            json.dumps({"success": False, "error": "Acquisition service unavailable"}),
+            mimetype="application/json",
+            status=503,
+        )
+
+    latest_cfg = repo.get_latest_config()
+    job_cfg = latest_cfg.get("job_control", {}) if isinstance(latest_cfg, dict) else {}
+    expected_token = str(os.environ.get("LCS_JOB_WEBHOOK_TOKEN", "") or "").strip()
+    if not expected_token:
+        expected_token = str(job_cfg.get("webhook_token", "") or "").strip()
+    if not expected_token:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        "Webhook token not configured. Set job_control.webhook_token "
+                        "or LCS_JOB_WEBHOOK_TOKEN before using job control APIs."
+                    ),
+                }
+            ),
+            mimetype="application/json",
+            status=503,
+        )
+    if not _is_authorized_job_request(expected_token, job_cfg):
+        return Response(
+            json.dumps({"success": False, "error": "Unauthorized"}),
+            mimetype="application/json",
+            status=401,
+        )
+    status_payload = svc.get_job_control_status()
+    return Response(
+        json.dumps(
+            {
+                "success": True,
+                "enabled": bool(job_cfg.get("enabled", False)),
+                "mode": str(job_cfg.get("mode", "legacy_weight_mapping") or "legacy_weight_mapping"),
+                "status": status_payload,
+            }
+        ),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@bp.post("/api/job/clear")
+def api_job_clear() -> Response:
+    """Clear active/pending job webhook state and reset to low-signal state."""
+    repo: AppRepository = current_app.config["REPO"]
+    svc = current_app.config.get("ACQ_SERVICE")
+    if svc is None or not hasattr(svc, "clear_job_control"):
+        return Response(
+            json.dumps({"success": False, "error": "Acquisition service unavailable"}),
+            mimetype="application/json",
+            status=503,
+        )
+
+    latest_cfg = repo.get_latest_config()
+    job_cfg = latest_cfg.get("job_control", {}) if isinstance(latest_cfg, dict) else {}
+    expected_token = str(os.environ.get("LCS_JOB_WEBHOOK_TOKEN", "") or "").strip()
+    if not expected_token:
+        expected_token = str(job_cfg.get("webhook_token", "") or "").strip()
+    if not expected_token:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        "Webhook token not configured. Set job_control.webhook_token "
+                        "or LCS_JOB_WEBHOOK_TOKEN before using job control APIs."
+                    ),
+                }
+            ),
+            mimetype="application/json",
+            status=503,
+        )
+    if not _is_authorized_job_request(expected_token, job_cfg):
+        return Response(
+            json.dumps({"success": False, "error": "Unauthorized"}),
+            mimetype="application/json",
+            status=401,
+        )
+    result = svc.clear_job_control(reason="api_job_clear")
+    return Response(
+        json.dumps({"success": True, **result}),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@bp.post("/api/job/trigger/from-nudge")
+def api_job_trigger_from_nudge() -> Response:
+    """Copy current output nudge value into target-mode trigger signal setting."""
+    repo: AppRepository = current_app.config["REPO"]
+    cfg = repo.get_latest_config()
+    out_cfg = cfg.get("output", {}) if isinstance(cfg, dict) else {}
+    job_cfg = cfg.get("job_control", {}) if isinstance(cfg, dict) else {}
+
+    expected_token = str(os.environ.get("LCS_JOB_WEBHOOK_TOKEN", "") or "").strip()
+    if not expected_token:
+        expected_token = str(job_cfg.get("webhook_token", "") or "").strip()
+    if not expected_token:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        "Webhook token not configured. Set job_control.webhook_token "
+                        "or LCS_JOB_WEBHOOK_TOKEN before using job control APIs."
+                    ),
+                }
+            ),
+            mimetype="application/json",
+            status=503,
+        )
+    if not _is_authorized_job_request(expected_token, job_cfg):
+        return Response(
+            json.dumps({"success": False, "error": "Unauthorized"}),
+            mimetype="application/json",
+            status=401,
+        )
+
+    mode = str(out_cfg.get("mode", "0_10V") or "0_10V")
+    nudge_raw = out_cfg.get("nudge_value", 0.0)
+    try:
+        nudge_val = float(nudge_raw)
+    except (TypeError, ValueError):
+        nudge_val = 0.0
+    if mode == "4_20mA":
+        nudge_val = max(4.0, min(20.0, nudge_val))
+    else:
+        nudge_val = max(0.0, min(10.0, nudge_val))
+
+    cfg.setdefault("job_control", {})
+    cfg["job_control"]["trigger_signal_value"] = float(nudge_val)
+    repo.save_config(cfg)
+    repo.log_event(
+        level="INFO",
+        code="JOB_TRIGGER_SIGNAL_CAPTURED",
+        message="Captured trigger signal from output nudge value.",
+        details={"mode": mode, "nudge_value": float(nudge_val)},
+    )
+    units = "mA" if mode == "4_20mA" else "V"
+    return Response(
+        json.dumps(
+            {
+                "success": True,
+                "trigger_signal_value": float(nudge_val),
+                "units": units,
+            }
+        ),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
     )
 
 

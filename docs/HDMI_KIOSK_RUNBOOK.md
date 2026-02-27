@@ -47,6 +47,23 @@ For hands-off startup at boot:
 
 After boot, Chromium opens `/hdmi` in full-screen mode.
 
+## Display Rotation (Upside-Down Mounting)
+
+If the screen is mounted upside down, two files must be configured:
+
+1. **Kernel framebuffer rotation** — append to `/boot/firmware/cmdline.txt`:
+   ```
+   video=HDMI-A-1:800x480@60,rotate=180
+   ```
+
+2. **Touchscreen calibration** — create `/etc/udev/rules.d/98-touchscreen-rotate.rules`:
+   ```
+   ATTRS{idVendor}=="0484", ATTRS{idProduct}=="5750", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
+   ```
+   Replace vendor/product IDs if using a different touchscreen (`libinput list-devices` to find them).
+
+**Warning:** Do NOT use `wlr-randr --transform 180` — it conflicts with the udev touch calibration.
+
 ## Quick Validation
 
 1. Open `http://localhost:8080/hdmi`

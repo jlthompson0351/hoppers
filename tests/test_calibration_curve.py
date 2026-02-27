@@ -6,7 +6,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.core.zeroing import map_signal_to_weight
+from src.core.zeroing import map_signal_to_weight, select_active_calibration_points
 from src.db.migrate import ensure_db
 from src.db.repo import AppRepository
 
@@ -35,9 +35,12 @@ class CalibrationCurveTests(unittest.TestCase):
         self.assertFalse(repo.upsert_calibration_point(known_weight_lbs=100.0, signal=10.0))
 
         points = repo.get_calibration_points()
-        self.assertEqual([p.known_weight_lbs for p in points], [25.0, 50.0, 100.0])
+        self.assertEqual([p.known_weight_lbs for p in points], [25.0, 50.0, 50.0, 100.0])
 
-        fifty = next(p for p in points if abs(p.known_weight_lbs - 50.0) < 1e-9)
+        active = select_active_calibration_points(points)
+        self.assertEqual([p.known_weight_lbs for p in active], [25.0, 50.0, 100.0])
+
+        fifty = next(p for p in active if abs(p.known_weight_lbs - 50.0) < 1e-9)
         self.assertAlmostEqual(fifty.signal, 5.5, places=9)
 
     def test_piecewise_mapping_uses_middle_segment(self) -> None:

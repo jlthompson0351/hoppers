@@ -4,7 +4,6 @@
 {% set filter = cfg.get('filter', {}) %}
 {% set range_cfg = cfg.get('range', {}) %}
 {% set output = cfg.get('output', {}) %}
-{% set excitation = cfg.get('excitation', {}) %}
 {% set zero_tracking = cfg.get('zero_tracking', {}) %}
 {% set startup = cfg.get('startup', {}) %}
 {% set alarms = cfg.get('alarms', {}) %}
@@ -108,39 +107,15 @@
   <div class="tab" data-tab="system">System</div>
 </div>
 
-<form id="settingsForm" method="post" action="{{ url_for('routes.settings_post') }}">
+<form id="settingsForm" method="post" action="{{ url_for('routes.settings_post') }}" novalidate>
   
   <!-- ============== QUICK SETUP TAB ============== -->
   <div class="tab-content active" id="tab-quick-setup">
     <div class="info-box">
       <strong>Start Here!</strong> These are the essential settings to get your scale up and running. 
       Most installations only need to adjust these settings.
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Weight Range</div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Minimum Weight</div>
-          <div class="setting-help">The weight value that corresponds to <strong>0V</strong> (or 4mA) output. Usually set to 0 for most scales.</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="range_min_lb" step="0.1" value="{{ range_cfg.get('min_lb', 0) }}">
-          <div class="setting-unit">lb</div>
-        </div>
-      </div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Maximum Weight</div>
-          <div class="setting-help">The weight value that corresponds to <strong>10V</strong> (or 20mA) output. Set this to your scale's full capacity.</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="range_max_lb" step="0.1" value="{{ range_cfg.get('max_lb', 300) }}">
-          <div class="setting-unit">lb</div>
-        </div>
-      </div>
+      <br><br>
+      <strong>PLC Output mapping</strong> is configured in <strong>Calibration Hub</strong> &mdash; train the scale on known weights, then train the PLC output voltage at each weight. The system calculates volts-per-pound from your saved points automatically.
     </div>
     
     <div class="section">
@@ -181,46 +156,6 @@
         <div class="setting-control">
           <input type="number" name="safe_output" step="0.01" value="{{ output.get('safe_v', 0) if output.get('mode', '0_10V') == '0_10V' else output.get('safe_ma', 4) }}">
           <div class="setting-unit">{{ 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' }}</div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="section">
-      <div class="section-title">Excitation Monitoring</div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Excitation Input Channel</div>
-          <div class="setting-help">Which MegaIND analog input monitors the load cell excitation voltage. This is used for <strong>ratiometric</strong> measurements.</div>
-        </div>
-        <div class="setting-control">
-          <select name="excitation_ai_channel">
-            {% for ch in [1,2,3,4] %}
-            <option value="{{ ch }}" {% if excitation.get('ai_channel', 1) == ch %}selected{% endif %}>Channel {{ ch }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Warning Voltage</div>
-          <div class="setting-help">Below this voltage, a <strong>warning</strong> is displayed but the scale continues operating.</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="excitation_warn_v" step="0.1" value="{{ excitation.get('warn_v', 9.0) }}">
-          <div class="setting-unit">V</div>
-        </div>
-      </div>
-      
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Fault Voltage</div>
-          <div class="setting-help">Below this voltage, a <strong>fault</strong> is triggered and safe output is sent to PLC. This protects against power supply failure.</div>
-        </div>
-        <div class="setting-control">
-          <input type="number" name="excitation_fault_v" step="0.1" value="{{ excitation.get('fault_v', 8.0) }}">
-          <div class="setting-unit">V</div>
         </div>
       </div>
     </div>
@@ -324,11 +259,11 @@
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Window</div>
+          <div class="setting-label">How Long to Watch</div>
           <div class="setting-help">
-            Number of samples to analyze for stability. At 20Hz loop rate, 25 samples = ~1.25 seconds.<br>
-            <strong>Larger (40-100):</strong> More confident stability, but takes longer to show STABLE.<br>
-            <strong>Smaller (10-20):</strong> Faster stability detection, but may trigger on brief pauses.
+            How many readings the scale looks at before deciding if the weight is steady. Think of it like a patience setting &mdash; higher means it watches longer before making up its mind.<br>
+            <strong>Larger (40-100):</strong> More sure it's really stable, but takes longer to show STABLE.<br>
+            <strong>Smaller (10-20):</strong> Decides faster, but might say STABLE during a brief pause in movement.
           </div>
         </div>
         <div class="setting-control">
@@ -339,30 +274,30 @@
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Stddev Threshold</div>
+          <div class="setting-label">Weight Bounce Tolerance</div>
           <div class="setting-help">
-            Maximum standard deviation of weight readings to be considered stable.<br>
-            <strong>Lower (0.2-0.5 lb):</strong> Stricter - requires very steady weight for STABLE.<br>
-            <strong>Higher (1.0-3.0 lb):</strong> More lenient - allows minor fluctuation as STABLE.
+            How much the weight reading is allowed to jump around and still count as "stable." If the scale keeps saying UNSTABLE even when nothing is moving, raise this number.<br>
+            <strong>Lower (0.2-0.5 lb):</strong> Very picky &mdash; the weight has to be almost perfectly still.<br>
+            <strong>Higher (1.0-3.0 lb):</strong> More forgiving &mdash; small bounces in the reading are OK.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="stability_stddev_lb" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_stddev_lb', 0.8) }}">
+          <input type="number" name="stability_stddev_lb" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_stddev_lb', 1.5) }}">
           <div class="setting-unit">lb</div>
         </div>
       </div>
       
       <div class="setting-row">
         <div>
-          <div class="setting-label">Stability Slope Threshold</div>
+          <div class="setting-label">Weight Drift Tolerance</div>
           <div class="setting-help">
-            Maximum rate of change to be considered stable.<br>
-            <strong>Lower (0.2-0.5 lb/s):</strong> Weight must be nearly motionless.<br>
-            <strong>Higher (1.0-3.0 lb/s):</strong> Allows slow drift as STABLE.
+            How fast the weight can be creeping up or down and still count as "stable." If the reading slowly drifts and the scale keeps flipping to UNSTABLE, raise this number.<br>
+            <strong>Lower (0.2-0.5 lb/s):</strong> Very strict &mdash; the weight must be barely moving at all.<br>
+            <strong>Higher (1.0-5.0 lb/s):</strong> More relaxed &mdash; a gentle drift is still considered stable.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="stability_slope_lbs" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_slope_lbs', 0.8) }}">
+          <input type="number" name="stability_slope_lbs" min="0.1" max="10" step="0.1" value="{{ filter.get('stability_slope_lbs', 3.0) }}">
           <div class="setting-unit">lb/s</div>
         </div>
       </div>
@@ -508,8 +443,8 @@
         <div>
           <div class="setting-label">Enable Zero Tracking</div>
           <div class="setting-help">
-            <strong>Recommended ON.</strong> Automatically maintains zero when the scale is empty. 
-            Compensates for temperature drift and mechanical settling. Disables while weight is present.
+            <strong>Recommended ON.</strong> Industrial-style auto-zero uses two layers:
+            micro-range AZT near zero plus post-dump re-zero for larger corrections.
           </div>
         </div>
         <div class="setting-control">
@@ -525,11 +460,12 @@
         <div>
           <div class="setting-label">Zero Tracking Range</div>
           <div class="setting-help">
-            Zero tracking only activates when weight is within this range of zero. Prevents tracking when there's actual weight on the scale.
+            Industrial AZT only corrects within a tiny band near true zero. This prevents it from ever zeroing real material.
+            <strong>Recommended: 0.05 lb</strong> on a 0.1 lb division scale.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_range" min="0.1" max="10" step="0.1" value="{{ zero_tracking.get('range_lb', 0.5) }}">
+          <input type="number" name="zero_tracking_range" min="0.01" max="1.0" step="0.01" value="{{ zero_tracking.get('range_lb', 0.05) }}">
           <div class="setting-unit">lb</div>
         </div>
       </div>
@@ -538,13 +474,123 @@
         <div>
           <div class="setting-label">Zero Tracking Rate</div>
           <div class="setting-help">
-            How fast zero drift is corrected. <strong>Lower (0.01-0.05 lb/s):</strong> Slow, subtle corrections. 
-            <strong>Higher (0.1-0.5 lb/s):</strong> Faster correction but may be visible.
+            How fast AZT corrections happen near zero. Industrial systems limit this heavily.
+            <strong>Recommended: 0.05 lb/s</strong>.
           </div>
         </div>
         <div class="setting-control">
-          <input type="number" name="zero_tracking_rate" min="0.01" max="1" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.1) }}">
+          <input type="number" name="zero_tracking_rate" min="0.01" max="0.50" step="0.01" value="{{ zero_tracking.get('rate_lbs', 0.05) }}">
           <div class="setting-unit">lb/s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Deadband</div>
+          <div class="setting-help">
+            Stop correcting when reading is within ±this amount. Prevents constant tiny adjustments.
+            <strong>Recommended: 0.02 lb</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_deadband" min="0.01" max="0.50" step="0.01" value="{{ zero_tracking.get('deadband_lb', 0.02) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Hold Time</div>
+          <div class="setting-help">
+            Optional delay after becoming stable/empty before AZT starts.
+            <strong>Recommended: 1 second</strong> (or 0 for immediate).
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_hold_s" min="0" max="30" step="0.5" value="{{ zero_tracking.get('hold_s', 1.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Zero Tracking Persist Interval</div>
+          <div class="setting-help">
+            How often to save the zero offset to disk during AZT. <strong>1 second is good</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_tracking_persist_interval_s" min="0.2" max="10" step="0.1" value="{{ zero_tracking.get('persist_interval_s', 1.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <!-- Post-Dump Re-Zero -->
+      <div class="setting-row" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+        <div>
+          <div class="setting-label">Post-Dump Re-Zero (One-Shot)</div>
+          <div class="setting-help">
+            Runs after a detected dump and captures a new zero reference in one shot, with safety gates.
+          </div>
+        </div>
+        <div class="setting-control">
+          <div class="toggle-wrapper">
+            <div class="toggle {% if zero_tracking.get('post_dump_enabled', true) %}on{% endif %}" id="toggle_post_dump_enabled" onclick="toggleSwitch(this, 'post_dump_enabled')"></div>
+            <input type="hidden" name="post_dump_enabled" id="post_dump_enabled" value="{{ '1' if zero_tracking.get('post_dump_enabled', true) else '0' }}">
+            <span class="toggle-label">{{ 'Enabled' if zero_tracking.get('post_dump_enabled', true) else 'Disabled' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Post-Dump Minimum Delay</div>
+          <div class="setting-help">
+            Wait this long after a dump before attempting re-zero. <strong>Recommended: 5 seconds</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_min_delay_s" min="0" max="30" step="0.5" value="{{ zero_tracking.get('post_dump_min_delay_s', 5.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Post-Dump Window</div>
+          <div class="setting-help">
+            Max time to wait for stable + empty conditions before skipping. <strong>Recommended: 10 seconds</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_window_s" min="1" max="60" step="1" value="{{ zero_tracking.get('post_dump_window_s', 10.0) }}">
+          <div class="setting-unit">s</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Empty Threshold</div>
+          <div class="setting-help">
+            Only attempt re-zero if gross weight is within ±this amount. <strong>Recommended: 4 lb</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_empty_threshold_lb" min="0" max="20" step="0.5" value="{{ zero_tracking.get('post_dump_empty_threshold_lb', 4.0) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Max Correction</div>
+          <div class="setting-help">
+            Safety limit: if correction exceeds this, re-zero is skipped. <strong>Recommended: 8 lb</strong>.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="post_dump_max_correction_lb" min="0.5" max="50" step="0.5" value="{{ zero_tracking.get('post_dump_max_correction_lb', 8.0) }}">
+          <div class="setting-unit">lb</div>
         </div>
       </div>
     </div>
@@ -1594,7 +1640,7 @@
       <div class="setting-row">
         <div>
           <div class="setting-label">MegaIND (Industrial I/O)</div>
-          <div class="setting-help">Analog outputs for PLC, excitation monitoring.</div>
+          <div class="setting-help">Analog outputs for PLC.</div>
         </div>
         <div class="setting-control" style="text-align: right;">
           <span class="pill {% if snap.megaind_online %}ok{% else %}fault{% endif %}">{{ 'ONLINE' if snap.megaind_online else 'OFFLINE' }}</span>
@@ -1685,8 +1731,8 @@
   <!-- ============== SAVE BAR ============== -->
   <div class="save-bar">
     <div class="save-bar-inner">
-      <div class="status" id="saveStatus">Changes will be saved when you click Save Settings</div>
-      <button type="submit">Save Settings</button>
+      <div class="status" id="saveStatus">Auto-save enabled &mdash; changes save automatically</div>
+      <button type="submit">Save Now</button>
     </div>
   </div>
   
@@ -1793,13 +1839,98 @@ function updateSliderValue(slider) {
   }
 }
 
-// Form change detection
-let formChanged = false;
+// ============== AUTO-SAVE ==============
+let _autoSaveTimer = null;
+let _isSaving = false;
+let _hasPendingChanges = false;
 
+function _updateSaveStatus(state) {
+  const el = document.getElementById('saveStatus');
+  if (!el) return;
+  if (state === 'pending') {
+    el.textContent = 'Unsaved changes\u2026';
+    el.style.color = 'var(--warn)';
+  } else if (state === 'saving') {
+    el.textContent = 'Saving\u2026';
+    el.style.color = 'var(--accent)';
+  } else if (state === 'saved') {
+    el.textContent = '\u2713 Saved';
+    el.style.color = 'var(--ok)';
+  } else if (state === 'error') {
+    el.textContent = '\u2717 Save failed \u2014 retrying\u2026';
+    el.style.color = 'var(--bad)';
+  } else {
+    el.textContent = 'Auto-save enabled';
+    el.style.color = 'var(--muted)';
+  }
+}
+
+function _doAutoSave() {
+  if (_isSaving) { _hasPendingChanges = true; return; }
+  _isSaving = true;
+  _hasPendingChanges = false;
+  _updateSaveStatus('saving');
+
+  const form = document.getElementById('settingsForm');
+  const formData = new FormData(form);
+
+  fetch(form.action, {
+    method: 'POST',
+    body: formData,
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+  .then(function(r) {
+    if (r.ok) {
+      _updateSaveStatus('saved');
+    } else {
+      _updateSaveStatus('error');
+      setTimeout(function() { if (!_isSaving) _doAutoSave(); }, 3000);
+    }
+  })
+  .catch(function() {
+    _updateSaveStatus('error');
+    setTimeout(function() { if (!_isSaving) _doAutoSave(); }, 3000);
+  })
+  .finally(function() {
+    _isSaving = false;
+    if (_hasPendingChanges) {
+      _hasPendingChanges = false;
+      _scheduleAutoSave();
+    }
+  });
+}
+
+function _scheduleAutoSave() {
+  clearTimeout(_autoSaveTimer);
+  _updateSaveStatus('pending');
+  _autoSaveTimer = setTimeout(_doAutoSave, 1200);
+}
+
+// Listen for change events (selects, checkboxes, radio buttons, toggle switches)
+document.getElementById('settingsForm').addEventListener('change', function() {
+  _scheduleAutoSave();
+});
+
+// Listen for input events (sliders, number fields, text fields)
+document.getElementById('settingsForm').addEventListener('input', function(e) {
+  const target = e && e.target ? e.target : null;
+  if (!target) return;
+  if (target.type === 'range' || target.type === 'number' || target.type === 'text') {
+    _scheduleAutoSave();
+  }
+});
+
+// Manual "Save Now" button - immediate save, no page reload
+document.getElementById('settingsForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  clearTimeout(_autoSaveTimer);
+  _doAutoSave();
+});
+
+// CLI Calibration helpers (MegaIND tab)
 window.captureCliSettings = function(point) {
   const type = document.getElementById('cli-cal-type-settings').value;
   const channel = {{ (cfg.get('output') or {}).get('ao_channel_v', 1) }};
-  // Get nudge value from state snapshot
   fetch('/api/snapshot').then(r => r.json()).then(data => {
     const val = data.plcOutput.nudge_value;
     fetch('/api/output/calibrate', {
@@ -1820,25 +1951,6 @@ window.resetCliSettings = function() {
     body: JSON.stringify({type: type, channel: channel})
   }).then(() => alert('Board reset to factory.'));
 };
-
-document.getElementById('settingsForm').addEventListener('change', function() {
-  formChanged = true;
-  document.getElementById('saveStatus').textContent = '⚠️ You have unsaved changes';
-  document.getElementById('saveStatus').style.color = 'var(--warn)';
-});
-
-// Warn before leaving with unsaved changes
-window.addEventListener('beforeunload', function(e) {
-  if (formChanged) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-
-// Clear warning on submit
-document.getElementById('settingsForm').addEventListener('submit', function() {
-  formChanged = false;
-});
 </script>
 
 {% endblock %}

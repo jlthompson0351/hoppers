@@ -1,0 +1,6 @@
+journal_mode=wal
+synchronous=2
+wal_autocheckpoint=1000
+foreign_keys=0
+busy_timeout=30000
+user_version=0

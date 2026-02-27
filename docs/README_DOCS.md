@@ -8,17 +8,20 @@ Open in any browser to view live load cell readings.
 
 ---
 
-## ✅ System Status (December 18, 2025)
+## ✅ System Status (February 15, 2026)
 
 | Component | Status | Details |
 |-----------|--------|---------|
+| **Version** | ✅ v3.1 | Canonical mV Zeroing Fix - Production Stable |
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
-| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
+| **Zero System** | ✅ Fixed | Manual ZERO + auto-tracking working correctly |
 
-**Pi:** `Hoppers` at `172.16.190.25` — See `CONNECTION_GUIDE.md` for SSH/dashboard access
+**Pi:** `Hoppers` at `172.16.190.25` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
+**User Feedback:** "Working like a champ" (Post-v3.1 deployment)
 
 ---
 
@@ -200,8 +203,13 @@ docs/
 
 ---
 
-**Last Updated**: February 12, 2026  
-**For**: Production deployment with drift compensation  
-**Hardware Verified**: December 18, 2025 — Both boards (24b8vin @ 0x31, MegaIND @ 0x50) online and working  
-**Drift Fix**: December 23, 2025 — ZERO button now properly compensates for drift (see `ZERO_VS_TARE_FIX.md`)  
-**Auto-Armed Outputs**: February 12, 2026 — PLC outputs now default to ARMED on startup (see `AUTO_ARMED_OUTPUT_CHANGE.md`)
+**Last Updated**: February 15, 2026  
+**Current Version**: v3.1 (Canonical mV Zeroing Fix)  
+**Status**: ✅ Production - System stable and operational  
+**Deployment**: Pi `172.16.190.25` running v3.1, user confirms "working like a champ"  
+
+**Recent Milestones:**
+- **v3.1** (Feb 15, 2026): Critical zeroing architecture fix - zero_offset_mv now canonical, manual ZERO works instantly
+- **Hardware Verified** (Feb 15, 2026): Both boards (24b8vin @ 0x31, MegaIND @ 0x52) online and working
+- **Auto-Armed Outputs** (Feb 12, 2026): PLC outputs default to ARMED on startup
+- **v3.0 Zero Tracking** (Feb 13, 2026): Dual-path zero tracker with fast negative correction

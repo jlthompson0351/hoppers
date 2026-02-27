@@ -1,29 +1,35 @@
 # Load Cell Scale Transmitter (Raspberry Pi 4B)
 
+**Current Version**: v3.4.0 (Job Target Signal Mode - February 26, 2026)  
+**Status**: ✅ Production - Operational on 172.16.190.25
+
 Industrial load-cell scale transmitter using a Raspberry Pi 4B with Sequent Microsystems stackable HATs:
 - **24b8vin-rpi**: 8x 24-bit differential analog inputs for load-cell mV signals (supports 1-8 active channels, typically 2-4)
 - **megaind-rpi**: 14-bit analog output to PLC (0–10V or 4–20mA), digital inputs (operator buttons), and one analog input for excitation monitoring
 
 This is an industrial-grade system designed for robust behavior and automatic recovery. The system **always uses real hardware** - there is no simulated mode. If hardware is unavailable, the UI stays up and the system retries automatically.
 
+### Recent Changes (v3.4.0)
+- **Job Target Signal Mode:** Added webhook-driven PLC output mode (`POST /api/job/webhook`). When active, output holds low until scale weight hits target, then fires a fixed trigger signal.
+- **Target-Aware Auto-Zero:** Zero tracking now tracks `error = weight - zero_target_lb` (3.0 lb), allowing auto-zero to work with a non-zero floor.
+- **Post-Dump Re-Zero:** Implemented one-shot correction after dump cycle completion.
+
 ## Hardware Stack & Wiring (CRITICAL)
 
 ### Stack Order (Bottom to Top)
 1.  **Raspberry Pi 4B** (Bottom)
-2.  **Watchdog HAT** (Stack 0, Address 0x30)
-    *   **Function:** Powers the Pi + UPS Battery Backup.
+2.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
+    *   **Function:** Reads load cell mV signals.
     *   **Connection:** Sits directly on the Pi.
-3.  **ISOLATION LAYER (Modified Header)**
-    *   **CRITICAL:** You must use a stacking header with **Pins 2 (5V) and 4 (5V) CUT/REMOVED**.
-    *   This prevents the MegaIND (above) from fighting the Watchdog's power supply.
-4.  **MegaIND HAT** (Stack 0, Address 0x50)
-    *   **Function:** PLC Output (0-10V) + Opto Inputs.
-    *   **Connection:** Sits on the modified header.
-5.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
-    *   **Function:** Reads Load Cell.
-    *   **Connection:** Sits on top of MegaIND.
+3.  **MegaIND HAT** (Stack 2, Address 0x52)
+    *   **Function:** PLC Output (0-10V / 4-20mA) + Opto Inputs.
+    *   **Connection:** Sits on top of the DAQ.
 
-### Power Wiring
+**Note:** MegaIND uses base I2C address `0x50` and the runtime address is `0x50 + stack_level`. Current production uses stack level **2** (`0x52`).
+
+**Optional (UPS):** If a Super Watchdog HAT is installed (I2C `0x30`), place it directly on the Pi and follow the power-isolation guidance in `docs/WiringAndCommissioning.md`.
+
+### Power Wiring (if using Super Watchdog HAT)
 1.  **24V DC Source** -> Connect to **Watchdog** Green Connector.
 2.  **Daisy Chain** -> Jumper wires from Watchdog 24V -> **MegaIND** 24V Green Connector.
     *   *Note: Watchdog powers the Pi. MegaIND powers itself and the DAQ.*
@@ -31,8 +37,8 @@ This is an industrial-grade system designed for robust behavior and automatic re
     *   *This is the primary power path for the Pi.*
 
 ### DIP Switch Settings
-*   **Watchdog:** No switches (Address 0x30 fixed).
-*   **MegaIND:** All switches **OFF** (Stack Level 0 -> Address 0x50).
+*   **Watchdog:** No switches (Address 0x30 fixed) (if present).
+*   **MegaIND:** Stack Level **2** -> Address **0x52** (base 0x50 + 2).
 *   **DAQ:** All Switches **OFF** (Stack Level 0 -> Address 0x31).
 
 ## Quick start (Raspberry Pi)
@@ -96,7 +102,7 @@ plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
 The system includes a dedicated, touch-optimized operator interface for HDMI-connected displays (e.g., Elecrow 5" 800x480).
 
 - **HDMI Page**: Accessible at `/hdmi`. The layout is tuned for 800x480 with a centered live-weight card, tare/zero metadata lines (`Zero Offset`, `Zero Tracking`, `Zero Updated`), and a right-side totals placeholder panel for future database-backed daily/shift totals.
-- **Shift Total Placeholder**: Includes `CLEAR SHIFT TOTAL` as a UI placeholder; backend clearing logic is intentionally not wired yet.
+- **Shift Total Control**: Includes `CLEAR SHIFT` button wired to `/api/production/shift/clear` to reset shift start time and begin a new shift total window.
 - **Auto-Launch**: The Pi can be configured to auto-launch this interface in full-screen (kiosk) mode at boot.
 - **Remote Control**: The main Dashboard includes buttons to `LAUNCH HDMI ON PI` and an emergency `FORCE RELAUNCH HDMI` to recover from stuck browser processes.
 - **Desktop Launcher**: A "Scale HDMI" shortcut is created on the Pi desktop for manual one-click launch.
@@ -236,6 +242,38 @@ For hoppers where weight changes continuously.
 
 UNSTABLE only blocks Zero/Tare operations.
 
+### Job Target Signal Mode (v3.4)
+Webhook-driven output mode where the scale tells the PLC when to stop filling instead of the PLC deciding based on proportional voltage.
+
+**How it works:**
+1. External system sends a job update to `POST /api/job/webhook` with payload:
+   `{"event":"job.load_size_updated","jobId":"...","machineKey":"...","loadSize":100.0,"idempotencyKey":"...","timestamp":"..."}`
+2. Scale stores `loadSize` as the active set weight (`set_weight`) and uses `idempotencyKey` for dedupe.
+3. Scale outputs 0V while weight is below target (PLC keeps filling).
+4. When weight reaches target (minus optional pretrigger offset), scale outputs a fixed trigger voltage.
+5. PLC sees the trigger voltage and stops the upfeed.
+6. After dump, weight drops, output returns to 0V, ready for next cycle.
+
+**Setup:**
+1. Toggle to "JOB TARGET MODE" on the Dashboard
+2. Go to Settings > Job Target Mode tab
+3. Pick your trigger signal from the PLC profile dropdown (shows voltage + what PLC reads)
+4. Set a webhook token for API security
+5. Optional: set trigger timing to "Early" with a pretrigger offset for falling-weight compensation
+
+**Webhook auth headers (token must match configured webhook token):**
+- `X-API-Key: <token>` (recommended)
+- `Authorization: Bearer <token>`
+- `Authorization: Basic <base64creds>`
+- `X-Scale-Token: <token>` (legacy compatibility)
+
+**Key details:**
+- All measurement settings (calibration, filtering, zero/tare, stability) remain unchanged
+- Target weight persists until a new webhook changes it or `/api/job/clear` is called
+- Target is in-memory only; Pi restart requires re-sending the webhook
+- Toggle between modes at any time from the Dashboard
+- If mode is `legacy_weight_mapping`, `/api/job/webhook` returns `409` by design (safety gate)
+
 ## PLC Output Verification
 
 For verifying PLC analog output, see **`docs/PLC_OUTPUT_VERIFICATION.md`** which covers:
@@ -266,12 +304,10 @@ Before connecting to your PLC, verify signal stability:
 4. Expected stability: <0.001V variation under stable load
 5. Weight changes >0.5 lb will update output immediately
 
-**Common PLC Scaling:**
-- 0-250 lb → 0-10V (25 lb/volt)
-- 0-500 lb → 0-10V (50 lb/volt)  
-- 0-1000 lb → 0-10V (100 lb/volt)
+**PLC Output Configuration:**
+PLC output mapping is configured via **Calibration Hub** by training weight/voltage pairs. The system calculates volts-per-pound from your saved profile points. This allows precise matching to your PLC's expected scaling, regardless of the range.
 
-Configure range in **Settings → Weight Range** to match your hopper capacity and PLC expectations.
+When no profile points are trained, the system uses an internal linear fallback (0-250 lb = 0-10V) as a safe default.
 
 
 

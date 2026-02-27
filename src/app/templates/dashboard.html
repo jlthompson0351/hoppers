@@ -143,6 +143,79 @@
   }
   .fault-banner.visible { display: block; }
 
+  /* Mode toggle strip */
+  .mode-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 16px 0;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 6px;
+  }
+  .mode-btn {
+    flex: 1;
+    max-width: 240px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: transparent;
+    color: var(--muted);
+  }
+  .mode-btn.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .mode-btn.active.target {
+    background: #e67e22;
+  }
+  .mode-btn:not(.active):hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+  }
+  .mode-divider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255,255,255,0.1);
+    margin: 0 2px;
+    flex-shrink: 0;
+  }
+  /* Job target status bar (shown when in target mode) */
+  .job-status-bar {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: rgba(230, 126, 34, 0.1);
+    border: 1px solid rgba(230, 126, 34, 0.35);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    flex-wrap: wrap;
+  }
+  .job-status-bar.visible { display: flex; }
+  .job-status-item { display: flex; align-items: center; gap: 6px; }
+  .job-status-label { color: var(--muted); font-size: 12px; }
+  .job-status-val { font-weight: 700; color: #e67e22; }
+  .job-signal-pill {
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 2px solid;
+  }
+  .job-signal-pill.at-weight { color: var(--ok); border-color: var(--ok); background: rgba(46,204,113,0.1); }
+  .job-signal-pill.below { color: var(--muted); border-color: rgba(255,255,255,0.2); background: transparent; }
+
   .feedback-msg {
     text-align: center;
     padding: 8px;
@@ -160,6 +233,32 @@
 </div>
 
 <div id="feedback" class="feedback-msg"></div>
+
+<!-- Mode toggle -->
+<div class="mode-strip">
+  <button class="mode-btn {% if job_control.get('mode','legacy_weight_mapping') == 'legacy_weight_mapping' %}active{% endif %}" id="mode-btn-legacy" onclick="setMode('legacy_weight_mapping')">
+    LEGACY WEIGHT MAPPING
+  </button>
+  <div class="mode-divider"></div>
+  <button class="mode-btn target {% if job_control.get('mode','legacy_weight_mapping') == 'target_signal_mode' %}active{% endif %}" id="mode-btn-target" onclick="setMode('target_signal_mode')">
+    JOB TARGET MODE
+  </button>
+</div>
+
+<!-- Job target status bar (visible only in target mode) -->
+<div class="job-status-bar" id="job-status-bar">
+  <div class="job-status-item">
+    <span class="job-status-label">SET WEIGHT</span>
+    <span class="job-status-val" id="job-set-weight">--</span>
+  </div>
+  <div class="job-status-item">
+    <span class="job-status-label">SCALE WEIGHT</span>
+    <span class="job-status-val" id="job-scale-weight">--</span>
+  </div>
+  <div class="job-status-item">
+    <span id="job-signal-pill" class="job-signal-pill below">BELOW</span>
+  </div>
+</div>
 
 <div class="weight-display card">
   <div class="weight-value" id="weight-value">{% if weight_decimals == 0 %}{{ "%.0f"|format(snap.total_weight_lbs or 0.0) }}{% elif weight_decimals == 2 %}{{ "%.2f"|format(snap.total_weight_lbs or 0.0) }}{% else %}{{ "%.1f"|format(snap.total_weight_lbs or 0.0) }}{% endif %} lb</div>
@@ -191,6 +290,9 @@
   <div class="tare-info" id="zero-tracking-info" style="margin-top: 5px;">
     Zero Tracking: LOCKED
   </div>
+  <div class="tare-info" id="post-dump-rezero-info" style="margin-top: 5px;">
+    Post-Dump Re-Zero: IDLE
+  </div>
   <div class="tare-info" id="zero-updated-info" style="margin-top: 5px;">
     Zero Updated: --
   </div>
@@ -208,10 +310,6 @@
       <span class="value" id="output-value">{{ "%.3f"|format(snap.output_command or 0.0) }} {{ snap.output_units or 'V' }}</span>
     </div>
     <div class="info-row">
-      <span class="label">Scale Range</span>
-      <span class="value" id="scale-range">0 - 300 lb</span>
-    </div>
-    <div class="info-row">
       <span class="label">Output Range</span>
       <span class="value" id="output-range">0 - 10 V</span>
     </div>
@@ -222,10 +320,6 @@
     <div class="info-row">
       <span class="label">Raw Signal</span>
       <span class="value" id="raw-signal">0.000 mV</span>
-    </div>
-    <div class="info-row">
-      <span class="label">Excitation</span>
-      <span class="value" id="excitation">{{ "%.2f"|format(snap.excitation_v or 0.0) }} V</span>
     </div>
     <div class="info-row">
       <span class="label">Signal for Cal</span>
@@ -287,6 +381,18 @@
     return s;
   }
 
+  function formatZeroTrackingReason(reasonRaw) {
+    const reason = String(reasonRaw || 'locked');
+    if (reason === 'manual_zero_required') {
+      return 'manual ZERO required before auto zero';
+    }
+    return reason.replace(/_/g, ' ');
+  }
+
+  function formatPostDumpState(stateRaw) {
+    return String(stateRaw || 'idle').replace(/_/g, ' ');
+  }
+
   function updateDashboard(data) {
     // Weight display
     const weight = data.weight.total_lbs;
@@ -344,17 +450,42 @@
     const zeroTrackingEnabled = Boolean(data.weight.zero_tracking_enabled);
     const zeroTrackingActive = Boolean(data.weight.zero_tracking_active);
     const zeroTrackingLocked = Boolean(data.weight.zero_tracking_locked);
-    const zeroTrackingReason = String(data.weight.zero_tracking_reason || 'locked');
+    const zeroTrackingReason = formatZeroTrackingReason(data.weight.zero_tracking_reason);
+    const manualZeroRequired =
+      Boolean(data.weight.require_manual_zero_before_auto_zero) &&
+      !Boolean(data.weight.auto_zero_armed);
     const zeroTrackingInfo = document.getElementById('zero-tracking-info');
     if (!zeroTrackingEnabled) {
-      zeroTrackingInfo.textContent = 'Zero Tracking: DISABLED';
-      zeroTrackingInfo.className = 'tare-info';
+      if (manualZeroRequired) {
+        zeroTrackingInfo.textContent = 'Zero Tracking: DISABLED (manual ZERO required before auto zero)';
+        zeroTrackingInfo.className = 'tare-info locked';
+      } else {
+        zeroTrackingInfo.textContent = 'Zero Tracking: DISABLED';
+        zeroTrackingInfo.className = 'tare-info';
+      }
     } else if (zeroTrackingActive && !zeroTrackingLocked) {
       zeroTrackingInfo.textContent = 'Zero Tracking: ACTIVE (' + zeroTrackingReason + ')';
       zeroTrackingInfo.className = 'tare-info active';
     } else {
       zeroTrackingInfo.textContent = 'Zero Tracking: LOCKED (' + zeroTrackingReason + ')';
       zeroTrackingInfo.className = 'tare-info locked';
+    }
+
+    // Post-dump re-zero status
+    const postDumpEnabled = Boolean(data.weight.post_dump_rezero_enabled);
+    const postDumpActive = Boolean(data.weight.post_dump_rezero_active);
+    const postDumpState = formatPostDumpState(data.weight.post_dump_rezero_state);
+    const postDumpAge = Number(data.weight.post_dump_rezero_dump_age_s || 0);
+    const postDumpInfo = document.getElementById('post-dump-rezero-info');
+    if (!postDumpEnabled) {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: DISABLED';
+      postDumpInfo.className = 'tare-info';
+    } else if (postDumpActive) {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: ACTIVE (' + postDumpState + ', ' + postDumpAge.toFixed(1) + 's)';
+      postDumpInfo.className = 'tare-info active';
+    } else {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: ' + postDumpState.toUpperCase();
+      postDumpInfo.className = 'tare-info';
     }
 
     const zeroUpdatedInfo = document.getElementById('zero-updated-info');
@@ -397,7 +528,6 @@
       totalRawMv = fallbackRawMv;
     }
     document.getElementById('raw-signal').textContent = totalRawMv.toFixed(3) + ' mV';
-    document.getElementById('excitation').textContent = data.excitation.voltage_v.toFixed(2) + ' V';
     document.getElementById('signal-cal').textContent = data.weight.signal_for_cal.toFixed(6);
     document.getElementById('cal-points').textContent = data.weight.cal_points_used || 0;
     const calMethodRaw = String(data.weight.calibration_method || 'uncalibrated');
@@ -431,6 +561,85 @@
       document.getElementById('last-update').textContent = timePart.replace('+00:00', '');
     }
   }
+
+  // ── Mode toggle ──────────────────────────────────────────────
+  let _currentMode = '{{ job_control.get("mode", "legacy_weight_mapping") }}';
+
+  function applyModeUI(mode) {
+    _currentMode = mode;
+    const btnLegacy = document.getElementById('mode-btn-legacy');
+    const btnTarget = document.getElementById('mode-btn-target');
+    const jobBar   = document.getElementById('job-status-bar');
+    if (mode === 'target_signal_mode') {
+      btnLegacy.classList.remove('active');
+      btnTarget.classList.add('active');
+      jobBar.classList.add('visible');
+    } else {
+      btnTarget.classList.remove('active');
+      btnLegacy.classList.add('active');
+      jobBar.classList.remove('visible');
+    }
+  }
+
+  function updateJobStatusBar(data) {
+    if (_currentMode !== 'target_signal_mode') return;
+    const jc = data.jobControl || {};
+    const setW = Number(jc.set_weight || 0);
+    const scaleW = Number((data.weight || {}).total_lbs || 0);
+    const pretrigger = Number(jc.pretrigger_lb || 0);
+    const triggerMode = jc.trigger_mode || 'exact';
+    const threshold = setW > 0 ? Math.max(0, setW - (triggerMode === 'early' ? pretrigger : 0)) : 0;
+    const atWeight = setW > 0 && scaleW >= threshold;
+
+    document.getElementById('job-set-weight').textContent =
+      setW > 0 ? setW.toFixed(1) + ' lb' : 'waiting…';
+    document.getElementById('job-scale-weight').textContent =
+      scaleW.toFixed(1) + ' lb';
+
+    const pill = document.getElementById('job-signal-pill');
+    if (atWeight) {
+      pill.textContent = 'AT WEIGHT — SIGNAL ON';
+      pill.className = 'job-signal-pill at-weight';
+    } else {
+      pill.textContent = setW > 0 ? 'BELOW — SIGNAL OFF' : 'NO JOB SET';
+      pill.className = 'job-signal-pill below';
+    }
+  }
+
+  window.setMode = function(mode) {
+    fetch('/api/job/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        applyModeUI(mode);
+        showFeedback(
+          mode === 'target_signal_mode'
+            ? 'Switched to Job Target Mode'
+            : 'Switched to Legacy Weight Mapping',
+          false
+        );
+      } else {
+        showFeedback(d.error || 'Mode switch failed', true);
+      }
+    })
+    .catch(function(err) { showFeedback('Mode switch failed: ' + err.message, true); });
+  };
+
+  // Patch updateDashboard to also drive mode UI from live snapshot
+  const _origUpdate = updateDashboard;
+  updateDashboard = function(data) {
+    _origUpdate(data);
+    const snapshotMode = ((data.jobControl || {}).mode) || 'legacy_weight_mapping';
+    if (snapshotMode !== _currentMode) {
+      applyModeUI(snapshotMode);
+    }
+    updateJobStatusBar(data);
+  };
+  // ─────────────────────────────────────────────────────────────
 
   function showFeedback(message, isError) {
     const fb = document.getElementById('feedback');

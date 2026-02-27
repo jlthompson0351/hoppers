@@ -11,6 +11,81 @@
 
 ---
 
+## 🎉 VICTORY — Canonical mV Zeroing Bug Fix (February 15, 2026)
+
+### The Problem
+Zero offset was catastrophically broken: **Pounds were being stored in a Millivolt field**.
+
+When the system read `zero_offset_mv` from the database (which contained lbs values like 100.0), it applied that value as a millivolt correction to the raw signal. This caused massive errors:
+- **Example**: 100 lb stored as "mV" would shift the signal by 100 mV instead of ~0.8 mV
+- **Result**: Zeroing operations failed, weight readings were wildly incorrect
+- **Impact**: Scale appeared unusable, couldn't maintain zero baseline
+
+### The Fix
+Complete architectural refactoring to establish `zero_offset_mv` as the **CANONICAL source of truth**.
+
+**New Architecture:**
+```
+Raw Signal (mV) 
+  → Apply zero_offset_mv (signal domain) ← CANONICAL
+  → Calibrate (mV → lbs)
+  → Apply tare_offset_lbs (weight domain)
+  → Final Weight
+```
+
+**Key Changes:**
+1. **Manual ZERO**: Now calculates signal drift correctly (`drift_mv = raw_mv - cal_zero_mv`)
+2. **Zero Tracking**: Measures drift in lbs, converts to mV for storage (preserves calibration slope)
+3. **Storage**: `zero_offset_mv` canonical, `zero_offset_lbs` derived for display
+4. **Persistence**: Fixed race conditions with atomic config updates
+
+### The Result
+Deployed to Pi `172.16.190.25` at 10:30 EST on February 15, 2026.
+
+**User Confirmation:** "Working like a champ"
+
+✅ Manual ZERO forces display to 0.0 lb instantly  
+✅ Zero tracking converges on positive and negative drift  
+✅ Zero offset displays correct mV and derived lbs values  
+✅ System maintains zero across restarts  
+✅ Calibration slope integrity preserved  
+
+### Why This Matters
+This wasn't just a bug fix — it was fixing a **fundamental architectural flaw** that made the zero system unusable. The refactoring:
+- Establishes clear domain boundaries (signal mV vs. weight lbs)
+- Preserves calibration integrity (zero never modifies slope/gain)
+- Fixes persistence race conditions
+- Makes the system mathematically correct
+
+**Impact**: The scale system is now production-ready with reliable, predictable zeroing behavior.
+
+---
+
+## Project Status Summary (v3.1 - February 15, 2026)
+
+### Critical Files Modified for Zeroing Fix
+
+**Core System Files:**
+- `src/services/acquisition.py` — Acquisition loop, zero offset application in signal domain
+- `src/db/repo.py` — Zero offset persistence with atomic updates
+- `src/app/routes.py` — Zero button API endpoint, zero tracking updates
+
+**What Changed:**
+1. **Signal Domain**: Zero offset now applied to raw mV signal before calibration
+2. **Storage**: `zero_offset_mv` is canonical; `zero_offset_lbs` derived for display
+3. **Manual ZERO**: Calculates drift correctly: `drift_mv = raw_mv - cal_zero_mv`
+4. **Zero Tracking**: Measures lbs drift, converts to mV for storage
+5. **Persistence**: Atomic config updates prevent race conditions
+
+**Test Coverage:**
+- `tests/test_api_zero.py` — API endpoint tests (local only, not deployed)
+- `tests/test_zero_tracking.py` — Zero tracking behavior validation
+- `tests/test_zeroing_calibration.py` — Calibration integration tests
+
+**Deployment Target:** Pi at `172.16.190.25` — Version v3.1 confirmed operational
+
+---
+
 ## Major Upgrades (January 6, 2026)
 
 ### 1. Unified Calibration Hub (The "One-Stop Shop")
@@ -131,7 +206,7 @@ Calibration capture and runtime mapping use raw mV.
 **Goal**: Make sure nothing in Settings is “UI-only” and that the Pi is truly running real hardware.
 
 ✅ **Verified real hardware**:
-- `i2cdetect` shows **0x31** (24b8vin) and **0x50** (MegaIND)
+- `i2cdetect` shows **0x31** (24b8vin) and **0x52** (MegaIND, stack 2)
 - `/api/snapshot` reports **hw_mode: real** and **Boards Online: 2/2**
 
 ✅ **Settings are now real (no simulation leftovers):**
@@ -299,7 +374,7 @@ Open in any browser to view live load cell readings.
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4, 8 channels |
-| **MegaIND I/O** | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND I/O** | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live load cell readings |
 
 ### Quick Commands (SSH to Pi)
@@ -356,7 +431,7 @@ Located in `scripts/`:
 ### Hardware Assembly
 - [ ] Raspberry Pi 4B with fresh Raspberry Pi OS installed
 - [ ] SSH enabled (provide IP address to team)
-- [ ] Hardware stack order verified: **Pi → MegaIND (bottom) → 24b8vin (top)**
+- [ ] Hardware stack order verified: **Pi → 24b8vin (bottom) → MegaIND (top)**
 - [ ] 40-pin GPIO connectors fully seated on all boards
 - [ ] 24V power connected to MegaIND and Super Watchdog
 - [ ] Pi powered from Super Watchdog (NOT USB-C)
@@ -402,7 +477,7 @@ Follow: `HardwareTestReadiness_TODAY.md` Phase 1
 Follow: `HardwareTestReadiness_TODAY.md` Phase 2
 
 **Critical STOP POINT**: Run `sudo i2cdetect -y 1` (or `sudo /usr/sbin/i2cdetect -y 1` if command not found) and send screenshot
-- Expected: **0x31** (24b8vin DAQ) and **0x50** (MegaIND). **0x30** appears only if Super Watchdog is installed.
+- Expected: **0x31** (24b8vin DAQ) and **0x52** (MegaIND, stack 2). **0x30** appears only if Super Watchdog is installed.
 
 Run automated tests:
 ```bash
@@ -433,9 +508,9 @@ python3 scripts/verify_calibration.py
 ### Step 5: Analog Output Test (30-45 min)
 Follow: `HardwareTestReadiness_TODAY.md` Phase 4
 - Configure output mode (0-10V)
-- Set scale range (0-150 lb)
-- Test 0%, 25%, 50%, 75%, 100% points
-- Verify with multimeter (within ±0.2V)
+- Train PLC profile points in Calibration Hub (e.g., 0 lb = 0V, 150 lb = 10V)
+- Test multiple weight points across range
+- Verify with multimeter (within ±0.2V of profile curve)
 - Test fault-safe output
 
 Automated test:
@@ -511,7 +586,7 @@ cp /var/lib/loadcell-transmitter/app.sqlite3 ~/backup-$(date +%Y%m%d-%H%M%S).sql
 |-------|-----------|
 | "Boards Online: 0/2" or "I/O OFFLINE" | Check `sudo i2cdetect -y 1` (or `/usr/sbin/i2cdetect`), verify wiring, restart service. System auto-retries every 5s. |
 | Can't add calibration point | Wait for STABLE, increase stability threshold |
-| Output voltage wrong | Verify scale range config, check calibration loaded |
+| Output voltage wrong | Verify PLC profile points trained in Calibration Hub, check weight calibration loaded |
 | Excitation low | Check SlimPak output, verify wiring |
 | **Excitation shows 0.00V** | 1) Check Settings > Quick Setup > Excitation Input Channel matches your wiring (1-4). 2) Test with `megaind 0 uinrd 1` to verify hardware. 3) If excitation is not wired yet, turn OFF **Enable Excitation Monitoring**. |
 | Dashboard not accessible | Check service status, verify port 8080 binding |

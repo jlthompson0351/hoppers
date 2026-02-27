@@ -9,20 +9,18 @@
 
 ### 2.1 Stack Order (Bottom to Top)
 1.  **Raspberry Pi 4B** (Bottom)
-2.  **Watchdog HAT** (Stack 0, Address 0x30)
-    *   **Function:** Powers the Pi + UPS Battery Backup.
+2.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
+    *   **Function:** Reads load cell mV signals.
     *   **Connection:** Sits directly on the Pi.
-3.  **ISOLATION LAYER (Modified Header)**
-    *   **CRITICAL:** You must use a stacking header with **Pins 2 (5V) and 4 (5V) CUT/REMOVED**.
-    *   This prevents the MegaIND (above) from fighting the Watchdog's power supply.
-4.  **MegaIND HAT** (Stack 0, Address 0x50)
-    *   **Function:** PLC Output (0-10V) + Opto Inputs.
-    *   **Connection:** Sits on the modified header.
-5.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
-    *   **Function:** Reads Load Cell.
-    *   **Connection:** Sits on top of MegaIND.
+3.  **MegaIND HAT** (Stack 2, Address 0x52)
+    *   **Function:** PLC Output (0-10V / 4-20mA) + Opto Inputs.
+    *   **Connection:** Sits on top of the DAQ.
 
-### 2.2 Power Wiring
+**Note:** MegaIND uses base I2C address `0x50` and the runtime address is `0x50 + stack_level`. Current production uses stack level **2** (`0x52`).
+
+**Optional (UPS):** If a Super Watchdog HAT is installed (I2C `0x30`), place it directly on the Pi and use an isolated stacking header (remove pins 2/4 5V) to prevent 5V power conflicts.
+
+### 2.2 Power Wiring (if using Super Watchdog HAT)
 1.  **24V DC Source** -> Connect to **Watchdog** Green Connector.
 2.  **Daisy Chain** -> Jumper wires from Watchdog 24V -> **MegaIND** 24V Green Connector.
     *   *Note: Watchdog powers the Pi. MegaIND powers itself and the DAQ.*
@@ -30,8 +28,8 @@
     *   *This is the primary power path for the Pi.*
 
 ### 2.3 DIP Switch Settings
-*   **Watchdog:** No switches (Address 0x30 fixed).
-*   **MegaIND:** All switches **OFF** (Stack Level 0 -> Address 0x50).
+*   **Watchdog:** No switches (Address 0x30 fixed) (if present).
+*   **MegaIND:** Stack Level **2** -> Address **0x52** (base 0x50 + 2).
 *   **DAQ:** All Switches **OFF** (Stack Level 0 -> Address 0x31).
 
 ### 2.4 Communications (fixed assumption)
@@ -39,7 +37,7 @@
 
 ### 2.3 Other required hardware
 - **SlimPak Ultra**: excitation only to load cells
-- **Sequent Super Watchdog HAT**: UPS battery backup + hardware watchdog
+- **Sequent Super Watchdog HAT** (optional/recommended): UPS battery backup + hardware watchdog
 
 ## 2.4 Power Architecture (UPS + Watchdog)
 - **Primary Supply**: 24VDC (industrial standard).
@@ -59,15 +57,15 @@ sudo i2cdetect -y 1
 # If command not found: sudo /usr/sbin/i2cdetect -y 1
 ```
 
-Verify that **three Sequent boards appear** on the I2C bus:
-- **Watchdog** (0x30)
+Verify that required Sequent boards appear on the I2C bus:
 - **24b8vin-rpi** (0x31 - Stack 0)
-- **megaind-rpi** (0x50 - Stack 0)
+- **megaind-rpi** (0x52 - Stack 2) (base 0x50 + 2)
+- **Watchdog** (0x30) (if installed)
 
 ### Stack ID / address selection (required to document at commissioning)
 Both I/O boards support a **stack ID / I2C address selection** mechanism (board-specific jumpers/DIP/options).
 - **DAQ (24b8vin):** Set all DIP switches **OFF** (Stack 0).
-- **MegaIND:** Set all DIP switches **OFF** (Stack 0).
+- **MegaIND:** Set the MegaIND stack level to **2** (I2C `0x52`, base `0x50 + 2`).
 - Verify after any change by re-running `i2cdetect -y 1`.
 
 ### Sequent CLI tools (commissioning expectation)

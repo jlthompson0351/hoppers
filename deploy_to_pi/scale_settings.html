@@ -187,29 +187,11 @@
     </div>
   </div>
 
-  <!-- 2. PLC Output & Excitation (MegaIND) -->
+  <!-- 2. PLC Output (MegaIND) -->
   <div class="card span-12 tech-section">
-    <div class="k">2. PLC Output & Excitation (MegaIND)</div>
+    <div class="k">2. PLC Output (MegaIND)</div>
     
     <div class="row" style="gap: 32px; margin-top: 16px; align-items: flex-start;">
-      <!-- Excitation Monitor -->
-      <div style="flex: 1; min-width: 250px;">
-        <label class="small" style="color: var(--accent);">Excitation Voltage Monitor</label>
-        <div style="font-size: 24px; font-weight: bold; margin-top: 4px;">
-          {{ "%.2f"|format(snap.excitation_v or 0.0) }} V
-        </div>
-        <div class="small" style="margin-top:4px;">
-          Status: 
-          {% if snap.excitation_status == "OK" %}<span style="color: var(--ok)">OK</span>
-          {% elif snap.excitation_status == "WARN" %}<span style="color: var(--warn)">LOW</span>
-          {% else %}<span style="color: var(--bad)">FAULT</span>{% endif %}
-        </div>
-        <div class="small" style="margin-top: 8px; opacity: 0.7;">
-          Wired to MegaIND Analog Input #1 (0-10V).<br>
-          Signal Mode: <b>Raw mV</b>
-        </div>
-      </div>
-
       <!-- Analog Output Config -->
       <div style="flex: 1; min-width: 250px;">
         <form method="post" action="{{ url_for('routes.scale_settings_post') }}">

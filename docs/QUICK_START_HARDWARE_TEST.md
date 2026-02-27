@@ -17,7 +17,7 @@
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
 | **Flask Service** | ✅ Running | `loadcell-transmitter.service` |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
-| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live readings from load cells |
 
 **Pi:** `Hoppers` at `172.16.190.25` | **See:** `CONNECTION_GUIDE.md` for SSH/dashboard access
@@ -27,7 +27,7 @@
 ## Prerequisites (Justin's tasks)
 - [ ] Raspberry Pi with fresh Raspberry Pi OS installed
 - [ ] SSH access enabled (Justin provides IP address)
-- [ ] Hardware stack assembled: Pi → MegaIND → 24b8vin
+- [ ] Hardware stack assembled: Pi → 24b8vin → MegaIND
 - [ ] Load cells connected to 24b8vin (CH1-CH4)
 - [ ] Excitation wired from SlimPak (recommended for monitoring; can be disabled in software if not wired yet)
 - [ ] Known calibration weights available (e.g., 25 lb, 50 lb, 100 lb)
@@ -89,7 +89,7 @@ sudo systemctl status loadcell-transmitter
 ```bash
 # I2C scan — SEND SCREENSHOT
 sudo i2cdetect -y 1  # if command not found: sudo /usr/sbin/i2cdetect -y 1
-# Expected: 0x31 (24b8vin DAQ), 0x50 (MegaIND)
+# Expected: 0x31 (24b8vin DAQ), 0x52 (MegaIND stack 2)
 # Note: 0x30 would be Super Watchdog if present
 
 # Run automated smoke test
@@ -116,7 +116,7 @@ chmod +x scripts/test_megaind_output.sh
 
 **Dashboard → Config:**
 1. Enable channels 1-4
-2. Set stack levels (DAQ=0, MegaIND=0)
+2. Set stack levels (DAQ=0, MegaIND=2)
 3. Tune stability settings if needed
 
 **Dashboard → Calibration:**
@@ -144,9 +144,10 @@ sudo reboot
 
 ## Phase 4: Analog Output Test (30-45 min)
 
-**Dashboard → Config:**
+**Dashboard → Calibration Hub:**
 - Set output mode: 0-10V
-- Set scale range: 0-150 lb (or your max)
+- Train PLC profile points (e.g., 0 lb = 0.0V, 150 lb = 10.0V)
+- System interpolates between trained points
 
 **Automated test log:**
 ```bash
@@ -155,16 +156,16 @@ chmod +x scripts/analog_output_test_log.py
 python3 scripts/analog_output_test_log.py
 ```
 
-Follow prompts to test 0%, 25%, 50%, 75%, 100% points with multimeter.
+Follow prompts to test multiple weight points with multimeter.
 
-**Manual verification:**
-| Weight | Expected Voltage (0-150lb, 0-10V) |
-|--------|-----------------------------------|
-| 0 lb   | 0.0 V                            |
-| 37.5 lb| 2.5 V                            |
-| 75 lb  | 5.0 V                            |
-| 112.5 lb| 7.5 V                           |
-| 150 lb | 10.0 V                           |
+**Manual verification (example with 0 lb = 0V, 150 lb = 10V profile):**
+| Weight | Expected Voltage (linear interpolation) |
+|--------|------------------------------------------|
+| 0 lb   | 0.0 V                                   |
+| 37.5 lb| 2.5 V                                   |
+| 75 lb  | 5.0 V                                   |
+| 112.5 lb| 7.5 V                                  |
+| 150 lb | 10.0 V                                  |
 
 ---
 
@@ -213,9 +214,10 @@ cp /var/lib/loadcell-transmitter/app.sqlite3 ~/backup-$(date +%Y%m%d-%H%M%S).sql
 - Increase stability threshold in Config
 
 **Output voltage wrong:**
-- Verify scale range (min/max lb)
-- Check calibration is loaded (dashboard shows correct weight first)
+- Verify PLC profile points trained in Calibration Hub
+- Check weight calibration is loaded (dashboard shows correct weight first)
 - Measure directly at MegaIND AO terminals
+- If no profile points, system uses internal 0-250 lb fallback
 
 ---
 

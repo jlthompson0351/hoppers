@@ -1,5 +1,6 @@
 ---
-name: deep-researcher
+name: deep-research
+model: claude-3-5-sonnet
 description: MUST BE USED when researching technologies, best practices, implementation approaches, or choosing between options. Use PROACTIVELY whenever the main agent encounters unfamiliar territory or needs to validate an approach. Automatically runs parallel searches across Exa, Context7, GitHub, Reddit, and Stack Overflow.
 ---
 

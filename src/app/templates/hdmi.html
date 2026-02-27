@@ -161,7 +161,7 @@
       align-items: baseline;
       justify-content: space-between;
       gap: 6px;
-      padding: 4px 0;
+      padding: 3px 0;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
@@ -169,6 +169,46 @@
       border-bottom: none;
       padding-bottom: 0;
     }
+
+    .job-target-section {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      margin-bottom: 4px;
+      padding-bottom: 4px;
+    }
+
+    .job-target-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 1px;
+    }
+
+    .job-target-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 2px 0;
+    }
+
+    .job-target-label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .job-target-value {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      white-space: nowrap;
+      color: var(--muted);
+    }
+
+    .job-target-value.active { color: var(--warn); }
+    .job-target-value.triggered { color: var(--ok); }
 
     .totals-label {
       font-size: 13px;
@@ -296,11 +336,23 @@
         <div class="weight-meta" id="tare-meta">Tare: 0.0 lb</div>
         <div class="weight-meta" id="zero-info">Zero Offset: 0.000 lb (0.000000 mV)</div>
         <div class="weight-meta" id="zero-tracking-info">Zero Tracking: LOCKED</div>
+        <div class="weight-meta" id="post-dump-rezero-info">Post-Dump Re-Zero: IDLE</div>
         <div class="weight-meta" id="zero-updated-info">Zero Updated: --</div>
       </section>
 
       <section class="totals-panel">
         <div>
+          <div class="job-target-section">
+            <div class="job-target-title">Job Target</div>
+            <div class="job-target-row">
+              <span class="job-target-label">Set Weight</span>
+              <span class="job-target-value" id="job-set-weight">--</span>
+            </div>
+            <div class="job-target-row">
+              <span class="job-target-label">Scale Weight</span>
+              <span class="job-target-value" id="job-scale-weight">--</span>
+            </div>
+          </div>
           <p class="totals-title">Processed Weight</p>
           <div class="totals-grid">
             <div class="totals-row">
@@ -379,6 +431,18 @@
         }
       }
 
+      function formatZeroTrackingReason(reasonRaw) {
+        const reason = String(reasonRaw || "locked");
+        if (reason === "manual_zero_required") {
+          return "manual ZERO required before auto zero";
+        }
+        return reason.replace(/_/g, " ");
+      }
+
+      function formatPostDumpState(stateRaw) {
+        return String(stateRaw || "idle").replace(/_/g, " ");
+      }
+
       function updateUi(data) {
         if (!data || !data.weight || !data.system) return;
 
@@ -420,17 +484,42 @@
         const zeroTrackingEnabled = Boolean(data.weight.zero_tracking_enabled);
         const zeroTrackingActive = Boolean(data.weight.zero_tracking_active);
         const zeroTrackingLocked = Boolean(data.weight.zero_tracking_locked);
-        const zeroTrackingReason = String(data.weight.zero_tracking_reason || "locked");
+        const zeroTrackingReason = formatZeroTrackingReason(data.weight.zero_tracking_reason);
+        const manualZeroRequired =
+          Boolean(data.weight.require_manual_zero_before_auto_zero) &&
+          !Boolean(data.weight.auto_zero_armed);
         const zeroTrackingInfo = document.getElementById("zero-tracking-info");
         if (!zeroTrackingEnabled) {
-          zeroTrackingInfo.textContent = "Zero Tracking: DISABLED";
-          zeroTrackingInfo.className = "weight-meta";
+          if (manualZeroRequired) {
+            zeroTrackingInfo.textContent = "Zero Tracking: DISABLED (manual ZERO required before auto zero)";
+            zeroTrackingInfo.className = "weight-meta locked";
+          } else {
+            zeroTrackingInfo.textContent = "Zero Tracking: DISABLED";
+            zeroTrackingInfo.className = "weight-meta";
+          }
         } else if (zeroTrackingActive && !zeroTrackingLocked) {
           zeroTrackingInfo.textContent = "Zero Tracking: ACTIVE (" + zeroTrackingReason + ")";
           zeroTrackingInfo.className = "weight-meta active";
         } else {
           zeroTrackingInfo.textContent = "Zero Tracking: LOCKED (" + zeroTrackingReason + ")";
           zeroTrackingInfo.className = "weight-meta locked";
+        }
+
+        const postDumpEnabled = Boolean(data.weight.post_dump_rezero_enabled);
+        const postDumpActive = Boolean(data.weight.post_dump_rezero_active);
+        const postDumpState = formatPostDumpState(data.weight.post_dump_rezero_state);
+        const postDumpAge = Number(data.weight.post_dump_rezero_dump_age_s || 0);
+        const postDumpInfo = document.getElementById("post-dump-rezero-info");
+        if (!postDumpEnabled) {
+          postDumpInfo.textContent = "Post-Dump Re-Zero: DISABLED";
+          postDumpInfo.className = "weight-meta";
+        } else if (postDumpActive) {
+          postDumpInfo.textContent =
+            "Post-Dump Re-Zero: ACTIVE (" + postDumpState + ", " + postDumpAge.toFixed(1) + "s)";
+          postDumpInfo.className = "weight-meta active";
+        } else {
+          postDumpInfo.textContent = "Post-Dump Re-Zero: " + postDumpState.toUpperCase();
+          postDumpInfo.className = "weight-meta";
         }
 
         const zeroUpdatedInfo = document.getElementById("zero-updated-info");
@@ -458,6 +547,31 @@
         if (updateTime) {
           const timePart = updateTime.split("T")[1] || updateTime;
           document.getElementById("last-update").textContent = timePart.replace("+00:00", "");
+        }
+
+        // Job target display
+        const jobCtrl = data.jobControl || {};
+        const jobEnabled = Boolean(jobCtrl.enabled) && jobCtrl.mode === "target_signal_mode";
+        const jobSetWeight = Number(jobCtrl.set_weight || 0);
+        const jobActive = Boolean(jobCtrl.active);
+        const jobSetEl = document.getElementById("job-set-weight");
+        const jobScaleEl = document.getElementById("job-scale-weight");
+        if (jobEnabled && jobActive && jobSetWeight > 0) {
+          const triggered = weight >= jobSetWeight;
+          jobSetEl.textContent = jobSetWeight.toFixed(1) + " lb";
+          jobSetEl.className = "job-target-value active";
+          jobScaleEl.textContent = formatWeight(weight) + " lb";
+          jobScaleEl.className = "job-target-value " + (triggered ? "triggered" : "active");
+        } else if (jobEnabled) {
+          jobSetEl.textContent = "waiting...";
+          jobSetEl.className = "job-target-value";
+          jobScaleEl.textContent = formatWeight(weight) + " lb";
+          jobScaleEl.className = "job-target-value";
+        } else {
+          jobSetEl.textContent = "--";
+          jobSetEl.className = "job-target-value";
+          jobScaleEl.textContent = "--";
+          jobScaleEl.className = "job-target-value";
         }
 
         // Update processed weight totals

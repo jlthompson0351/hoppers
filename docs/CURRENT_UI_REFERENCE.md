@@ -55,6 +55,8 @@
 │                                                                 │
 │        [ ZERO ]  [ TARE ]  [ CLEAR TARE ]                       │
 │                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ [ LEGACY WEIGHT MAPPING ] | [ JOB TARGET MODE ]                 │
 ├───────────────────────────────┬─────────────────────────────────┤
 │      PLC OUTPUT               │      RAW DATA                   │
 │      0.833 V (0-10V)          │      Signal: 0.002500           │
@@ -75,6 +77,7 @@
 6. **PLC Output Panel** - Shows commanded output, mode, channel, scale bar (always updates)
 7. **Raw Data Panel** - Signal for calibration, raw mV, loop Hz
 8. **System Status Bar** - Board online status, excitation status
+9. **Mode Toggle Strip** - Switches between Legacy Weight Mapping and Job Target Mode. When Job Target Mode is active, a dedicated status bar appears showing Set Weight, Scale Weight, and Trigger Status.
 
 ### Stability Indicator Behavior
 
@@ -117,12 +120,12 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Scale HDMI                                      [STABLE] [OK]  │
 ├───────────────────────────────────┬─────────────────────────────┤
-│            75.1                   │  Totals (Coming Soon)       │
-│             lb                    │  Daily Weight      -- lb     │
-│  Tare: 0.0 lb                     │  Shift Weight      -- lb     │
-│  Zero Offset: -2.064 lb (...)     │  [ CLEAR SHIFT TOTAL ]       │
-│  Zero Tracking: ACTIVE (...)      │  (UI placeholder only)       │
-│  Zero Updated: 13:20:24           │                             │
+│            75.1                   │  Job Target                  │
+│             lb                    │  Set Weight       100.0 lb   │
+│  Tare: 0.0 lb                     │  Scale Weight      75.1 lb   │
+│  Zero Offset: -2.064 lb (...)     │  Processed Weight            │
+│  Zero Tracking: ACTIVE (...)      │  Shift / Today / Loads / Avg │
+│  Zero Updated: 13:20:24           │  [ CLEAR SHIFT ]             │
 ├───────────────────────────────────┴─────────────────────────────┤
 │ [ ZERO ] [ TARE ] [ CLEAR TARE ] [ SETTINGS ]                   │
 ├─────────────────────────────────────────────────────────────────┤
@@ -134,10 +137,11 @@
 
 1. **Centered Live Weight Card** - Weight and unit are centered for better readability at distance
 2. **Zero Diagnostics In-Card** - Shows tare, zero offset, zero tracking state/reason, and last zero update
-3. **Shift/Daily Placeholder Panel** - Reserved area for upcoming DB-backed totals
-4. **Shift Clear Placeholder** - `CLEAR SHIFT TOTAL` currently shows feedback only (no backend mutation yet)
-5. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `SETTINGS` remain unchanged
-6. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
+3. **Job Target Panel** - Shows `Set Weight` and live `Scale Weight` when target mode is active
+4. **Processed Totals Panel** - Shows shift/day totals, load count, and average load
+5. **Shift Clear Action** - `CLEAR SHIFT` calls `/api/production/shift/clear` to reset shift window
+6. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `CLEAR ZERO`, `SETTINGS`
+7. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
 
 ### Snapshot Fields Used by HDMI
 
@@ -150,6 +154,10 @@
 - `weight.zero_tracking_locked`
 - `weight.zero_tracking_reason`
 - `weight.zero_offset_updated_utc`
+- `jobControl.enabled`
+- `jobControl.mode`
+- `jobControl.set_weight`
+- `jobControl.active`
 - `system.loop_hz`
 - `system.last_update_utc`
 - `boards.online`
@@ -161,6 +169,8 @@
 | Zero | `/api/zero` | POST |
 | Tare | `/api/tare` | POST |
 | Clear Tare | `/api/tare/clear` | POST |
+| Clear Zero | `/api/zero/clear` | POST |
+| Clear Shift | `/api/production/shift/clear` | POST |
 | Snapshot Poll | `/api/snapshot` | GET |
 | Settings Navigation | `/settings` | GET |
 
@@ -257,12 +267,12 @@
 │  │                         │  │                             │   │
 │  │      0.833 V            │  │   Mode: [0-10V ▼]           │   │
 │  │   Commanded Output      │  │   Channel: [1 ▼]            │   │
-│  │                         │  │   Min Weight: [0.0]         │   │
-│  │   25.0    0.833 V  27%  │  │   Max Weight: [300.0]       │   │
-│  │  Weight   Readback  %   │  │   Safe Output: [0.000]      │   │
-│  │                         │  │   [ Save Configuration ]    │   │
-│  │  ├──────────■─────────┤ │  │                             │   │
-│  │  0 lb            300 lb │  ├─────────────────────────────┤   │
+│  │                         │  │   Safe Output: [0.000]      │   │
+│  │   25.0    0.833 V       │  │   [ Save Configuration ]    │   │
+│  │  Weight   Readback      │  │                             │   │
+│  │                         │  │   PLC Profile: Train in     │   │
+│  │  PLC mapping via        │  │   Calibration Hub           │   │
+│  │  Calibration Hub        │  ├─────────────────────────────┤   │
 │  └─────────────────────────┘  │   📡 MEGAIND STATUS         │   │
 │                               │   Board: ✓ Online           │   │
 │  ┌─────────────────────────┐  │   Firmware: 4.8             │   │
@@ -303,8 +313,8 @@
 ### Key Features
 
 1. **ARM/DISARM Toggle** - Safety control for enabling outputs
-2. **Live Output Monitor** - Real-time commanded output, weight, readback, percentage
-3. **Output Configuration** - Mode (0-10V/4-20mA), channel, weight range, safe output
+2. **Live Output Monitor** - Real-time commanded output, weight, readback
+3. **Output Configuration** - Mode (0-10V/4-20mA), channel, safe output. PLC mapping configured via Calibration Hub.
 4. **MegaIND Status** - Board online, firmware, power supply, output readback
 5. **Test Output Toggle** - Starts/stops manual test output (stays on until stopped)
 6. **Output Calibration** - Two-point calibration for MegaIND analog outputs
@@ -343,6 +353,7 @@
 The Settings page consolidates the previously hidden settings concepts into a single technician-facing page with:
 
 - Quick Setup at the top (range, PLC output basics, excitation monitoring with enable/disable toggle)
+- Job Target Mode tab (webhook trigger behavior, one-point trigger calibration)
 - Tabs for signal filtering, zero behavior, output behavior, alarms, DAQ channels, detection, timing, logging, advanced, and system
 - Plain-language helper text on each setting (“what it does” + “what happens if you increase/decrease it”)
 
@@ -350,7 +361,8 @@ The Settings page consolidates the previously hidden settings concepts into a si
 
 | Tab | Contents |
 |-----|----------|
-| Quick Setup | Weight range, PLC output mode/channel, excitation monitoring (enable + channel + thresholds) |
+| Quick Setup | PLC output mode/channel, excitation monitoring (enable + channel + thresholds). PLC mapping configured via Calibration Hub. |
+| Job Target Mode | Configure webhook trigger logic (exact vs early), trigger signal value (dropdown populated from PLC profile points), low signal value, and webhook token. If no PLC profile points exist, a message directs operator to Calibration Hub. |
 | Signal Tuning | Kalman/IIR filter, stability detection, **weight display precision** |
 | Zero & Scale | Zero tracking and power-up behavior |
 | Output Control | Dead band, ramping, auto-arm |
@@ -443,6 +455,37 @@ Displays recent system events (unchanged).
 | `/api/output/calibrate/reset` | POST | Reset to factory calibration |
 | `/api/plc-profile/delete/<id>` | POST | Delete PLC profile point |
 
+### Job Target APIs
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/job/webhook` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Receive target weight from external system |
+| `/api/job/status` | GET | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Check current job target state |
+| `/api/job/clear` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Reset target state back to zero/idle |
+| `/api/job/mode` | POST | None | Toggle between Legacy and Target Mode |
+| `/api/job/trigger/from-nudge` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Capture current nudge value as trigger signal |
+
+**Webhook request example:**
+```json
+POST /api/job/webhook
+Headers: { "X-API-Key": "your-token", "Content-Type": "application/json" }
+Body: {
+  "event": "job.load_size_updated",
+  "jobId": "1703487",
+  "machineKey": "PLP6",
+  "loadSize": 200.0,
+  "idempotencyKey": "1703487:200:6d1c4f60-6ea4-4d0f-9cc9-2a2f5f0e8b2a",
+  "timestamp": "2026-02-27T14:38:45.000Z"
+}
+```
+
+**Webhook response (200):**
+```json
+{ "success": true, "accepted": true, "action": "activated", "status": { "set_weight": 200.0, "active": true } }
+```
+
+**Error codes:** 400 (missing required fields), 401 (invalid token), 409 (mode is legacy), 503 (no token configured or service unavailable).
+
 ### Snapshot Response Schema (Updated)
 
 ```json
@@ -468,6 +511,20 @@ Displays recent system events (unchanged).
     "armed": true,
     "test_mode": false,
     "test_value": 0.0
+  },
+  "jobControl": {
+    "enabled": true,
+    "mode": "target_signal_mode",
+    "trigger_mode": "exact",
+    "pretrigger_lb": 0.0,
+    "set_weight": 100.0,
+    "active": true,
+    "meta": {
+      "job_id": "1703487",
+      "step_id": null,
+      "event_id": "1703487:100:6d1c4f60-6ea4-4d0f-9cc9-2a2f5f0e8b2a",
+      "target_weight_lb": 100.0
+    }
   },
   "production": { ... },
   "events": []

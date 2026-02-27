@@ -1,0 +1,24 @@
+---
+description: Safety rules for Auto-Zero and Tare logic to prevent data loss
+globs: src/core/zero_tracking.py, src/core/post_dump_rezero.py
+---
+# Zero Tracking Safety Protocol
+
+## Core Directive
+**NEVER** zero the scale if the weight is unstable or significantly non-zero without explicit operator confirmation.
+
+## The "Industrial Two-Layer" Strategy
+1.  **Layer 1: Continuous Micro-Tracking**
+    -   Only active when weight is within **±0.5 divisions** of zero.
+    -   Only active when **stable**.
+    -   Rate limited (e.g., 0.5 div/s).
+    -   **GOAL:** Corrects slow thermal drift only.
+
+2.  **Layer 2: Post-Dump Re-Zero**
+    -   Event-driven: Only triggers *after* a confirmed "Dump" cycle.
+    -   **Safety Gate:** If the post-dump weight is > **X lbs** (e.g., 50 lbs), DO NOT ZERO. Raise an alert instead.
+    -   **Timing:** Wait for the "return to zero" bounce to settle before capturing.
+
+## Forbidden Actions
+-   Do not implement "fast tracking" that can chase a filling hopper.
+-   Do not zero if the weight change is sudden (step change) unless it is a confirmed dump.

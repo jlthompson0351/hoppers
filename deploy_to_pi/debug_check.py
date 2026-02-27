@@ -15,6 +15,7 @@ c.execute("SELECT config_json FROM config_versions ORDER BY id DESC LIMIT 1")
 cfg = json.loads(c.fetchone()[0])
 scale = cfg.get('scale', {})
 print(f"  tare_offset_lbs: {scale.get('tare_offset_lbs', 0)}")
+print(f"  zero_offset_mv: {scale.get('zero_offset_mv', 0)}")
 print(f"  zero_offset_signal: {scale.get('zero_offset_signal', 0)}")
 
 print("\n=== Recent Events ===")

@@ -1,0 +1,4 @@
+### COMMAND: ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            UP             172.16.190.25/24 fe80::dea6:32ff:fe39:bb7b/64 

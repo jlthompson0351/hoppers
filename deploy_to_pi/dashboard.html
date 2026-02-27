@@ -185,6 +185,9 @@
   <div class="tare-info" id="zero-tracking-info" style="margin-top: 5px;">
     Zero Tracking: LOCKED
   </div>
+  <div class="tare-info" id="post-dump-rezero-info" style="margin-top: 5px;">
+    Post-Dump Re-Zero: IDLE
+  </div>
   <div class="tare-info" id="zero-updated-info" style="margin-top: 5px;">
     Zero Updated: --
   </div>
@@ -202,10 +205,6 @@
       <span class="value" id="output-value">{{ "%.3f"|format(snap.output_command or 0.0) }} {{ snap.output_units or 'V' }}</span>
     </div>
     <div class="info-row">
-      <span class="label">Scale Range</span>
-      <span class="value" id="scale-range">0 - 300 lb</span>
-    </div>
-    <div class="info-row">
       <span class="label">Output Range</span>
       <span class="value" id="output-range">0 - 10 V</span>
     </div>
@@ -216,10 +215,6 @@
     <div class="info-row">
       <span class="label">Raw Signal</span>
       <span class="value" id="raw-signal">0.000 mV</span>
-    </div>
-    <div class="info-row">
-      <span class="label">Excitation</span>
-      <span class="value" id="excitation">{{ "%.2f"|format(snap.excitation_v or 0.0) }} V</span>
     </div>
     <div class="info-row">
       <span class="label">Signal for Cal</span>
@@ -335,6 +330,22 @@
       zeroTrackingInfo.className = 'tare-info locked';
     }
 
+    const postDumpEnabled = Boolean(data.weight.post_dump_rezero_enabled);
+    const postDumpActive = Boolean(data.weight.post_dump_rezero_active);
+    const postDumpState = String(data.weight.post_dump_rezero_state || 'idle').replace(/_/g, ' ');
+    const postDumpAge = Number(data.weight.post_dump_rezero_dump_age_s || 0);
+    const postDumpInfo = document.getElementById('post-dump-rezero-info');
+    if (!postDumpEnabled) {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: DISABLED';
+      postDumpInfo.className = 'tare-info';
+    } else if (postDumpActive) {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: ACTIVE (' + postDumpState + ', ' + postDumpAge.toFixed(1) + 's)';
+      postDumpInfo.className = 'tare-info active';
+    } else {
+      postDumpInfo.textContent = 'Post-Dump Re-Zero: ' + postDumpState.toUpperCase();
+      postDumpInfo.className = 'tare-info';
+    }
+
     const zeroUpdatedInfo = document.getElementById('zero-updated-info');
     const zeroUpdatedUtc = data.weight.zero_offset_updated_utc || null;
     if (zeroUpdatedUtc) {
@@ -375,7 +386,6 @@
       totalRawMv = fallbackRawMv;
     }
     document.getElementById('raw-signal').textContent = totalRawMv.toFixed(3) + ' mV';
-    document.getElementById('excitation').textContent = data.excitation.voltage_v.toFixed(2) + ' V';
     document.getElementById('signal-cal').textContent = data.weight.signal_for_cal.toFixed(6);
     document.getElementById('cal-points').textContent = data.weight.cal_points_used || 0;
 

@@ -1,0 +1,22 @@
+### COMMAND (sudo): systemctl cat loadcell-transmitter
+# /etc/systemd/system/loadcell-transmitter.service
+[Unit]
+Description=Load Cell Scale Transmitter (Flask + acquisition loop)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/loadcell-transmitter
+Environment=LCS_HW_MODE=real
+Environment=LCS_HOST=0.0.0.0
+Environment=LCS_PORT=8080
+Environment=LCS_VAR_DIR=/var/lib/loadcell-transmitter
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/loadcell-transmitter/.venv/bin/python -m src.app
+Restart=always
+RestartSec=2
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

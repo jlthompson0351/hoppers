@@ -10,6 +10,7 @@ cfg = repo.get_latest_config()
 
 scale = cfg.get('scale') or {}
 print("Scale offsets:")
+print(f"  zero_offset_mv: {scale.get('zero_offset_mv', 0.0)} mV")
 print(f"  zero_offset_signal: {scale.get('zero_offset_signal', 0.0)} mV")
 print(f"  tare_offset_lbs: {scale.get('tare_offset_lbs', 0.0)} lb")
 print()

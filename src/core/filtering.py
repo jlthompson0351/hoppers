@@ -256,8 +256,8 @@ class StabilityDetector:
     """Windowed stability detector based on stddev and slope."""
 
     window: int = 25
-    stddev_threshold: float = 0.8  # lb
-    slope_threshold: float = 0.8  # lb/s (approx)
+    stddev_threshold: float = 1.5  # lb
+    slope_threshold: float = 3.0  # lb/s (approx)
     _buf: Deque[float] = None
     _last: Optional[float] = None
     _last_dt: float = 0.0

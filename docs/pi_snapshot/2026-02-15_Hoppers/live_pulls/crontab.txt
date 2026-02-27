@@ -1,0 +1,6 @@
+### crontab pi
+no crontab for pi
+
+### crontab root
+no crontab for root
+(needs sudo password or no root crontab)

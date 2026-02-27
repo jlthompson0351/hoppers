@@ -1,0 +1,20 @@
+---
+description: Rules for PLC calibration, voltage scaling, and training points
+globs: src/core/plc_profile.py, deploy_to_pi/*.py
+---
+# PLC Calibration & Voltage Logic
+
+## The Golden Formula
+- The PLC output slope is approximately **0.005 V/lb**.
+- **CRITICAL:** Do NOT map 0 lbs to 0.000V. The PLC reads 0V as a massive negative number (approx -80 lbs).
+- The PLC requires a **~0.4V offset** to register 0 lbs.
+
+## Training Procedure
+1.  **NEVER train at 0 lbs.**
+2.  **Start training at 1 lb.** This point (approx 0.409V) absorbs the zero bias.
+3.  **Extrapolate Low Values:** For weights < 1 lb, extrapolate using the slope between the 1 lb and 25 lb points.
+    - Example: If 1 lb = 0.409V and slope = 0.005, then 0 lbs should output ~0.404V.
+
+## Troubleshooting
+- If the PLC shows negative values when the scale is at 0, the 1 lb training point is likely missing or too low.
+- If the slope is > 0.01 V/lb, the calibration is wrong (likely trained 0V at 0 lbs).

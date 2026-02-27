@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Debug the calibration calculation."""
-import sqlite3
 import sys
 sys.path.insert(0, '/opt/loadcell-transmitter')
 
-from src.core.calibration import CalibrationCurve
+from src.core.zeroing import map_signal_to_weight
 from src.db.repo import AppRepository
 
 # Get config
 repo = AppRepository('/var/lib/loadcell-transmitter/data/app.sqlite3')
 cfg = repo.get_latest_config()
 scale = cfg.get('scale') or {}
-zero_offset = scale.get('zero_offset_signal', 0.0)
+zero_offset = scale.get('zero_offset_mv', scale.get('zero_offset_signal', 0.0))
 
 print(f"Zero offset: {zero_offset}")
 print()
@@ -30,13 +29,9 @@ calibrated_signal = test_signal - zero_offset
 print(f"Calibrated signal (after offset): {calibrated_signal} mV")
 print()
 
-# Create curve
+# Compute using runtime mapping helper
 if len(points) >= 2:
-    curve = CalibrationCurve(
-        points=[(float(p.signal), float(p.known_weight_lbs)) for p in points],
-        ratiometric=False
-    )
-    weight = curve.weight_from_signal(calibrated_signal)
+    weight, slope = map_signal_to_weight(calibrated_signal, points)
     print(f"Calculated weight: {weight} lb")
     print()
     

@@ -47,6 +47,20 @@ def dashboard() -> str:
     return render_template("dashboard.html", snap=snap, display=display, poll_rate_ms=poll_rate_ms, now=_utc_now())
 
 
+@bp.get("/hdmi")
+def hdmi() -> str:
+    """HDMI-optimized operator page (800x480) for kiosk launch."""
+    repo: AppRepository = current_app.config["REPO"]
+    state: LiveState = current_app.config["LIVE_STATE"]
+    snap = state.snapshot()
+    cfg = repo.get_latest_config()
+    display = cfg.get("display", {}) or {}
+    ui = cfg.get("ui", {}) or {}
+    poll_rate_ms = int(ui.get("poll_rate_ms", 500) or 500)
+    poll_rate_ms = max(100, min(5000, poll_rate_ms))
+    return render_template("hdmi.html", snap=snap, display=display, poll_rate_ms=poll_rate_ms)
+
+
 @bp.get("/config")
 def config_get() -> str:
     repo: AppRepository = current_app.config["REPO"]
@@ -261,9 +275,24 @@ def calibration_add() -> Response:
         )
         return redirect(url_for("routes.calibration_get"))
 
+    cfg = repo.get_latest_config()
+    scale = cfg.get("scale") or {}
+    raw_signal_mv = float(
+        snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
+    )
+    zero_offset_mv = float(
+        snap.get(
+            "zero_offset_mv",
+            snap.get(
+                "zero_offset_signal",
+                scale.get("zero_offset_mv", scale.get("zero_offset_signal", 0.0)),
+            ),
+        )
+        or 0.0
+    )
     repo.add_calibration_point(
         known_weight_lbs=known_weight,
-        signal=snap.get("signal_for_cal", 0.0),
+        signal=(raw_signal_mv - zero_offset_mv),
     )
     return redirect(url_for("routes.calibration_get"))
 
@@ -378,9 +407,9 @@ def settings_post() -> Response:
             return default
 
     # === Quick Setup ===
-    cfg.setdefault("range", {})
-    cfg["range"]["min_lb"] = parse_float("range_min_lb", 0.0)
-    cfg["range"]["max_lb"] = parse_float("range_max_lb", 300.0)
+    # NOTE: range.min_lb / range.max_lb are no longer exposed in the UI.
+    # They are kept as internal defaults for the linear fallback when no
+    # PLC profile points exist.
 
     cfg.setdefault("output", {})
     cfg["output"]["mode"] = request.form.get("output_mode", "0_10V")
@@ -393,11 +422,6 @@ def settings_post() -> Response:
     else:
         cfg["output"]["safe_v"] = safe
 
-    cfg.setdefault("excitation", {})
-    cfg["excitation"]["ai_channel"] = parse_int("excitation_ai_channel", 1)
-    cfg["excitation"]["warn_v"] = parse_float("excitation_warn_v", 9.0)
-    cfg["excitation"]["fault_v"] = parse_float("excitation_fault_v", 8.0)
-
     # === Signal Tuning ===
     cfg.setdefault("filter", {})
     cfg["filter"]["use_kalman"] = parse_bool("use_kalman", True)
@@ -405,8 +429,8 @@ def settings_post() -> Response:
     cfg["filter"]["kalman_measurement_noise"] = parse_float("kalman_measurement_noise", 50.0)
     cfg["filter"]["alpha"] = parse_float("filter_alpha", 0.18)
     cfg["filter"]["stability_window"] = parse_int("stability_window", 25)
-    cfg["filter"]["stability_stddev_lb"] = parse_float("stability_stddev_lb", 0.8)
-    cfg["filter"]["stability_slope_lbs"] = parse_float("stability_slope_lbs", 0.8)
+    cfg["filter"]["stability_stddev_lb"] = parse_float("stability_stddev_lb", 1.5)
+    cfg["filter"]["stability_slope_lbs"] = parse_float("stability_slope_lbs", 3.0)
     cfg["filter"]["median_enabled"] = parse_bool("median_enabled", False)
     cfg["filter"]["median_window"] = parse_int("median_window", 5)
     cfg["filter"]["notch_enabled"] = parse_bool("notch_enabled", False)
@@ -421,11 +445,26 @@ def settings_post() -> Response:
     # === Zero & Scale ===
     cfg.setdefault("zero_tracking", {})
     cfg["zero_tracking"]["enabled"] = parse_bool("zero_tracking_enabled", False)
-    cfg["zero_tracking"]["range_lb"] = parse_float("zero_tracking_range", 0.5)
-    cfg["zero_tracking"]["deadband_lb"] = parse_float("zero_tracking_deadband", 0.1)
-    cfg["zero_tracking"]["hold_s"] = parse_float("zero_tracking_hold_s", 6.0)
-    cfg["zero_tracking"]["rate_lbs"] = parse_float("zero_tracking_rate", 0.1)
+    # Industrial-style AZT: micro range, slow rate (post-dump handles big corrections).
+    cfg["zero_tracking"]["range_lb"] = parse_float("zero_tracking_range", 0.05)
+    cfg["zero_tracking"]["deadband_lb"] = parse_float("zero_tracking_deadband", 0.02)
+    cfg["zero_tracking"]["hold_s"] = parse_float("zero_tracking_hold_s", 1.0)
+    cfg["zero_tracking"]["rate_lbs"] = parse_float("zero_tracking_rate", 0.05)
     cfg["zero_tracking"]["persist_interval_s"] = parse_float("zero_tracking_persist_interval_s", 1.0)
+    cfg["zero_tracking"]["post_dump_enabled"] = parse_bool("post_dump_enabled", True)
+    cfg["zero_tracking"]["post_dump_min_delay_s"] = parse_float("post_dump_min_delay_s", 5.0)
+    cfg["zero_tracking"]["post_dump_window_s"] = parse_float("post_dump_window_s", 10.0)
+    cfg["zero_tracking"]["post_dump_empty_threshold_lb"] = parse_float("post_dump_empty_threshold_lb", 4.0)
+    cfg["zero_tracking"]["post_dump_max_correction_lb"] = parse_float("post_dump_max_correction_lb", 8.0)
+    # Strip deprecated keys so saved config stays clean.
+    for _k in (
+        "negative_hold_s",
+        "smart_clear_enabled",
+        "smart_clear_load_threshold_lb",
+        "smart_clear_rezero_threshold_lb",
+        "max_correction_lb",
+    ):
+        cfg["zero_tracking"].pop(_k, None)
 
     cfg.setdefault("startup", {})
     cfg["startup"]["auto_zero"] = parse_bool("startup_auto_zero", False)
@@ -591,6 +630,12 @@ def settings_post() -> Response:
         details={},
     )
 
+    # Return JSON for AJAX auto-save requests, redirect for traditional form posts
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return Response(
+            json.dumps({"success": True, "message": "Settings saved"}),
+            mimetype="application/json",
+        )
     return redirect(url_for("routes.settings_get"))
 
 
@@ -646,18 +691,17 @@ def api_zero() -> Response:
     current_signal = float(
         snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
     )
-    old_offset = scale.get("zero_offset_signal")
+    old_offset = scale.get("zero_offset_mv")
     if old_offset is None:
-        old_offset = scale.get("zero_offset_mv", 0.0)
+        old_offset = scale.get("zero_offset_signal", 0.0)
     old_offset = float(old_offset or 0.0)
     
     cal_points = repo.get_calibration_points(limit=200)
 
+    tare_for_zero = float(scale.get("tare_offset_lbs", snap.get("tare_offset_lbs", 0.0)) or 0.0)
     current_gross_lbs = snap.get("filtered_weight_lbs")
     if current_gross_lbs is None:
-        current_gross_lbs = float(snap.get("total_weight_lbs", 0.0) or 0.0) + float(
-            snap.get("tare_offset_lbs", 0.0) or 0.0
-        )
+        current_gross_lbs = float(snap.get("total_weight_lbs", 0.0) or 0.0) + tare_for_zero
     current_gross_lbs = float(current_gross_lbs or 0.0)
 
     lbs_per_mv = snap.get("lbs_per_mv")
@@ -724,13 +768,20 @@ def api_tare() -> Response:
     repo: AppRepository = current_app.config["REPO"]
     state: LiveState = current_app.config["LIVE_STATE"]
     snap = state.snapshot()
+    source_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    source_user_agent = request.headers.get("User-Agent")
+    source_referer = request.headers.get("Referer")
 
     if not snap.get("stable", False):
         repo.log_event(
             level="WARNING",
             code="TARE_REJECTED_UNSTABLE",
             message="Tare rejected: scale not stable.",
-            details={},
+            details={
+                "source_ip": source_ip,
+                "source_user_agent": source_user_agent,
+                "source_referer": source_referer,
+            },
         )
         return Response(
             json.dumps({"success": False, "error": "Scale not stable"}),
@@ -742,16 +793,55 @@ def api_tare() -> Response:
     scale = cfg.get("scale") or {}
     current_weight = float(snap.get("total_weight_lbs", 0.0) or 0.0)
     current_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
+    cooldown_s = 2.0
+    now_utc = datetime.now(timezone.utc)
+    last_tare_utc_raw = str(scale.get("last_tare_utc") or "").strip()
+    if last_tare_utc_raw:
+        try:
+            last_tare_utc = datetime.fromisoformat(last_tare_utc_raw.replace("Z", "+00:00"))
+            if last_tare_utc.tzinfo is None:
+                last_tare_utc = last_tare_utc.replace(tzinfo=timezone.utc)
+            elapsed_s = (now_utc - last_tare_utc).total_seconds()
+            if elapsed_s < cooldown_s:
+                remaining_s = max(0.0, cooldown_s - elapsed_s)
+                repo.log_event(
+                    level="WARNING",
+                    code="TARE_REJECTED_COOLDOWN",
+                    message=f"Tare rejected: cooldown active ({remaining_s:.2f}s remaining).",
+                    details={
+                        "cooldown_s": cooldown_s,
+                        "elapsed_s": elapsed_s,
+                        "remaining_s": remaining_s,
+                        "source_ip": source_ip,
+                        "source_user_agent": source_user_agent,
+                        "source_referer": source_referer,
+                    },
+                )
+                return Response(
+                    json.dumps({"success": False, "error": "Tare cooldown active; try again in a moment"}),
+                    mimetype="application/json",
+                    status=429,
+                )
+        except Exception:
+            pass
     
     # Add current displayed weight to tare
     scale["tare_offset_lbs"] = current_weight + current_tare
+    scale["last_tare_utc"] = _utc_now()
     cfg["scale"] = scale
     repo.save_config(cfg)
     repo.log_event(
         level="INFO",
         code="SCALE_TARED",
         message=f"Scale tared at {current_weight:.2f} lb.",
-        details={"weight": current_weight, "new_tare": scale["tare_offset_lbs"]},
+        details={
+            "weight": current_weight,
+            "previous_tare": current_tare,
+            "new_tare": scale["tare_offset_lbs"],
+            "source_ip": source_ip,
+            "source_user_agent": source_user_agent,
+            "source_referer": source_referer,
+        },
     )
 
     return Response(
@@ -764,6 +854,9 @@ def api_tare() -> Response:
 def api_tare_clear() -> Response:
     """Clear tare offset - show gross weight."""
     repo: AppRepository = current_app.config["REPO"]
+    source_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    source_user_agent = request.headers.get("User-Agent")
+    source_referer = request.headers.get("Referer")
     cfg = repo.get_latest_config()
     scale = cfg.get("scale") or {}
     old_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
@@ -774,7 +867,12 @@ def api_tare_clear() -> Response:
         level="INFO",
         code="TARE_CLEARED",
         message=f"Tare cleared (was {old_tare:.2f} lb).",
-        details={"old_tare": old_tare},
+        details={
+            "old_tare": old_tare,
+            "source_ip": source_ip,
+            "source_user_agent": source_user_agent,
+            "source_referer": source_referer,
+        },
     )
 
     return Response(
@@ -805,7 +903,22 @@ def api_calibration_add() -> Response:
             status=400,
         )
 
-    signal = snap.get("signal_for_cal", 0.0)
+    cfg = repo.get_latest_config()
+    scale = cfg.get("scale") or {}
+    raw_signal_mv = float(
+        snap.get("signal_for_cal", snap.get("total_signal", snap.get("raw_signal_mv", 0.0))) or 0.0
+    )
+    zero_offset_mv = float(
+        snap.get(
+            "zero_offset_mv",
+            snap.get(
+                "zero_offset_signal",
+                scale.get("zero_offset_mv", scale.get("zero_offset_signal", 0.0)),
+            ),
+        )
+        or 0.0
+    )
+    signal = raw_signal_mv - zero_offset_mv
     
     repo.add_calibration_point(
         known_weight_lbs=known_weight,
@@ -1373,7 +1486,6 @@ def api_snapshot() -> Response:
         "timestamp": "...",
         "system": { ... },
         "boards": { ... },
-        "excitation": { ... },
         "weight": { ... },
         "channels": [ ... ],
         "plcOutput": { ... },
@@ -1390,6 +1502,7 @@ def api_snapshot() -> Response:
     last_dump = repo.get_last_dump()
     latest_cfg = repo.get_latest_config()
     out_cfg = latest_cfg.get("output", {}) if isinstance(latest_cfg, dict) else {}
+    range_cfg = latest_cfg.get("range", {}) if isinstance(latest_cfg, dict) else {}
     scale_cfg = latest_cfg.get("scale", {}) if isinstance(latest_cfg, dict) else {}
     zero_tracking_cfg = latest_cfg.get("zero_tracking", {}) if isinstance(latest_cfg, dict) else {}
 
@@ -1457,11 +1570,6 @@ def api_snapshot() -> Response:
             "di": snap.get("megaind_di") or {},
             "ao_v_cmd": snap.get("megaind_ao_v_cmd") or {},
         },
-        "excitation": {
-            "voltage_v": float(snap.get("excitation_v") or 0.0),
-            "status": snap.get("excitation_status", "UNKNOWN"),
-            "ratiometric": False,  # Always raw mV now
-        },
         "weight": {
             "total_lbs": float(snap.get("total_weight_lbs") or 0.0),
             "raw_lbs": float(snap.get("raw_weight_lbs") or 0.0),
@@ -1476,6 +1584,14 @@ def api_snapshot() -> Response:
             "zero_tracking_locked": zero_tracking_locked,
             "zero_tracking_reason": str(zero_tracking_reason),
             "zero_tracking_hold_elapsed_s": float(snap.get("zero_tracking_hold_elapsed_s") or 0.0),
+            "post_dump_rezero_enabled": bool(
+                snap.get("post_dump_rezero_enabled", zero_tracking_cfg.get("post_dump_enabled", False))
+            ),
+            "post_dump_rezero_active": bool(snap.get("post_dump_rezero_active", False)),
+            "post_dump_rezero_state": str(snap.get("post_dump_rezero_state") or "idle"),
+            "post_dump_rezero_reason": str(snap.get("post_dump_rezero_reason") or "idle"),
+            "post_dump_rezero_dump_age_s": float(snap.get("post_dump_rezero_dump_age_s") or 0.0),
+            "post_dump_rezero_last_apply_utc": snap.get("post_dump_rezero_last_apply_utc"),
             "raw_signal_mv": float(
                 snap.get("total_signal", snap.get("raw_signal_mv", snap.get("signal_for_cal", 0.0))) or 0.0
             ),

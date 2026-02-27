@@ -31,8 +31,38 @@ Use the script:
 Or from the UI:
 - Download `events.json` from Logs page.
 
-## 3. Common Issues
-### 3.1 Excitation Low Warning / Fault
+## 3. Resolved Issues (Fixed in Recent Versions)
+
+### 3.0 Scale Zeroing Not Working / Drifting (FIXED in v3.1)
+
+**Symptom**: 
+- Pressing ZERO button does not set display to 0.0 lb
+- Weight readings wildly incorrect after zeroing
+- Zero offset values appear correct in UI but don't affect weight
+- Scale appears unusable, can't maintain zero baseline
+
+**Root Cause (v3.0 and earlier)**:
+Critical architectural bug where **pounds were being stored in millivolt fields**. When the system read `zero_offset_mv` from the database (which incorrectly contained lbs values like 100.0), it applied that value as a millivolt correction to the raw signal, causing massive errors (e.g., 100 lb applied as 100 mV instead of ~0.8 mV).
+
+**Solution (Deployed in v3.1 - February 15, 2026)**:
+Complete architectural refactoring to establish `zero_offset_mv` as the **canonical source of truth**:
+- Manual ZERO now calculates signal drift correctly: `drift_mv = raw_mv - cal_zero_mv`
+- Zero Tracking measures drift in lbs, then converts to mV for storage (preserves calibration slope)
+- Fixed race conditions with atomic config updates
+- `zero_offset_mv` is canonical; `zero_offset_lbs` is derived for display only
+
+**Verification**:
+- ✅ Manual ZERO forces display to 0.0 lb instantly
+- ✅ Zero tracking converges on positive and negative drift
+- ✅ Zero offset displays correct mV and derived lbs values
+- ✅ System maintains zero across restarts
+
+**If you're on v3.0 or earlier**: Upgrade to v3.1 immediately. Perform a manual ZERO after upgrade to reset baseline.
+
+---
+
+## 4. Common Issues
+### 4.1 Excitation Low Warning / Fault
 Symptoms:
 - UI shows excitation low or fault; output forced safe on fault (only when excitation monitoring is enabled).
 
@@ -45,7 +75,7 @@ Checks:
 - Inspect SlimPak supply, terminals, and any series protection devices.
 - If excitation is intentionally not wired yet, disable excitation monitoring so output is not clamped by excitation faults.
 
-### 3.2 Unstable Reading / Can’t Accept Calibration Points
+### 4.2 Unstable Reading / Can’t Accept Calibration Points
 Symptoms:
 - UI stays UNSTABLE; calibration points rejected.
 
@@ -55,7 +85,7 @@ Checks:
 - Increase filter strength (lower cutoff / alpha) and adjust stability threshold/window.
 - Verify mechanical settling time and rigid mounting.
 
-### 3.2.1 Calibration Signal Stuck at 0.000000
+### 4.2.1 Calibration Signal Stuck at 0.000000
 Symptoms:
 - Calibration page shows signal `0.000000` even though raw DAQ readings exist.
 
@@ -66,14 +96,14 @@ Fix / Workaround:
 - Verify the active DAQ channel is enabled and wired correctly, then confirm raw mV changes when load changes.
 - If excitation is not wired in this installation phase, disable **Enable Excitation Monitoring** in Settings so excitation faults do not mask output behavior.
 
-### 3.2.2 Calibration Points Look Correct but Weight Reading is Wrong
+### 4.2.2 Calibration Points Look Correct but Weight Reading is Wrong
 Symptoms:
 - Calibration table points appear correct (signal increases with weight), but displayed weight does not match expected.
 
 Status:
 - **Known issue** in current build; to be debugged next (suspected filter/application-order issue in acquisition loop).
 
-### 3.3 Ghost Signals on Unused Channels
+### 4.3 Ghost Signals on Unused Channels
 Symptoms:
 - Unused DAQ channels show non-zero mV readings (typically 10-50 mV)
 - Weight reading incorrect when unused channels are enabled
@@ -92,7 +122,7 @@ Fix:
 
 **Note:** If a specific channel shows unusually high readings (>100 mV) even when disabled doesn't affect calculations, it may indicate a hardware issue with that ADC channel. Use other channels instead.
 
-### 3.4 Drift Warning (Per-cell ratio deviation)
+### 4.4 Drift Warning (Per-cell ratio deviation)
 Symptoms:
 - Drift warning events; per-cell ratio deviates persistently.
 
@@ -102,7 +132,7 @@ Checks:
 - Verify excitation is stable and correctly wired to the configured MegaIND AI channel (when monitoring is enabled).
 - Re-calibrate if needed after resolving mechanical issue.
 
-### 3.5 PLC Display Doesn't Match UI Weight
+### 4.5 PLC Display Doesn't Match UI Weight
 Symptoms:
 - UI weight correct, PLC displayed lbs incorrect.
 
@@ -110,9 +140,9 @@ Checks:
 - Verify output mode matches wiring (0–10V vs 4–20mA).
 - Verify PLC input channel configured for correct mode.
 - Use PLC Profile wizard to build correction curve.
-- Confirm output clamping limits and PLC scaling range.
+- Confirm output scaling range (Weight at 10V) and PLC scaling range.
 
-### 3.6 PLC Output Signal Appears Unstable or Jumpy
+### 4.6 PLC Output Signal Appears Unstable or Jumpy
 Symptoms:
 - PLC display shows weight bouncing or flickering
 - Output voltage measured on multimeter varies rapidly
@@ -135,7 +165,7 @@ Checks:
 **Bench Test Recommendation:**
 Before field deployment, connect multimeter to analog output and verify rock-solid voltage under stable load. Expected: voltage locks to exact value with zero variation.
 
-### 3.5 Board Offline / I2C Error
+### 4.7 Board Offline / I2C Error
 Symptoms:
 - Dashboard System Status shows "Boards Online: 0/2" or "1/2".
 - Red "DAQ" or "IO" pills on Dashboard.
@@ -147,35 +177,49 @@ Checks:
 - Run `sudo i2cdetect -y 1` in terminal to confirm OS-level visibility (if command not found: `sudo /usr/sbin/i2cdetect -y 1`).
 - Check configured stack level matches the physical DIP/jumper settings on the boards (if applicable).
 
-### 3.6 Settings Page Shows 500 Error
+### 4.8 Settings Page Shows 500 Error
 Symptoms:
 - Browser shows `GET /settings 500 (INTERNAL SERVER ERROR)`
 
 Cause:
 - Older SQLite deployments may have an older config JSON without newer nested keys (`logging`, `zero_tracking`, etc.).
 
-### 3.6 Zero Tracking Issues
+### 4.9 Zero Tracking Issues
 
 **Symptom:** Scale drifts overnight, auto zero tracking not working
 
 **Common Causes:**
 1. **Zero tracking disabled** → Enable in Settings → Zero & Scale
-2. **Drift too large for range** → Press ZERO manually first, then tracking handles future drift
+2. **Drift too large for range** → Increase range (e.g., 10 lb for hopper scales) or press ZERO manually
 3. **Hold time too long** → Default 6 sec is good, don't use 30+ minutes
 4. **Scale never stable** → Check stability thresholds (stddev, slope)
+
+**Symptom:** Scale reads negative after hopper dump, auto-zero not correcting
+
+**Common Causes (v3.0+):**
+1. **Negative hold time too long** → Default 1.0 sec should work; reduce to 0.5 or 0 for faster response
+2. **Range too small** → If scale reads -8 lb but range is 5, it won't fire. Increase range to cover post-dump drift
+3. **Extreme spikes** → Even the fast negative path blocks during extreme spikes (material still falling). Wait for the dump to complete.
+
+**Quick Diagnostic:** Check the `zero_tracking_reason` in the API snapshot:
+- `neg_holdoff` → Fast negative holdoff counting (will fire soon)
+- `neg_spike` → Extreme motion blocking negative correction
+- `holdoff` → Normal positive holdoff (not on fast path)
+- `unstable` → Only affects positive weight; negative path ignores minor instability
 
 **See:** `ZERO_TRACKING_OPERATOR_GUIDE.md` for complete troubleshooting
 
 **Quick Fix:**
 - Press ZERO button when empty and stable (instant correction)
 - Enable auto tracking for future drift prevention
+- For hopper scales: set range to 10 lb and negative hold to 1.0 sec
 
 Fix:
 - Update the application to a version where `AppRepository.get_latest_config()` deep-merges saved config onto defaults.
 - Restart service: `sudo systemctl restart loadcell-transmitter`
 - Confirm via logs: `sudo journalctl -u loadcell-transmitter -n 100 --no-pager`
 
-### 3.7 HDMI Interface / Kiosk Issues
+### 4.10 HDMI Interface / Kiosk Issues
 Symptoms:
 - HDMI display is blank or shows desktop instead of app.
 - "Lost connection" message on HDMI screen.
@@ -193,13 +237,13 @@ Checks:
 4. **Manual Launch**:
    - Double-click the **Scale HDMI** icon on the Pi desktop.
 
-## 4. Service Management (Pi)
+## 5. Service Management (Pi)
 ### systemd
 - Status: `sudo systemctl status loadcell-transmitter`
 - Logs: `journalctl -u loadcell-transmitter -f`
 - Restart: `sudo systemctl restart loadcell-transmitter`
 
-## 5. Backups / SD Card Care
+## 6. Backups / SD Card Care
 - Periodically copy `var/data/app.sqlite3` off the device.
 - Prefer UPS or controlled shutdown to reduce corruption risk.
 - Consider industrial storage media for harsh environments.

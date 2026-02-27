@@ -31,9 +31,8 @@ This replaces a SlimPak-style conditioner for signal conditioning, with the exce
 - **Power**: The system is powered by 24VDC. The **Super Watchdog HAT** must provide 5V power to the Raspberry Pi to enable UPS/watchdog functionality. Do not power the Pi via MegaIND or USB when the Watchdog is active.
 
 ## 5. Functional Requirements
-### FR-01 Weight Range & Accuracy Goal
-- **Range**: 0–300 lb.
-- **Accuracy goal**: within ~0–5 lb in a vibrating industrial environment.
+### FR-01 Accuracy Goal
+- **Accuracy goal**: within ~0–5 lb in a vibrating industrial environment across the production weight range.
 
 ### FR-02 Acquisition Loop Independence
 - Weight acquisition and output control shall run in a **background loop** independent of Flask request handling.
@@ -71,7 +70,7 @@ This replaces a SlimPak-style conditioner for signal conditioning, with the exce
 - Output mode shall be selectable:
   - **0–10V**
   - **4–20mA**
-- Output shall be clamped to configured min/max weight range.
+- Output shall be mapped via PLC profile training points (Calibration Hub). When zero profile points are trained, system uses a hard-coded linear fallback (0-250 lb = 0-10V) internally.
 - On fault: force **safe output** (0V or 4mA) and set a fault status flag for UI.
 
 ### FR-08 PLC Profile Dynamic Mapping Wizard
@@ -114,6 +113,19 @@ SQLite shall persist:
 - Parameters shall be configurable:
   - dump detection threshold (lb)
   - stability window and required stability
+
+### FR-14 Job Target Signal Mode (Webhook-Driven PLC Control)
+- The system shall support an alternative output mode (`target_signal_mode`) where the PLC output is a binary trigger signal instead of a proportional weight-to-voltage mapping.
+- An external system shall send target updates to the scale via `POST /api/job/webhook` using payload fields: `event`, `jobId`, `machineKey`, `loadSize`, `idempotencyKey`, `timestamp`.
+- Webhook authentication shall support shared-secret token headers (`X-API-Key`, `Authorization`, and legacy `X-Scale-Token` compatibility).
+- While the filtered scale weight is below the target threshold, the system shall output a configurable low signal value (default 0V).
+- When the filtered scale weight reaches or exceeds `target_weight - pretrigger_lb`, the system shall output a configurable trigger signal value.
+- The trigger signal value shall be selectable from existing PLC profile points (Calibration Hub) via a dropdown in Settings.
+- The pretrigger offset (`pretrigger_lb`) shall be configurable to compensate for in-flight material during filling operations.
+- The mode shall be toggleable between `legacy_weight_mapping` and `target_signal_mode` from the Dashboard and Settings UI without affecting any other scale settings (calibration, filtering, zero/tare, stability, throughput).
+- Target weight shall persist in memory until overwritten by a new webhook or cleared via `/api/job/clear`.
+- Duplicate `idempotencyKey` events shall be treated as idempotent replays (accepted with no state change).
+- All webhook-related endpoints (except mode toggle) shall require token authentication.
 
 ## 6. Non-Functional Requirements
 ### NFR-01 Robustness

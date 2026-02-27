@@ -8,7 +8,7 @@
 |-----------|--------|---------|
 | **Flask Service** | ✅ Running | `loadcell-transmitter.service` |
 | **24b8vin DAQ** | ✅ Online | I2C 0x31, Firmware 1.4 |
-| **MegaIND I/O** | ✅ Online | I2C 0x50, Firmware 4.08 |
+| **MegaIND I/O** | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live load cell readings |
 
 ---
@@ -39,7 +39,7 @@ Key principle: **hardware IO is dependency-injected** via `src/hw/factory.py`.
 
 | Board | I2C Base Address | Stack 0 Address | Firmware | Status |
 |-------|------------------|-----------------|----------|--------|
-| **MegaIND** | 0x50 | **0x50** | v04.08 | ✅ Verified |
+| **MegaIND** | 0x50 | **0x52** (Stack 2) | v4.8 | ✅ Verified 2026-02-15 |
 | **24b8vin** | 0x31 | **0x31** | v1.4 | ✅ Verified |
 
 **I2C Bus Scan Result:**
@@ -47,10 +47,10 @@ Key principle: **hardware IO is dependency-injected** via `src/hw/factory.py`.
 $ sudo i2cdetect -y 1
      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 30: -- 31 -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-50: 50 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+50: -- -- 52 -- -- -- -- -- -- -- -- -- -- -- -- -- 
 ```
 
-**No address conflict:** MegaIND (0x50–0x57) and 24b8vin (0x31–0x38) use different address ranges. Both can use stack ID 0 simultaneously.
+**No address conflict:** MegaIND (0x50–0x57) and 24b8vin (0x31–0x38) use different address ranges. Current deployment: DAQ at stack 0 (0x31), MegaIND at stack 2 (0x52). Physical order: Pi → 24b8vin → MegaIND.
 
 ### 1.3 Pi Connection Details
 
@@ -71,13 +71,21 @@ $ sudo i2cdetect -y 1
 - **Remote Launch**: Dashboard includes buttons to trigger or force-relaunch the kiosk browser on the Pi display.
 - **Resolution**: Fixed 800x480 layout for industrial touch panels.
 
-### 1.5 Load Cell Architecture (Updated Feb 2026)
+### 1.5 Load Cell Architecture (Updated Feb 20, 2026)
 **Single-Channel Summing Mode:**
-- All load cells are wired to a **Summing Board** (Junction Box).
+- **4 S-type load cells** (350Ω) are wired to a **Summing Board** (Junction Box).
 - The Summing Board outputs a single combined signal.
 - This signal is wired to **DAQ Channel 1**.
 - **Software Implication:** Acquisition loop reads Channel 1 as the "Total Raw Signal". Channels 2-8 are disabled.
 - **Trade-off:** Simplifies wiring but removes ability to detect individual load cell drift/failure in software.
+- **Current Calibration**: 9-point piecewise linear (3-335 lbs), slope 112 lb/mV, with 3 lb zero floor.
+
+**Zero Floor Feature:**
+To prevent the PLC analog output from dropping into the non-linear "dead zone" (below ~0.1V) when the scale is empty, the system implements a "Zero Floor":
+- **Concept:** The scale is calibrated to read **3.0 lbs** when physically empty, instead of 0.0 lbs.
+- **Implementation:** The calibration anchor point is set to `3 lbs @ [Empty_mV]`.
+- **Effect:** When the scale is empty, it outputs ~0.13V (at 100 lb/V scaling), keeping the signal in the linear range of the PLC input.
+- **Operator View:** The display shows 3.0 lbs when empty. The ZERO button targets 3.0 lbs.
 
 ## 2. Processes and Threads
 - **Main process**: single Python process.
@@ -95,6 +103,7 @@ $ sudo i2cdetect -y 1
   - Serves UI templates (initial render).
   - Serves **JSON API** (`/api/snapshot`) for client-side polling.
   - Handles configuration/calibration commands.
+  - **Job Target API**: `/api/job/webhook` (receive target weight), `/api/job/status`, `/api/job/clear`, `/api/job/mode` (toggle), `/api/job/trigger/from-nudge`. All except `/api/job/mode` require API token auth (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`).
   - **HDMI Control API**: `/api/hdmi/launch` and `/api/hdmi/force-launch` for remote kiosk management.
 - **Chromium Process**: Independent browser process running in kiosk mode, managed by `kiosk.service`.
 
@@ -117,8 +126,11 @@ graph TD
   kalman --> tare[ApplyTareOffset]
   tare --> stable[StabilityDetector]
   stable --> zeroTrack[ZeroTracking]
-  zeroTrack --> out[AnalogOutputWriter]
-  out --> megaAo[MegaIND_AO]
+  zeroTrack --> jobMode{Job Target Mode?}
+  jobMode -->|Yes| jobThresh[Threshold Check]
+  jobMode -->|No| out[AnalogOutputWriter]
+  jobThresh --> megaAo[MegaIND_AO]
+  out --> megaAo
   acq --> repo[SQLiteRepo]
   startup[Startup] -->|I2CScan| discovery[BoardDiscovery]
   discovery --> state[LiveState]
@@ -138,14 +150,16 @@ graph TD
   - sets fault state and drives safe output
 - **Role Resolver**: Dynamically identifies which physical pins are assigned to system roles (e.g. PLC Weight, Excitation Monitor).
 - **Calibration Overrides**: Suspends weight-based output during calibration to allow manual signal "nudging."
+- **Job Target Signal Mode**: When `job_control.mode == "target_signal_mode"`, the acquisition loop bypasses `OutputWriter.compute()` and directly compares filtered weight to `_job_set_weight - pretrigger_lb`. Outputs either `trigger_signal_value` (at/above threshold) or `low_signal_value` (below). Thread-safe via `_job_lock`. Target weight is set via `ingest_job_webhook()` and cleared via `clear_job_control()`.
 
 ### 4.2 `src/services/output_writer.py`
 - Converts desired weight to analog output based on:
-  - clamping to min/max range
+  - PLC profile training points (Calibration Hub) when available
+  - Internal linear fallback (0-250 lb) when no profile points are trained
   - output mode (0–10V vs 4–20mA)
-  - **Proportional Mapping**: linear scaling from configured weight range to output span.
   - optional deadband and ramp limiting
 - Implements safe output policy on fault.
+- *Note:* In Job Target Mode, output is bypassed and managed directly by `acquisition.py` using a simple threshold comparison.
 
 ### 4.3 `src/core/filtering.py`
 - **Kalman Filter** (Preferred): Zero-lag optimal estimation
@@ -154,10 +168,11 @@ graph TD
 - **NotchFilter**: 50/60 Hz rejection (optional)
 
 ### 4.4 `src/core/zero_tracking.py`
-- **ZeroTracker**: State machine for auto drift correction
-- **Safety gates**: hold timer, deadband, range limit, spike detection
-- **Rate limiting**: Smooth gradual corrections (0.1 lb/s max)
-- **Persistence throttling**: Reduces SD card wear
+- **ZeroTracker**: Dual-path state machine for auto drift correction
+- **Normal path** (positive weight): hold timer, deadband, range limit, spike detection, rate limiting (0.1 lb/s)
+- **Fast negative path** (v3.0): relaxed stability, 1-second holdoff, full correction in one shot — designed for hopper dump cycles where negative weight is always drift
+- **Safety gates**: range limit, tare block, calibration check, spike detection
+- **Persistence throttling**: Reduces SD card wear (immediate persist for negative corrections)
 
 ### 4.5 `src/core/zeroing.py`
 - **compute_zero_offset()**: Manual ZERO baseline calculation
@@ -180,7 +195,7 @@ graph TD
 - `config_versions`: versioned config JSON blobs
 - `events`: faults/warnings/info events with details JSON
 - `calibration_points`: saved calibration points (signal, known weight, legacy `ratiometric` flag)
-- `plc_profile_points`: optional PLC mapping curve points (used when 2+ points exist for active mode; otherwise linear range fallback is used)
+- `plc_profile_points`: PLC mapping curve points (system uses trained profile points for output mapping; internal 0-250 lb linear fallback only when no points exist)
 - `trends_excitation`: excitation voltage samples
 - `trends_channels`: per-channel raw and filtered signals
 - `trends_total`: total weight samples with stability flag

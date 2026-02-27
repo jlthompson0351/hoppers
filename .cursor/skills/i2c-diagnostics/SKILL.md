@@ -20,7 +20,7 @@ Troubleshoot I2C communication issues between Raspberry Pi and Sequent boards (2
 | Board | I2C Address | Purpose |
 |-------|-------------|---------|
 | 24b8vin | 0x31 | 8-channel 24-bit DAQ (load cell inputs) |
-| MegaIND | 0x50 | Analog output to PLC, digital I/O |
+| MegaIND | 0x52 (Stack 2) | Analog output to PLC, digital I/O |
 
 Both boards should appear on I2C bus 1.
 
@@ -55,7 +55,7 @@ sudo i2cdetect -y 1
 
 echo -e "\n=== Expected Devices ==="
 echo "24b8vin DAQ should appear at: 0x31"
-echo "MegaIND I/O should appear at: 0x50"
+echo "MegaIND I/O should appear at: 0x52 (stack 2; base 0x50 + 2)"
 
 echo -e "\n=== Checking 24b8vin (0x31) ==="
 if sudo i2cdetect -y 1 | grep -q "31"; then
@@ -66,12 +66,12 @@ else
     echo "❌ 24b8vin NOT detected at 0x31"
 fi
 
-echo -e "\n=== Checking MegaIND (0x50) ==="
-if sudo i2cdetect -y 1 | grep -q "50"; then
-    echo "✅ MegaIND detected at 0x50"
-    megaind 0 cfgrd 2 2>/dev/null || echo "Could not read firmware"
+echo -e "\n=== Checking MegaIND (0x52) ==="
+if sudo i2cdetect -y 1 | grep -q "52"; then
+    echo "✅ MegaIND detected at 0x52 (stack 2)"
+    megaind 2 cfgrd 2 2>/dev/null || echo "Could not read firmware"
 else
-    echo "❌ MegaIND NOT detected at 0x50"
+    echo "❌ MegaIND NOT detected at 0x52"
 fi
 
 echo -e "\n=== Recent Errors in Logs ==="
@@ -98,7 +98,7 @@ plink -pw depor pi@172.16.190.25 "bash -c 'sudo i2cdetect -y 1; sudo systemctl s
 
 ### 4. Interpret Results
 
-**Scenario A: Both Boards Detected (0x31 and 0x50 visible)**
+**Scenario A: Both Boards Detected (0x31 and 0x52 visible)**
 ```
 Service issue, not hardware. Check:
 - Python syntax errors in recent changes
@@ -111,7 +111,7 @@ Service issue, not hardware. Check:
 ```
 Power or physical connection issue:
 1. Check 24V power supply connected
-2. Check board stack order (MegaIND bottom, 24b8vin top)
+2. Check board stack order (24b8vin bottom, MegaIND top)
 3. Reseat boards on Pi GPIO header
 4. Check for bent GPIO pins
 5. Verify I2C enabled: sudo raspi-config

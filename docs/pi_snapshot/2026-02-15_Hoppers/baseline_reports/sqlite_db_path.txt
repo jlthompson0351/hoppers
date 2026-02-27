@@ -1,0 +1,1 @@
+/var/lib/loadcell-transmitter/data/app.sqlite3

@@ -1,0 +1,12 @@
+calibration_points
+config_versions
+events
+plc_profile_points
+production_dumps
+production_totals
+schema_version
+sqlite_sequence
+throughput_events
+trends_channels
+trends_excitation
+trends_total

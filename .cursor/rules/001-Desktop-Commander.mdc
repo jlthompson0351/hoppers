@@ -1,0 +1,25 @@
+---
+description: CRITICAL HARD RULE - Always use Desktop Commander MCP for ALL shell and terminal commands (including local commands like pytest). Built-in shell is STRICTLY FORBIDDEN.
+globs: *
+alwaysApply: true
+---
+# STRICT TERMINAL/SHELL PROTOCOL
+
+You must NEVER use the built-in `Shell` or `Bash` tool to run commands. 
+
+**NO EXCEPTIONS.** This applies to complex SSH sessions AND simple local commands. The built-in terminal handles password prompts and interactive sessions poorly, and using it breaks project consistency.
+
+## REQUIRED TOOL:
+You MUST use the **Desktop Commander MCP** (e.g., `user-desktop-commander-start_process`, `user-desktop-commander-interact_with_process`, `user-desktop-commander-read_process_output`) for **ALL** shell, terminal, and system commands.
+
+### EXAMPLES OF WHAT MUST USE DESKTOP COMMANDER:
+- **Local testing & running:** `pytest`, `python -m`, `npm run`, `node`
+- **Git operations:** `git status`, `git commit`, `git push`
+- **Remote connections:** `ssh`, `plink`, `scp`
+- **Any script execution:** `.ps1`, `.sh`, `.bat`
+
+### PRE-FLIGHT CHECKLIST
+Before you execute *any* command, ask yourself: "Am I about to use the `Shell` tool?" 
+If yes, **STOP**. Rewrite your tool call to use `user-desktop-commander-start_process`.
+
+Violation of this rule will cause connections to hang, tests to fail, and breaks the core CTO orchestration protocol.

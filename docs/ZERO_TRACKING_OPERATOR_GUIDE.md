@@ -1,7 +1,7 @@
 # Zero Tracking Operator Guide
 
-**Updated:** February 11, 2026  
-**For:** Industrial Floor Scale with Automatic Drift Compensation
+**Updated:** February 25, 2026  
+**For:** Industrial Hopper Scale with Automatic Drift Compensation
 
 ---
 
@@ -15,19 +15,21 @@ Two ways to fix drift:
 
 1. **Manual ZERO** (instant fix)
    - Press ZERO button when scale is empty and stable
-   - Display jumps to ~0 lb immediately
+   - Display jumps to **~3 lb** immediately (zero floor)
+   - **Why 3 lb?** Prevents PLC output from dropping into dead zone (< 0.1V)
    
 2. **Auto Zero Tracking** (automatic, slow fix)
    - Enable in Settings → Zero & Scale
    - System automatically corrects drift when scale is empty
    - No operator action needed
+   - **Currently DISABLED** on this system (manual ZERO preferred)
 
 ---
 
 ## Understanding Zero Tracking
 
 ### What It Does
-Watches the scale when empty and slowly adjusts the baseline to keep it at 0 lb.
+Watches the scale when empty and slowly adjusts the baseline to keep it at 0 lb (or the configured 3 lb target).
 
 ### When It Works
 ALL conditions must be true:
@@ -46,12 +48,36 @@ ANY of these happens:
 
 ---
 
+## Zero Floor Feature (New Feb 20, 2026)
+
+### What Is Zero Floor?
+The ZERO button now targets **3 lbs** instead of 0 lbs.
+
+### Why?
+- When empty weight was set to 0 lb, PLC output dropped below 0.1V
+- PLCs have a "dead zone" below ~0.1V where they can't read accurately
+- Setting zero floor to 3 lb keeps PLC output at ~0.19V (safely above dead zone)
+
+### How It Works
+1. Press ZERO button when scale is empty
+2. Scale reads **3 lb** (not 0 lb)
+3. PLC receives ~0.19V (safely above dead zone)
+4. **The 3 lb offset is baked into the calibration** - the scale is calibrated with empty = 3 lb
+
+### Important Notes
+- This is **NOT** a tare (it's a zero offset)
+- Material weight is still accurate (e.g., 50 lb bag reads as 50 lb)
+- The 3 lb "floor" is just the baseline empty reading
+- Config setting: `scale.zero_target_lb: 3.0`
+
+---
+
 ## Settings Explained (Plain English)
 
 ### Enable Zero Tracking
 **What:** Turns auto-correction on/off  
-**Recommended:** **ON**  
-**Why:** Fixes overnight drift automatically without pressing buttons
+**Recommended:** **OFF** (for this system - manual ZERO preferred)  
+**Why:** Manual ZERO with 3 lb floor is more predictable for operators
 
 ---
 
@@ -133,6 +159,32 @@ Time to fix: <1 second (faster but may be visible)
 
 ---
 
+### Negative Weight Hold Time (default: 1.0 second) — NEW v3.0
+**What:** How long to wait before auto-zeroing a **negative** reading  
+**Why:** Gives the hopper door bounce 1 second to settle, then corrects instantly
+
+**How the hopper cycle works:**
+```
+1. Hopper fills up (weight: 0 → 120 lb)
+2. Dump triggers → door opens → material falls
+3. Door closes → hopper bounces for 1-2 seconds
+4. Weight settles at -8 lb (zero drift)
+   ↓ 1 second holdoff (let bounce settle)
+5. FAST AUTO-ZERO fires → corrects all -8 lb in one shot
+6. Weight reads 0 lb → ready for next fill
+```
+
+**Settings:**
+- **0 s:** Instant correction (no wait at all)
+- **0.5-1.0 s:** Let the bounce settle first (recommended for hopper scales)
+- **2-5 s:** More conservative, for scales with longer settling
+
+**Key difference from normal zero tracking:**
+- Normal path (positive weight): requires full stability, 6-second holdoff, gradual rate
+- Negative path: tolerates vibration, 1-second holdoff, full correction in one shot
+
+---
+
 ### Zero Tracking Persist Interval (default: 1.0 second)
 **What:** How often to save offset to disk during tracking  
 **Why:** Reduces SD card wear
@@ -157,11 +209,15 @@ Shows three pieces of info:
 - Example: `0.123 lb (-0.145560 mV)`
 
 **Zero Tracking:** `ACTIVE (tracking)` or `LOCKED (reason)`
-- **ACTIVE (tracking):** Corrections happening now
+- **ACTIVE (tracking):** Normal positive corrections happening
+- **ACTIVE (neg_tracking):** Fast negative correction applied
 - **ACTIVE (deadband):** Close enough, no correction needed
-- **LOCKED (holdoff):** Waiting 6 sec for timer
-- **LOCKED (load_present):** Weight on scale
-- **LOCKED (unstable):** Scale bouncing
+- **LOCKED (holdoff):** Waiting for positive holdoff timer (6 sec default)
+- **LOCKED (neg_holdoff):** Waiting for negative holdoff timer (1 sec default)
+- **LOCKED (load_present):** Weight on scale (above range)
+- **LOCKED (unstable):** Scale bouncing (positive weight only)
+- **LOCKED (neg_spike):** Extreme spike during negative reading
+- **LOCKED (spike):** Extreme spike during positive reading
 - **DISABLED:** Feature turned off
 
 **Zero Updated:** `14:23:45`
@@ -179,10 +235,13 @@ Shows three pieces of info:
 - Locks when tare active (container)
 - Only adjusts at 0.1 lb/s max (gradual)
 
-### "What if drift goes negative?"
-**Works correctly!** Math handles both directions:
-- Positive drift → positive offset → subtracts from signal
-- Negative drift → negative offset → adds to signal (minus negative = plus)
+### "What if the scale reads negative after a dump?"
+**Fixed automatically!** As of v3.0 (Feb 13, 2026), negative weight triggers a **fast auto-zero**:
+- Negative weight on a hopper scale is always drift (the scale can't physically weigh negative)
+- The system detects the negative reading and corrects the full error in **one shot** after a short 1-second holdoff
+- Stability is relaxed — post-dump vibration does NOT block it
+- No rate limiting — the entire -8 lb (or whatever it is) is corrected immediately
+- Result: weight snaps back to 0 lb before the next fill cycle begins
 
 ### "Should I use auto tracking or manual ZERO?"
 **Both!**
@@ -221,12 +280,24 @@ Zero offset: varies ← Only this changes
 
 ## Recommended Settings
 
-### For Typical Industrial Floor Scale
+### For Hopper Scale (fill/dump cycle) — RECOMMENDED
+```
+✓ Enable Zero Tracking: ON
+✓ Range: 10.0 lb (covers post-dump drift)
+✓ Deadband: 0.1 lb  
+✓ Hold Time: 6 seconds (normal positive drift)
+✓ Negative Hold Time: 1.0 sec (fast negative correction)
+✓ Rate: 0.1 lb/s (normal positive drift)
+✓ Persist Interval: 1.0 sec
+```
+
+### For Typical Industrial Floor Scale (no dump cycle)
 ```
 ✓ Enable Zero Tracking: ON
 ✓ Range: 1.0 lb
 ✓ Deadband: 0.1 lb  
 ✓ Hold Time: 6-10 seconds
+✓ Negative Hold Time: 1.0 sec
 ✓ Rate: 0.1 lb/s
 ✓ Persist Interval: 1.0 sec
 ```
@@ -256,12 +327,13 @@ The load lock already prevents adjusting during active weighing.
 
 ## Verification Tests
 
-### Test 1: Manual ZERO Works
+### Test 1: Manual ZERO Works (Zero Floor)
 1. Let scale drift (or wait overnight)
 2. Note the weight (e.g., -4.0 lb when empty)
 3. Press ZERO button
-4. ✓ Display should jump to ~0.0 lb instantly
+4. ✓ Display should jump to **~3.0 lb** instantly (zero floor)
 5. ✓ Zero Offset should show non-zero value
+6. ✓ PLC output should be ~0.19V (above dead zone)
 
 ### Test 2: Auto Tracking Activates
 1. Press ZERO to start clean
@@ -296,6 +368,18 @@ Logged when tracking status changes:
   "locked": true,
   "reason": "load_present",
   "filtered_lbs": 5.2
+}
+```
+
+### ZERO_TRACKING_STATE: neg_tracking (NEW v3.0)
+Logged when fast negative auto-zero fires:
+```json
+{
+  "active": true,
+  "locked": false,
+  "reason": "neg_tracking",
+  "filtered_lbs": -8.38,
+  "hold_elapsed_s": 1.05
 }
 ```
 

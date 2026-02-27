@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-STACK=${1:-0}
+STACK=${1:-2}
 CHANNEL=${2:-1}
 VENDOR_DIR="/opt/loadcell-transmitter/.vendor/megaind-rpi"
 CLI_TOOL="$VENDOR_DIR/megaind"

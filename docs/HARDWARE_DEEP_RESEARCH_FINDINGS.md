@@ -12,7 +12,7 @@
 |-------|------|-------------------|----------------|--------|--------|
 | **Multichemistry Watchdog** | UPS, Watchdog, RTC | `0x30` (Fixed) | N/A | `src/hw/sequent_watchdog.py` | ✅ Implemented |
 | **Eight 24-Bit ADC (24b8vin)** | Load Cell Inputs | `0x31` | 0..7 | `src/hw/sequent_24b8vin.py` | ✅ Implemented |
-| **Industrial Automation (MegaIND)** | Relays, Analog I/O | `0x50` | 0..7 | `src/hw/sequent_megaind.py` | ✅ Implemented |
+| **Industrial Automation (MegaIND)** | Relays, Analog I/O | `0x52` (Stack 2) | 0..7 | `src/hw/sequent_megaind.py` | ✅ Implemented |
 
 ---
 
@@ -86,7 +86,7 @@ These features were not initially documented or used but are available in the ha
 | ... | ... | ... | ... | ... |
 | `I2C_MEM_SR_SEL` | 52 | 0x34 | Byte | Sample Rate |
 
-### C. Industrial Automation (`0x50` + Stack)
+### C. Industrial Automation (Base `0x50` + Stack; deployed at Stack 2 = `0x52`)
 
 | Register Name | Address (Dec) | Address (Hex) | Type | Description |
 |---------------|---------------|---------------|------|-------------|

@@ -46,13 +46,6 @@ CREATE TABLE IF NOT EXISTS plc_profile_points (
 );
 CREATE INDEX IF NOT EXISTS idx_plc_points_mode_ts ON plc_profile_points(output_mode, ts);
 
-CREATE TABLE IF NOT EXISTS trends_excitation (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts TEXT NOT NULL,
-  excitation_v REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_exc_ts ON trends_excitation(ts);
-
 CREATE TABLE IF NOT EXISTS trends_channels (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,

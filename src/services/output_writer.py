@@ -1,12 +1,15 @@
 """Output writer for proportional analog output.
 
-Maps weight (lbs) to 0-10V or 4-20mA using linear scaling with:
-- clamping
+Maps weight (lbs) to 0-10V or 4-20mA using:
+- PLC profile curve (primary: trained calibration points)
+- Hard-coded 25 lb/V fallback (only when no profile exists)
 - optional deadband
 - optional ramp limiting
 
-If a PLC profile curve is provided, that curve is used first. Otherwise a linear
-min/max mapping is used.
+The PLC profile curve is the intended mapping mode.  Operators train it by
+capturing known weight/voltage pairs.  The linear fallback (250 lb = 10V,
+i.e. 25 lb/V) exists only so the output is not stuck at zero before any
+training points have been captured.
 """
 from __future__ import annotations
 
@@ -43,12 +46,15 @@ class OutputWriter:
         self._last_output = float(value)
         self._last_units = str(units)
 
+    # Hard-coded fallback range: 0-250 lb (fleet standard 25 lb/V).
+    # Only used when no PLC profile training points exist.
+    _FALLBACK_MIN_LB = 0.0
+    _FALLBACK_MAX_LB = 250.0
+
     def compute(
         self,
         weight_lb: float,
         output_mode: str,
-        min_lb: float = 0.0,
-        max_lb: float = 300.0,
         plc_profile: Optional[PlcProfileLike] = None,
         fault: bool = False,
         armed: bool = True,
@@ -63,12 +69,13 @@ class OutputWriter:
     ) -> OutputCommand:
         """Map weight to analog output.
 
+        Primary path: PLC profile curve (trained calibration points).
+        Fallback: hard-coded linear 0-250 lb → 0-10V (25 lb/V).
+
         Args:
             weight_lb: Current net weight in pounds.
             output_mode: "0_10V" or "4_20mA".
-            min_lb: Weight at minimum output (0V / 4mA).
-            max_lb: Weight at maximum output (10V / 20mA).
-            plc_profile: Optional piecewise curve mapping weight to analog output.
+            plc_profile: Piecewise curve mapping weight to analog output.
             fault: If True, output safe value.
             armed: If False, output safe value (outputs disarmed).
             safe_v: Safe voltage on fault/disarm.
@@ -109,9 +116,13 @@ class OutputWriter:
         else:
             self._last_weight = w
 
-        def _linear_target(weight: float) -> float:
-            span = max(1e-9, float(max_lb) - float(min_lb))
-            pct = _clamp((weight - float(min_lb)) / span, 0.0, 1.0)
+        def _linear_fallback(weight: float) -> float:
+            """Hard-coded linear fallback: 0-250 lb → 0-10V (25 lb/V).
+
+            Only used when no PLC profile training points exist.
+            """
+            span = self._FALLBACK_MAX_LB - self._FALLBACK_MIN_LB  # 250.0
+            pct = (weight - self._FALLBACK_MIN_LB) / span
             if is_ma:
                 return 4.0 + pct * 16.0
             return pct * 10.0
@@ -121,10 +132,10 @@ class OutputWriter:
             try:
                 target = float(plc_profile.analog_from_weight(w))
             except Exception:
-                # If profile evaluation fails, fail closed to linear mapping.
-                target = _linear_target(w)
+                # If profile evaluation fails, fall back to hard-coded linear.
+                target = _linear_fallback(w)
         else:
-            target = _linear_target(w)
+            target = _linear_fallback(w)
         rate = float(ramp_rate_ma) if is_ma else float(ramp_rate_v)
 
         # Optional ramp limiting to prevent steep output steps.

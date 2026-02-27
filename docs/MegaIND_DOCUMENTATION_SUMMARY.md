@@ -16,8 +16,8 @@
 |----------|-------|
 | **Dashboard** | http://172.16.190.25:8080 |
 | **Status** | ✅ Online, connected to Flask service |
-| **I2C Base Address** | **0x50** (stack 0) |
-| **Firmware Version** | 04.08 |
+| **I2C Address** | **0x52** (Stack 2, base 0x50 + 2) |
+| **Firmware Version** | 4.8 |
 | **CPU Temperature** | 41°C |
 | **Power Source** | 24.13V |
 | **Pi Voltage** | 5.23V |
@@ -148,8 +148,8 @@ No corrections were needed to existing docs; they were already correct.
 |---------|-----------|
 | MegaIND has 8 load cell inputs | **24b8vin** has 8 load cell inputs. MegaIND has 4 analog I/O channels. |
 | Analog input range (0–10V vs ±10V) is software-selectable | Range is **PHYSICAL JUMPER** per channel. Software only reads via correct function. |
-| MegaIND and 24b8vin conflict if both at ID 0 | No conflict — **MegaIND uses 0x50** and **24b8vin uses 0x31**. Both can be stack 0. |
-| MegaIND is at I2C address 0x20 | **WRONG** — MegaIND base address is **0x50** (verified December 18, 2025) |
+| MegaIND and 24b8vin conflict if both at ID 0 | No conflict — **MegaIND uses 0x52** (stack 2) and **24b8vin uses 0x31** (stack 0). Different address ranges. |
+| MegaIND is at I2C address 0x20 | **WRONG** — MegaIND base address is **0x50**, our board is at **0x52** (stack 2, verified February 15, 2026) |
 
 ### MegaIND Capabilities (Summary)
 
@@ -290,8 +290,8 @@ class MegaIndRepository:
    - Document jumper positions for analog input channels (0–10V vs ±10V)
    
 3. **Decision: Stack level selection**
-   - Will MegaIND always be at stack level 0, or do we need runtime selection?
-   - Document in commissioning checklist
+   - MegaIND is at stack level **2** (addr 0x52). Jumpers set on the physical board.
+   - Runtime selection available in Settings page. Default config now reflects stack 2.
 
 ### Phase 1: Backend Implementation
 1. Install Python package: `sudo pip install SMmegaind`
@@ -359,7 +359,7 @@ class MegaIndRepository:
 **A:** **120 seconds** if not explicitly set. To disable the watchdog, set period = 65000.
 
 ### Q: Can MegaIND and 24b8vin both be at stack level 0?
-**A:** ✅ **YES.** They use different I2C address ranges and will not conflict.
+**A:** ✅ **YES.** They use different I2C address ranges (0x50–0x57 vs 0x31–0x38) and will not conflict. Current deployment: DAC at stack 0 (0x31), MegaIND at stack 2 (0x52).
 
 ### Q: Where do I find the MegaIND firmware version?
 **A:** Call `megaind.getFwVer(stack)` in Python, or run `megaind <id> board` in CLI.

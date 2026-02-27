@@ -117,14 +117,13 @@ Interpretation:
 
 | Commanded | Measured | Likely Cause |
 |-----------|----------|--------------|
-| 1.000V / 2.000V | ~1.000V / ~2.000V | Hardware path is correct. Issue is weight->output mapping (range/profile config). |
+| 1.000V / 2.000V | ~1.000V / ~2.000V | Hardware path is correct. Issue is weight->output mapping (profile config). |
 | 1.000V / 2.000V | ~0.500V / ~1.000V | Hardware/board calibration path issue (MegaIND output calibration, wiring, or meter point). |
 
 If mapping is the issue:
-- Confirm **Runtime Mapping** on Calibration Hub:
-  - `Profile Curve (active)` uses saved mapping points.
-  - `Linear Range (active)` uses Settings min/max.
-- For quick linear recovery, click **SYNC RANGE FROM PROFILE** (requires 2+ saved mapping points).
+- Verify trained profile points exist in Calibration Hub.
+- If no profile points are trained, system uses internal 0-250 lb fallback.
+- Train weight/voltage pairs in Calibration Hub for precise PLC matching.
 
 ### For 4-20mA Output
 
@@ -144,19 +143,16 @@ Verify the complete signal path: load cells → DAQ → weight calculation → a
 
 ### Steps
 
-1. **Ensure system is calibrated** (at least 1 point; 2+ strongly recommended)
-2. **ARM the output** (`/settings` or dashboard output controls)
-3. Place known weights on scale
-4. Wait for **STABLE** indicator
-5. Note dashboard weight reading
-6. Measure analog output with multimeter
-7. Verify output matches expected curve:
+1. **Ensure system is calibrated** (at least 1 weight point; 2+ strongly recommended)
+2. **Train PLC profile points** in Calibration Hub (match weight to desired voltage)
+3. **ARM the output** (`/settings` or dashboard output controls)
+4. Place known weights on scale
+5. Wait for **STABLE** indicator
+6. Note dashboard weight reading
+7. Measure analog output with multimeter
+8. Verify output matches your trained profile curve
 
-```
-Expected output = (weight / max_weight) × (10.0V - 0.0V) + 0.0V
-```
-
-### Example (0-150 lb → 0-10V)
+### Example with Trained Profile (0 lb = 0V, 150 lb = 10V)
 
 | Weight (lb) | Expected Output |
 |-------------|-----------------|
@@ -165,6 +161,8 @@ Expected output = (weight / max_weight) × (10.0V - 0.0V) + 0.0V
 | 75          | 5.00V           |
 | 112.5       | 7.50V           |
 | 150         | 10.00V          |
+
+**Note**: If no profile points are trained, system uses internal 0-250 lb fallback (0.04V per lb).
 
 ---
 
@@ -248,6 +246,32 @@ If measured output doesn't match expected due to PLC-side scaling or wiring:
 ✅ Output holds stable when weight is stable
 
 ---
+
+## Live PLC Profile (Feb 24, 2026)
+
+**Mode:** 0-10V
+**Range:** 10-400 lbs
+**Formula:** V = (weight + 9) / 100 (approx)
+
+| Weight (lb) | Output (V) |
+|-------------|------------|
+| 10.0 | 0.19 |
+| 25.0 | 0.34 |
+| 50.0 | 0.59 |
+| 75.0 | 0.84 |
+| 100.0 | 1.09 |
+| 125.0 | 1.34 |
+| 150.0 | 1.59 |
+| 175.0 | 1.84 |
+| 200.0 | 2.09 |
+| 225.0 | 2.34 |
+| 250.0 | 2.59 |
+| 275.0 | 2.84 |
+| 300.0 | 3.09 |
+| 325.0 | 3.34 |
+| 350.0 | 3.59 |
+| 375.0 | 3.84 |
+| 400.0 | 4.09 |
 
 ## Related Documents
 

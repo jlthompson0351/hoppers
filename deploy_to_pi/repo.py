@@ -199,8 +199,6 @@ class AppRepository:
             # Weight range for output scaling
             "range": {"min_lb": 0.0, "max_lb": 300.0},
             # NOTE: Ratiometric mode removed - always use raw mV
-            # Excitation voltage monitoring
-            "excitation": {"ai_channel": 1, "warn_v": 9.0, "fault_v": 8.0},
             # Analog output configuration
             "output": {
                 "mode": "0_10V",
@@ -224,11 +222,18 @@ class AppRepository:
             # Zero tracking (auto-zero maintenance)
             "zero_tracking": {
                 "enabled": True,
-                "range_lb": 0.5,
-                "deadband_lb": 0.1,
-                "hold_s": 6.0,
-                "rate_lbs": 0.1,
+                # Industrial-style AZT (micro-range, slow rate).
+                "range_lb": 0.05,
+                "deadband_lb": 0.02,
+                "hold_s": 1.0,
+                "rate_lbs": 0.05,
                 "persist_interval_s": 1.0,
+                # Post-dump re-zero (event-driven, one-shot capture).
+                "post_dump_enabled": True,
+                "post_dump_min_delay_s": 5.0,
+                "post_dump_window_s": 10.0,
+                "post_dump_empty_threshold_lb": 4.0,
+                "post_dump_max_correction_lb": 8.0,
             },
             # Startup behavior
             "startup": {
@@ -303,7 +308,6 @@ class AppRepository:
                 "safe_v": 0.0,
                 "role_map": {
                     "ao_1": "PLC_WEIGHT",
-                    "ai_1": "EXCITATION",
                 },
                 "ao_v": [],
                 "rules": [],
@@ -395,13 +399,6 @@ class AppRepository:
             conn.execute("DELETE FROM plc_profile_points WHERE id=?;", (int(point_id),))
 
     # -------- trends (scaffold hooks) --------
-    def add_excitation_sample(self, excitation_v: float) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO trends_excitation(ts, excitation_v) VALUES (?,?);",
-                (_utc_now(), float(excitation_v)),
-            )
-
     def add_channel_sample(self, channel: int, enabled: bool, raw_mv: float, filtered: float) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -428,7 +425,6 @@ class AppRepository:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
         with self._conn() as conn:
             conn.execute("DELETE FROM trends_total WHERE ts < ?;", (cutoff,))
-            conn.execute("DELETE FROM trends_excitation WHERE ts < ?;", (cutoff,))
             conn.execute("DELETE FROM trends_channels WHERE ts < ?;", (cutoff,))
 
     # -------- production totals --------

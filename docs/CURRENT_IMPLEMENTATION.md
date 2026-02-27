@@ -1,14 +1,24 @@
 # Current Implementation Documentation
 
-**Document Version:** 2.2  
-**Date:** December 19, 2025  
+**Document Version:** 2.4  
+**Date:** February 25, 2026  
 **Purpose:** Document current implementation after UI redesign, stability fixes, and weight-side “bulletproofing” (Settings wired to runtime + safer outputs + DB housekeeping)
 
 Status note (Feb 2026):
-- This document contains historical implementation notes.
+- This document contains historical implementation notes and current system state.
 - For calibration behavior currently running in this repo, use:
   - `docs/CALIBRATION_CURRENT_STATE.md`
   - `docs/CalibrationProcedure.md`
+
+**Recent Update (Feb 26, 2026):**
+- **Job Target Signal Mode:** Added a webhook-driven output control mode (`POST /api/job/webhook`). When active, the scale output holds a low signal until the scale weight reaches a target weight (minus an optional pretrigger offset), at which point it sends a fixed trigger signal to the PLC.
+- **Simplified Target Logic:** Replaced complex state machine with a pure threshold comparison (`scale_weight >= target - pretrigger`).
+- **Dashboard Mode Toggle:** Added a quick toggle on the dashboard to switch between "Legacy Weight Mapping" and "Job Target Mode".
+- **Target-Aware Auto-Zero:** Zero tracking now tracks `error = weight - zero_target_lb` (3.0 lb), allowing auto-zero to work with a non-zero floor.
+- **Post-Dump Re-Zero:** Implemented one-shot correction after dump cycle completion.
+- **Unrounded Control Loop:** Auto-zero and stability logic now use unrounded filtered weight for precision; rounding is display-only.
+- **Bug Fix:** Fixed `NameError` in opto-button ZERO path.
+- **Throughput Alignment:** Throughput cycle detection thresholds are now target-relative to support the 3.0 lb floor.
 
 ---
 
@@ -42,16 +52,16 @@ Raspberry Pi (Python App)
 ┌──────────────────────────────────┐
 │  Hardware Averaging (2 samples)  │
 │            ↓                     │
-│  Zero Offset (baseline shift)    │
+│  Zero Offset (signal domain mV)  │ ← CANONICAL: Applied before calibration
 │            ↓                     │
-│  Weight Calibration (1pt/2pt)    │
+│  Weight Calibration (1pt/2pt)    │ ← mV → lbs conversion
 │            ↓                     │
 │  Kalman Filter (zero-lag)        │
 │            ↓                     │
-│  Tare Offset (weight domain)     │
+│  Tare Offset (weight domain lbs) │ ← Applied after calibration
 │            ↓                     │
 │  Stability Detection             │
-│  Zero Tracking (auto-correct)    │
+│  Zero Tracking (auto-correct)    │ ← Adjusts zero_offset_mv (Target-Aware)
 │            ↓                     │
 │  Output Scaling                  │
 └──────────────────────────────────┘
@@ -61,6 +71,37 @@ Sequent MegaIND (Analog Output)
 PLC (0-10V or 4-20mA input)
 ```
 
+### Zeroing & Tare — Canonical mV Architecture
+
+**Critical Design:** Zero correction occurs in the **signal domain (mV)** before weight calibration.
+
+**Why this matters:**
+- Zero offset is stored as `zero_offset_mv` (CANONICAL source of truth)
+- `zero_offset_lbs` is a derived/cached field for display compatibility
+- Zero tracking measures drift in lbs, then converts back to mV for storage
+- This preserves calibration slope/gain integrity
+
+**Manual Zero Operation:**
+```python
+# Manual ZERO button calculation (src/app/routes.py):
+drift_mv = current_raw_mv - calibration_zero_mv
+new_zero_offset_mv = old_zero_offset_mv + drift_mv
+```
+
+**Zero Tracking Operation (Target-Aware):**
+```python
+# Auto zero tracking (src/core/zero_tracking.py):
+weight_error_lbs = current_gross_weight_lbs - zero_target_lb  # Target is 3.0 lb (floor)
+signal_correction_mv = weight_error_lbs / lbs_per_mv  # Convert lbs → mV
+new_zero_offset_mv = old_zero_offset_mv + signal_correction_mv
+# Derive for display: zero_offset_lbs = zero_offset_mv * lbs_per_mv
+```
+
+**Storage (SQLite config JSON):**
+- `zero_offset_mv` → Canonical field (applied to raw signal)
+- `zero_offset_lbs` → Derived field (for UI display)
+- `tare_offset_lbs` → Independent weight-domain offset (applied after calibration)
+
 ---
 
 ## Hardware Stack
@@ -69,16 +110,35 @@ PLC (0-10V or 4-20mA input)
 
 ```
 ┌─────────────────────────────────┐
-│   24b8vin HAT (TOP)             │ ← I2C: 0x31, Stack ID: 0
-│   8x 24-bit Analog Inputs       │   Firmware: 1.4
+│   MegaIND HAT (TOP)             │ ← I2C: 0x52, Stack ID: 2
+│   Industrial Automation I/O     │   Firmware: 4.8
 ├─────────────────────────────────┤
-│   MegaIND HAT (BOTTOM)          │ ← I2C: 0x50, Stack ID: 0
-│   Industrial Automation I/O     │   Firmware: 4.08
+│   24b8vin HAT (BOTTOM)          │ ← I2C: 0x31, Stack ID: 0
+│   8x 24-bit Analog Inputs       │   Firmware: 1.4
 ├─────────────────────────────────┤
 │   Raspberry Pi 4B               │ ← Hostname: Hoppers
 │   IP: 172.16.190.25             │   OS: Debian (aarch64)
 └─────────────────────────────────┘
+
+Load Cells: 4x S-type 350Ω → Summing Board → DAQ Channel 1
 ```
+
+### Current Calibration (Feb 20, 2026)
+
+**Hardware**: 4 S-type load cells wired to summing board, single channel output
+
+**Calibration Points**: 9-point piecewise linear
+- 3, 25, 50, 100, 150, 200, 250, 300, 335 lbs
+- Anchor: 3 lb @ 5.644 mV (zero floor)
+- Slope: 112 lb/mV (verified from 3-cell data, holds with 4 cells)
+
+**PLC Output Profile**: 17 points (10-400 lb)
+- Formula: V = (weight + 9) / 100
+- PLC multiplier: 1000, -9 lb offset in PLC hardware
+- Range: 10 lb (0.190V) to 400 lb (4.090V)
+- Old vs New: Old 1.663V for 250 lb → New 2.590V for 250 lb
+
+**Zero Floor**: 3 lb (prevents PLC dead zone < 0.1V)
 
 ### 24b8vin DAQ HAT Capabilities
 
@@ -306,6 +366,56 @@ To prevent runtime failures and to ensure new settings always have safe defaults
 
 This guarantees new UI/templates (especially `/settings`) never break due to missing keys.
 
+### Job Target Signal Mode (Webhook Control)
+
+The scale can operate in two distinct output modes:
+1.  **Legacy Weight Mapping:** The continuous 0-10V / 4-20mA output represents the current weight on the scale (e.g. 0V = 0lb, 10V = 400lb).
+2.  **Job Target Signal Mode:** The output acts as a digital-like trigger signal for a PLC batching system.
+
+**How Job Target Mode Works:**
+- An external system sends an HTTP `POST` to `/api/job/webhook` with payload:
+  `{"event":"job.load_size_updated","jobId":"...","machineKey":"...","loadSize":100.0,"idempotencyKey":"...","timestamp":"..."}`
+- The scale stores `loadSize` as `set_weight` and tracks `idempotencyKey` as the webhook dedupe identity.
+- While `scale_weight < (set_weight - pretrigger_lb)`, the scale outputs a fixed `low_signal_value` (e.g., 0.0V).
+- When `scale_weight >= (set_weight - pretrigger_lb)`, the scale outputs a fixed `trigger_signal_value` (e.g., 10.0V).
+- The mode is toggleable from the main Dashboard UI or the Settings page.
+- If mode is not enabled (`legacy_weight_mapping`), webhook updates are rejected with HTTP `409` by design.
+
+**Configuration (`job_control` block):**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Whether target mode is active. |
+| `mode` | str | `legacy_weight_mapping` | `legacy_weight_mapping` or `target_signal_mode`. |
+| `trigger_mode` | str | `exact` | `exact` (trigger at target) or `early` (trigger at target - offset). |
+| `trigger_signal_value` | float | `1.0` | Output value when target is reached. |
+| `low_signal_value` | float | `0.0` | Output value when below target. |
+| `pretrigger_lb` | float | `0.0` | Early trigger offset (only applied if `trigger_mode` is `early`). |
+| `webhook_token` | str | `""` | Required token for API endpoints. |
+
+**API Endpoints:**
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/job/mode` | POST | None | Toggle mode: `{"mode": "target_signal_mode"}` or `{"mode": "legacy_weight_mapping"}` |
+| `/api/job/webhook` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Set target weight from external system payload |
+| `/api/job/status` | GET | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Returns `{enabled, mode, status: {set_weight, active, meta}}` |
+| `/api/job/clear` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Clears active job, resets output to low signal |
+| `/api/job/trigger/from-nudge` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Captures current output nudge value as trigger signal |
+
+**Webhook payload requirements:**
+- `event` (string, required; must be `job.load_size_updated`)
+- `jobId` (string, required)
+- `machineKey` (string, required)
+- `loadSize` (float, required, >= 0)
+- `idempotencyKey` (string, required, used for dedupe)
+- `timestamp` (ISO-8601 string, required)
+
+**Runtime behavior:**
+- Target weight (`_job_set_weight`) is stored in-memory only -- not persisted to DB. Pi restart loses the active target; external system must re-send the webhook.
+- Duplicate `idempotencyKey` values are accepted as no-op replays (`duplicate=true`, `action=ignored_duplicate`).
+- The trigger signal dropdown on the Settings > Job Target Mode tab is populated from existing PLC profile points (Calibration Hub). Operator picks a known voltage/weight pair instead of typing a raw number.
+- Switching mode via dashboard toggle immediately changes the output path. If a job is active during toggle to legacy, output reverts to proportional weight mapping.
+
 ### Filter Settings
 
 | Key | Type | Default | Description |
@@ -342,10 +452,7 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 
 ### Range Settings
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `range.min_lb` | float | `0.0` | Minimum weight for output scaling |
-| `range.max_lb` | float | `300.0` | Maximum weight for output scaling |
+**DEPRECATED**: The `range.min_lb` and `range.max_lb` settings have been removed. PLC output mapping is now configured via Calibration Hub (train weight/voltage pairs). System calculates volts-per-pound from saved profile points. An internal linear fallback (0-250 lb) only kicks in when no profile points are trained.
 
 ### Excitation Monitoring
 
@@ -379,6 +486,7 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scale.tare_offset_lbs` | float | `0.0` | Software tare offset |
+| `scale.zero_target_lb` | float | `3.0` | **NEW:** Zero floor - ZERO button targets this weight instead of 0 lb (prevents PLC dead zone) |
 
 ### Dump Detection
 
@@ -399,12 +507,18 @@ This guarantees new UI/templates (especially `/settings`) never break due to mis
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `zero_tracking.enabled` | bool | `true` | Auto-zero maintenance enable |
-| `zero_tracking.range_lb` | float | `1.0` | Only track when within ±this band |
+| `zero_tracking.enabled` | bool | `false` | Auto-zero maintenance enable (**currently DISABLED** - manual ZERO preferred) |
+| `zero_tracking.range_lb` | float | `25.0` | Only track when within ±this band |
 | `zero_tracking.deadband_lb` | float | `0.1` | Stop correcting when inside this band |
-| `zero_tracking.hold_s` | float | `6.0` | Wait time before tracking starts (sec) |
-| `zero_tracking.rate_lbs` | float | `0.1` | Max correction rate (lb/s) |
+| `zero_tracking.hold_s` | float | `0.5` | Wait time before tracking starts (sec) |
+| `zero_tracking.negative_hold_s` | float | `8.0` | Wait time for negative weight (fast path) |
+| `zero_tracking.rate_lbs` | float | `50.0` | Max correction rate (lb/s) |
 | `zero_tracking.persist_interval_s` | float | `1.0` | How often to save offset during tracking |
+| `zero_tracking.post_dump_enabled` | bool | `true` | Enable one-shot re-zero after dump cycle |
+| `zero_tracking.post_dump_min_delay_s` | float | `5.0` | Wait time after dump before re-zero attempt |
+| `zero_tracking.post_dump_window_s` | float | `10.0` | Max time to wait for stable empty condition |
+| `zero_tracking.post_dump_empty_threshold_lb` | float | `4.0` | Weight must be within ±this of zero target |
+| `zero_tracking.post_dump_max_correction_lb` | float | `8.0` | Max single correction allowed |
 
 **Zero Tracking State Machine:**
 - **ACTIVE (tracking):** Baseline adjusting now
@@ -527,6 +641,8 @@ hoppers/
 │   ├── core/                    # Core algorithms
 │   │   ├── filtering.py         # Kalman + stability
 │   │   ├── zero_tracking.py     # Auto-zero state machine
+│   │   ├── post_dump_rezero.py  # Post-dump re-zero logic
+│   │   ├── throughput_cycle.py  # Cycle detection logic
 │   │   └── zeroing.py           # Zero + calibration mapping helpers
 │   ├── db/                      # Database layer
 │   │   ├── repo.py              # Repository pattern
@@ -688,9 +804,31 @@ megaind 0 board
 
 ---
 
-## Recent Changes (v2.5)
+## Recent Changes (v2.6 -> v3.3)
 
-### February 2026
+### February 25, 2026 (v3.4)
+1. **Target-Aware Auto-Zero**: Zero tracking now maintains `zero_target_lb` (3.0 lb) instead of 0.0 lb.
+2. **Post-Dump Re-Zero**: Added one-shot correction after dump cycle completion.
+3. **Unrounded Control Loop**: Auto-zero and stability logic now use unrounded filtered weight for precision.
+4. **Bug Fix**: Fixed `NameError` in opto-button ZERO path.
+5. **Throughput Alignment**: Throughput cycle detection thresholds are now target-relative.
+
+### February 23, 2026 (v3.3.1)
+1. **Crash Fix (Flask service)**: Replaced undefined `cal_zero_sig` with `cal_target_sig` in the `/api/zero` manual zero endpoint (`routes.py`) to prevent crash loop.
+
+### February 20, 2026 (v3.3)
+
+1. **Hardware Upgrade**: Added 4th load cell (was 3, now 4 S-type cells on summing board)
+2. **Full Recalibration**: 9-point piecewise linear (3-335 lbs), slope 112 lb/mV, anchor 3 lb @ 5.644 mV
+3. **New PLC Profile**: 17 points (10-400 lb), formula V = (weight + 9) / 100, fixed bad PLC zero offset
+4. **Zero Floor Feature**: ZERO button now targets 3 lb instead of 0 lb (prevents PLC dead zone < 0.1V)
+5. **Negative Dump Fix**: Empty weight floored to `max(0, empty_lbs)` in throughput_cycle.py to prevent inflated dump totals
+6. **Code Safety**: Fixed 4 division-by-zero locations (`lbs_per_mv is not None and abs(...)` checks)
+7. **Zero Tracking Gate**: Disabled during calibration mode (`calibration_active` check)
+8. **High-Res Logging**: 20Hz logging to trends_total (delayed start Monday Feb 23, 2026 06:00 EST)
+9. **Deploy Scripts**: Updated to include `throughput_cycle.py` in file lists
+
+### February 2026 (v2.5)
 
 1. **HDMI layout refined for 800x480**: centered weight card, dashboard-style zero diagnostics, and right-side daily/shift placeholder panel.
 2. **Shift clear UX scaffolded**: `CLEAR SHIFT TOTAL` added as UI-only placeholder while throughput database integration is in progress.
@@ -703,7 +841,7 @@ megaind 0 board
 
 1. **Unified Calibration Hub**: Merged PLC output calibration into the Scale Calibration page for a "Hand-in-Hand" workflow.
 2. **Interactive Live Nudge**: Added real-time voltage/mA nudging during calibration to match PLC displays precisely.
-3. **Proportional Mapping**: Uses linear scaling from configured weight range to output span, with optional deadband/ramp controls.
+3. **Profile-Based Mapping**: Uses trained PLC profile points for output mapping. System interpolates between trained weight/voltage pairs, with optional deadband/ramp controls.
 4. **Clean Split Logic**: Separated "Setup" (Settings page) from "Training" (Calibration Hub).
 5. **Conflict Guard**: Implemented auto-scanning for I/O pin conflicts between system roles and logic rules.
 6. **Hardware Extensions**: Added support for Relays and Open-Drain outputs in the MegaIND drivers.
@@ -731,4 +869,4 @@ megaind 0 board
 ---
 
 **Document Created:** December 18, 2025  
-**Last Updated:** February 12, 2026 (v2.5 - HDMI layout + zero diagnostics documentation sync)
+**Last Updated:** February 25, 2026 (v3.4 - Target-Aware Auto-Zero, Post-Dump Re-Zero, Unrounded Control Loop)

@@ -15,9 +15,9 @@
 |----------|-------|
 | **Dashboard** | http://172.16.190.25:8080 |
 | **Status** | ✅ Online, connected to Flask service |
-| **I2C Base Address** | **0x50** (stack 0) |
+| **I2C Address** | **0x52** (Stack 2, base 0x50 + 2) |
 | **Address Range** | 0x50–0x57 (stack 0–7) |
-| **Firmware Version** | 04.08 |
+| **Firmware Version** | 4.8 |
 | **CPU Temperature** | 41°C |
 | **Power Source** | 24.13V |
 | **Pi Voltage** | 5.23V |
@@ -29,10 +29,10 @@
 ## SECTION A — MegaIND Capabilities (Truth Table)
 
 ### Hardware Stack Configuration
-- **Physical Stack Order:** Raspberry Pi → MegaIND (bottom, closest to Pi) → 24b8vin (top)
+- **Physical Stack Order:** Raspberry Pi → 24b8vin DAC (middle, stack 0) → MegaIND (top, stack 2)
 - **I2C Bus:** Both boards share I2C bus 1 (`/dev/i2c-1`)
-- **I2C Base Address:** **0x50** (verified December 18, 2025)
-- **Stack Level / ID:** 0..7 (eight-level stackable via address jumpers)
+- **I2C Address:** **0x52** (base 0x50 + stack 2, verified February 15, 2026)
+- **Stack Level / ID:** 2 (jumper-selectable 0..7)
 - **No I2C Conflict:** MegaIND (0x50–0x57) and 24b8vin (0x31–0x38) use different address ranges
 
 ### Subsystem Capabilities
@@ -539,7 +539,7 @@
 import megaind
 
 # Configuration
-STACK_LEVEL = 0  # MegaIND stack level (0..7)
+STACK_LEVEL = 2  # MegaIND stack level (jumper-set to 2, addr 0x52)
 CHANNEL = 1      # Voltage input channel 1
 
 # Read 0–10V input (jumper must be in 0–10V position)

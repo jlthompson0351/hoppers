@@ -1,0 +1,296 @@
+{
+  "config": {
+    "alarms": {
+      "allow_negative": false,
+      "high_lb": null,
+      "low_lb": null,
+      "overload_action": "alarm",
+      "overload_lb": null,
+      "rate_lbs": null,
+      "underload_lb": -5.0
+    },
+    "daq": {
+      "average_samples": 2,
+      "channel": 7,
+      "enabled_channels": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "gain_code": 6,
+      "sample_rate": 0,
+      "stack_level": 0
+    },
+    "daq24b8vin": {
+      "average_samples": 2,
+      "channels": [
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        },
+        {
+          "enabled": false,
+          "gain_code": 7,
+          "role": "Not used"
+        }
+      ],
+      "stack_level": 0
+    },
+    "display": {
+      "round_up_enabled": true,
+      "show_decimal_point": true,
+      "weight_decimals": 0
+    },
+    "drift": {
+      "consecutive_required": 20,
+      "ema_alpha": 0.02,
+      "ratio_threshold": 0.12
+    },
+    "dump_detection": {
+      "drop_threshold_lb": 25.0,
+      "min_prev_stable_lb": 10.0
+    },
+    "excitation": {
+      "ai_channel": 1,
+      "enabled": true,
+      "fault_v": 8.0,
+      "warn_v": 9.0
+    },
+    "fault": {
+      "delay_s": 2.0,
+      "recovery": "auto"
+    },
+    "filter": {
+      "alpha": 0.18,
+      "kalman_measurement_noise": 80.0,
+      "kalman_process_noise": 5.5,
+      "kalman_q": 5.5,
+      "kalman_r": 80.0,
+      "median_enabled": false,
+      "median_window": 5,
+      "notch_enabled": false,
+      "notch_freq": 60,
+      "stability_slope_lbs": 4.0,
+      "stability_stddev_lb": 3.0,
+      "stability_threshold": 3.0,
+      "stability_window": 15,
+      "use_kalman": true
+    },
+    "i2c": {
+      "bus": 1
+    },
+    "leds": {
+      "enabled": false
+    },
+    "logging": {
+      "event_only": false,
+      "interval_s": 1,
+      "log_output": true,
+      "log_raw": false,
+      "log_weight": true,
+      "retention_days": 30
+    },
+    "megaind": {
+      "stack_level": 2
+    },
+    "megaind_io": {
+      "allow_plc_channel": false,
+      "ao_v": [
+        {
+          "enabled": false,
+          "value_v": 0.0
+        },
+        {
+          "enabled": false,
+          "value_v": 0.0
+        },
+        {
+          "enabled": false,
+          "value_v": 0.0
+        },
+        {
+          "enabled": false,
+          "value_v": 0.0
+        }
+      ],
+      "armed": true,
+      "rules": [
+        {
+          "condition": "gte",
+          "else_enabled": false,
+          "enabled": false,
+          "false_value_v": 0.0,
+          "input_ch": 1,
+          "input_kind": "ai_v",
+          "output_ch": 1,
+          "threshold": 0.0,
+          "true_value_v": 0.0
+        },
+        {
+          "condition": "gte",
+          "else_enabled": false,
+          "enabled": false,
+          "false_value_v": 0.0,
+          "input_ch": 1,
+          "input_kind": "ai_v",
+          "output_ch": 1,
+          "threshold": 0.0,
+          "true_value_v": 0.0
+        },
+        {
+          "condition": "gte",
+          "else_enabled": false,
+          "enabled": false,
+          "false_value_v": 0.0,
+          "input_ch": 1,
+          "input_kind": "ai_v",
+          "output_ch": 1,
+          "threshold": 0.0,
+          "true_value_v": 0.0
+        },
+        {
+          "condition": "gte",
+          "else_enabled": false,
+          "enabled": false,
+          "false_value_v": 0.0,
+          "input_ch": 1,
+          "input_kind": "ai_v",
+          "output_ch": 1,
+          "threshold": 0.0,
+          "true_value_v": 0.0
+        }
+      ],
+      "safe_v": 0.0
+    },
+    "onewire": {
+      "enabled": false
+    },
+    "opto_actions": {
+      "1": "tare",
+      "2": "zero",
+      "3": "print",
+      "4": "none"
+    },
+    "output": {
+      "ao_channel": 2,
+      "ao_channel_ma": 2,
+      "ao_channel_v": 2,
+      "armed": true,
+      "calibration_active": false,
+      "deadband_enabled": false,
+      "deadband_lb": 0.0,
+      "mode": "0_10V",
+      "nudge_value": 0.0,
+      "ramp_enabled": false,
+      "ramp_rate_ma": 8.0,
+      "ramp_rate_v": 5.0,
+      "safe_ma": 4.0,
+      "safe_v": 0.0,
+      "test_mode": false,
+      "test_value": 0.0
+    },
+    "production": {
+      "shift_start_utc": "2026-02-13T20:15:38+00:00"
+    },
+    "range": {
+      "max_lb": 300.0,
+      "min_lb": 0.0
+    },
+    "rs485": {
+      "enabled": false
+    },
+    "scale": {
+      "allow_opto_tare": false,
+      "last_tare_utc": "2026-02-15T17:21:28+00:00",
+      "tare_offset_lbs": 0.0,
+      "zero_offset_lbs": 2.4200517645500286,
+      "zero_offset_mv": 0.02566119596854257,
+      "zero_offset_signal": 0.02566119596854257,
+      "zero_offset_updated_utc": "2026-02-15T20:06:37+00:00"
+    },
+    "startup": {
+      "auto_arm": true,
+      "auto_zero": false,
+      "delay_s": 5,
+      "output_value": 0.0,
+      "require_manual_zero_before_auto_zero": true
+    },
+    "throughput": {
+      "device_id": null,
+      "dump_drop_lb": 6.0,
+      "empty_confirm_s": 0.3,
+      "empty_threshold_lb": 2.0,
+      "enabled": true,
+      "full_min_lb": 15.0,
+      "full_stability_s": 0.4,
+      "hopper_id": null,
+      "max_cycle_s": 900.0,
+      "min_processed_lb": 5.0,
+      "rise_trigger_lb": 8.0
+    },
+    "timing": {
+      "board_offline_s": 5,
+      "config_refresh_s": 2.0,
+      "i2c_retry_count": 3,
+      "loop_rate_hz": 20
+    },
+    "ui": {
+      "maintenance_enabled": false,
+      "poll_rate_ms": 500,
+      "timezone": "UTC"
+    },
+    "watchdog": {
+      "daq_enabled": false,
+      "daq_period_s": 120,
+      "megaind_enabled": false,
+      "megaind_period_s": 120
+    },
+    "zero_tracking": {
+      "deadband_lb": 0.1,
+      "enabled": true,
+      "hold_s": 6.0,
+      "negative_hold_s": 1.0,
+      "persist_interval_s": 1.0,
+      "range_lb": 10.0,
+      "rate_lbs": 0.8
+    }
+  },
+  "id": 9522,
+  "ts": "2026-02-15T20:06:38+00:00"
+}

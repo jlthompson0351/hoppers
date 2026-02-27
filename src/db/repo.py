@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 log = logging.getLogger(__name__)
 CAL_POINT_WEIGHT_EPS_LB = 1e-6
@@ -87,6 +87,38 @@ class AppRepository:
         finally:
             conn.close()
 
+    @contextmanager
+    def _write_conn(self) -> Iterator[sqlite3.Connection]:
+        """Open a write-locked SQLite transaction for atomic RMW updates."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON;")
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            yield conn
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+        finally:
+            conn.close()
+
+    def _load_latest_config_from_conn(self, conn: sqlite3.Connection) -> Dict[str, Any]:
+        cur = conn.execute("SELECT config_json FROM config_versions ORDER BY id DESC LIMIT 1;")
+        row = cur.fetchone()
+        if row is None:
+            return self.default_config()
+        try:
+            cfg = json.loads(row["config_json"])
+        except Exception as e:  # noqa: BLE001
+            log.exception("Failed to parse config JSON: %s", e)
+            return self.default_config()
+
+        defaults = self.default_config()
+        if not isinstance(cfg, dict):
+            return defaults
+        return _deep_merge(defaults, cfg)
+
     # -------- events / logging --------
     def log_event(self, level: str, code: str, message: str, details: Optional[dict] = None) -> None:
         details_json = json.dumps(details or {})
@@ -118,24 +150,7 @@ class AppRepository:
     # -------- config --------
     def get_latest_config(self) -> Dict[str, Any]:
         with self._conn() as conn:
-            cur = conn.execute("SELECT config_json FROM config_versions ORDER BY id DESC LIMIT 1;")
-            row = cur.fetchone()
-            if row is None:
-                return self.default_config()
-            try:
-                cfg = json.loads(row["config_json"])
-            except Exception as e:  # noqa: BLE001
-                log.exception("Failed to parse config JSON: %s", e)
-                return self.default_config()
-
-            # Existing deployments may have an older config shape stored in SQLite.
-            # Always deep-merge the stored config onto the current defaults so:
-            # - new pages/templates don't 500 on missing nested keys
-            # - new features default to safe "off" behavior unless explicitly configured
-            defaults = self.default_config()
-            if not isinstance(cfg, dict):
-                return defaults
-            return _deep_merge(defaults, cfg)
+            return self._load_latest_config_from_conn(conn)
 
     def save_config(self, cfg: Dict[str, Any]) -> None:
         with self._conn() as conn:
@@ -144,6 +159,39 @@ class AppRepository:
                 (_utc_now(), json.dumps(cfg)),
             )
         self.log_event(level="INFO", code="CONFIG_SAVED", message="Configuration saved.", details={})
+
+    def update_config_section(
+        self,
+        section: str,
+        mutator: Callable[[Dict[str, Any], Dict[str, Any]], None],
+    ) -> Dict[str, Any]:
+        """Atomically read-modify-write a single config section.
+
+        This method acquires an immediate write lock before reading current
+        config so concurrent writers cannot clobber each other with stale reads.
+        """
+        section_name = str(section or "").strip()
+        if not section_name:
+            raise ValueError("section must be a non-empty string")
+
+        with self._write_conn() as conn:
+            cfg = self._load_latest_config_from_conn(conn)
+            section_cfg = cfg.get(section_name)
+            if not isinstance(section_cfg, dict):
+                section_cfg = {}
+            mutator(section_cfg, cfg)
+            cfg[section_name] = section_cfg
+
+            ts = _utc_now()
+            conn.execute(
+                "INSERT INTO config_versions(ts, config_json) VALUES (?,?);",
+                (ts, json.dumps(cfg)),
+            )
+            conn.execute(
+                "INSERT INTO events(ts, level, code, message, details_json) VALUES (?,?,?,?,?);",
+                (ts, "INFO", "CONFIG_SAVED", "Configuration saved.", "{}"),
+            )
+            return cfg
 
     def default_config(self) -> Dict[str, Any]:
         """Default config for summing-board scale transmitter."""
@@ -165,28 +213,43 @@ class AppRepository:
                 "average_samples": 2,
             },
             # MegaIND configuration
+            # Physical stack: Pi → DAC (stack 0) → MegaIND (stack 2)
+            # Board address: 0x52 (base 0x50 + stack 2), verified 2026-02-15
             "megaind": {
-                "stack_level": 0,
+                "stack_level": 2,
             },
             # Scale calibration
             "scale": {
-                "zero_offset_mv": 0.0,
-                "zero_offset_signal": 0.0,
+                "zero_offset_mv": 0.0,           # Canonical zero offset (signal domain)
+                "zero_offset_lbs": 0.0,          # Derived compatibility field
+                "zero_offset_signal": 0.0,       # Legacy alias for zero_offset_mv
                 "zero_offset_updated_utc": None,
                 "tare_offset_lbs": 0.0,
+                "last_tare_utc": None,
+                # Safety gate: hardware DI noise can look like button presses.
+                "allow_opto_tare": False,
+                "zero_target_lb": 0.0,
             },
             # Automatic near-zero drift compensation
             "zero_tracking": {
                 "enabled": True,
-                "range_lb": 0.5,
-                "deadband_lb": 0.10,
-                "hold_s": 6.0,
-                "rate_lbs": 0.1,
+                # Industrial-style AZT (Automatic Zero Tracking):
+                # micro range near zero, slow rate, stable-only (enforced in runtime).
+                "range_lb": 0.05,
+                "deadband_lb": 0.02,
+                "hold_s": 1.0,
+                "rate_lbs": 0.05,
                 "persist_interval_s": 1.0,
+                # Post-dump re-zero (event-driven, one-shot capture after each cycle).
+                "post_dump_enabled": True,
+                "post_dump_min_delay_s": 5.0,
+                "post_dump_window_s": 10.0,
+                "post_dump_empty_threshold_lb": 4.0,
+                "post_dump_max_correction_lb": 8.0,
             },
             # Physical button actions (opto inputs on MegaIND)
             "opto_actions": {
-                "1": "tare",
+                "1": "none",
                 "2": "zero",
                 "3": "print",
                 "4": "none",
@@ -199,16 +262,9 @@ class AppRepository:
                 "kalman_process_noise": 1.0,
                 "kalman_measurement_noise": 50.0,
                 "stability_window": 25,
-                "stability_threshold": 0.5,
-                "stability_stddev_lb": 0.5,
-                "stability_slope_lbs": 1.0,
-            },
-            # Excitation monitor thresholds (MegaIND analog input)
-            "excitation": {
-                "enabled": True,
-                "ai_channel": 1,
-                "warn_v": 9.0,
-                "fault_v": 8.0,
+                "stability_threshold": 1.5,
+                "stability_stddev_lb": 1.5,
+                "stability_slope_lbs": 3.0,
             },
             # Startup output behavior
             "startup": {
@@ -216,6 +272,10 @@ class AppRepository:
                 "output_value": 0.0,
                 "auto_arm": False,
                 "auto_zero": False,
+                # Hopper safety gate:
+                # require one operator-confirmed manual ZERO after boot
+                # before automatic zero logic is allowed.
+                "require_manual_zero_before_auto_zero": True,
             },
             # Weight range for output scaling
             "range": {"min_lb": 0.0, "max_lb": 300.0},
@@ -237,6 +297,22 @@ class AppRepository:
                 "ramp_enabled": False,
                 "ramp_rate_v": 5.0,
                 "ramp_rate_ma": 8.0,
+            },
+            # Webhook-driven job target control.
+            # Legacy behavior remains default ("legacy_weight_mapping").
+            "job_control": {
+                "enabled": False,
+                "mode": "legacy_weight_mapping",
+                "trigger_mode": "exact",
+                # Fixed output signal to send when scale_weight >= set_weight.
+                # Units follow output.mode (V for 0-10V, mA for 4-20mA).
+                "trigger_signal_value": 1.0,
+                # Output value when scale_weight < set_weight (idle).
+                "low_signal_value": 0.0,
+                # Trigger early by this many pounds (trigger at set_weight - pretrigger_lb).
+                "pretrigger_lb": 0.0,
+                # Optional shared secret for /api/job/webhook.
+                "webhook_token": "",
             },
             # Timing
             "timing": {
@@ -412,13 +488,6 @@ class AppRepository:
             conn.execute("DELETE FROM plc_profile_points WHERE id=?;", (int(point_id),))
 
     # -------- trends (scaffold hooks) --------
-    def add_excitation_sample(self, excitation_v: float) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO trends_excitation(ts, excitation_v) VALUES (?,?);",
-                (_utc_now(), float(excitation_v)),
-            )
-
     def add_channel_sample(self, channel: int, enabled: bool, raw_mv: float, filtered: float) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -445,7 +514,6 @@ class AppRepository:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
         with self._conn() as conn:
             conn.execute("DELETE FROM trends_total WHERE ts < ?;", (cutoff,))
-            conn.execute("DELETE FROM trends_excitation WHERE ts < ?;", (cutoff,))
             conn.execute("DELETE FROM trends_channels WHERE ts < ?;", (cutoff,))
 
     # -------- throughput events --------

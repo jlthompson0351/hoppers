@@ -1,0 +1,104 @@
+CREATE INDEX idx_cal_points_ts ON calibration_points(ts);
+
+CREATE INDEX idx_ch_ts ON trends_channels(channel, ts);
+
+CREATE INDEX idx_events_ts ON events(ts);
+
+CREATE INDEX idx_exc_ts ON trends_excitation(ts);
+
+CREATE INDEX idx_plc_points_mode_ts ON plc_profile_points(output_mode, ts);
+
+CREATE INDEX idx_throughput_events_device_ts ON throughput_events(device_id, timestamp_utc);
+
+CREATE INDEX idx_throughput_events_ts ON throughput_events(timestamp_utc);
+
+CREATE INDEX idx_total_ts ON trends_total(ts);
+
+CREATE TABLE calibration_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  known_weight_lbs REAL NOT NULL,
+  signal REAL NOT NULL,
+  ratiometric INTEGER NOT NULL
+);
+
+CREATE TABLE config_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  config_json TEXT NOT NULL
+);
+
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  level TEXT NOT NULL,
+  code TEXT NOT NULL,
+  message TEXT NOT NULL,
+  details_json TEXT NOT NULL
+);
+
+CREATE TABLE plc_profile_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  output_mode TEXT NOT NULL,
+  analog_value REAL NOT NULL,
+  plc_displayed_lbs REAL NOT NULL
+);
+
+CREATE TABLE production_dumps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  prev_stable_lbs REAL NOT NULL,
+  new_stable_lbs REAL NOT NULL,
+  processed_lbs REAL NOT NULL
+);
+
+CREATE TABLE production_totals (
+  period_type TEXT NOT NULL,
+  period_start TEXT NOT NULL,
+  total_lbs REAL NOT NULL,
+  PRIMARY KEY (period_type, period_start)
+);
+
+CREATE TABLE schema_version (
+  version INTEGER NOT NULL
+);
+
+CREATE TABLE sqlite_sequence(name,seq);
+
+CREATE TABLE throughput_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp_utc TEXT NOT NULL,
+  processed_lbs REAL NOT NULL,
+  full_lbs REAL,
+  empty_lbs REAL,
+  duration_ms INTEGER,
+  confidence REAL,
+  device_id TEXT,
+  hopper_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE trends_channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  channel INTEGER NOT NULL,
+  enabled INTEGER NOT NULL,
+  raw_mv REAL NOT NULL,
+  filtered REAL NOT NULL
+);
+
+CREATE TABLE trends_excitation (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  excitation_v REAL NOT NULL
+);
+
+CREATE TABLE trends_total (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  total_lbs REAL NOT NULL,
+  stable INTEGER NOT NULL,
+  output_mode TEXT NOT NULL,
+  output_cmd REAL NOT NULL
+);

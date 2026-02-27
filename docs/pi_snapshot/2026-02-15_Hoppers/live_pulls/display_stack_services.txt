@@ -1,0 +1,231 @@
+### lsusb
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 002: ID 2109:3431 VIA Labs, Inc. Hub
+Bus 001 Device 003: ID 0484:5750 Specialix MPI5001
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
+### display stack processes
+pi          1207  0.3  2.4 488668 96856 ?        Ssl  14:36   0:07 /usr/bin/labwc -m
+pi          1286  0.0  0.0  10100  1920 ?        Ss   14:36   0:00 /usr/bin/ssh-agent /usr/bin/labwc-pi
+pi          1739  1.9  6.2 34385304 241468 ?     Ssl  14:36   0:46 /usr/lib/chromium/chromium --force-renderer-accessibility --enable-remote-extensions --show-component-extension-options --enable-gpu-rasterization --no-default-browser-check --disable-pings --media-router=0 --disable-dev-shm-usage --enable-remote-extensions --load-extension --use-angle=gles --noerrdialogs --disable-infobars --kiosk --disable-restore-session-state --disable-session-crashed-bubble --disable-features=TranslateUI --disable-ipc-flooding-protection http://localhost:8080/hdmi
+pi          1780  0.0  0.1 33569040 3916 ?       Sl   14:36   0:00 /usr/lib/chromium/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/home/pi/.config/chromium/Crash Reports --annotation=channel=built on Debian GNU/Linux 13 (trixie) --annotation=lsb-release=Debian GNU/Linux 13 (trixie) --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=142.0.7444.175 --initial-client-fd=5 --shared-client-connection
+pi          1782  0.0  0.0 33560756 3468 ?       S    14:36   0:00 /usr/lib/chromium/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --database=/home/pi/.config/chromium/Crash Reports --annotation=channel=built on Debian GNU/Linux 13 (trixie) --annotation=lsb-release=Debian GNU/Linux 13 (trixie) --annotation=plat=Linux --annotation=prod=Chrome_Linux --annotation=ver=142.0.7444.175 --initial-client-fd=4 --shared-client-connection
+pi          1786  0.0  1.6 33921068 63876 ?      S    14:36   0:00 /usr/lib/chromium/chromium --type=zygote --no-zygote-sandbox --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable
+pi          1787  0.0  1.6 33921196 64132 ?      S    14:36   0:00 /usr/lib/chromium/chromium --type=zygote --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable
+pi          1790  0.0  0.4 33921196 18124 ?      S    14:36   0:00 /usr/lib/chromium/chromium --type=zygote --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable
+pi          1828  3.5  3.2 34223812 125428 ?     Sl   14:36   1:25 /usr/lib/chromium/chromium --type=gpu-process --disable-dev-shm-usage --enable-gpu-rasterization --ozone-platform=wayland --render-node-override=/dev/dri/card1 --use-angle=gles --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable --gpu-preferences=UAAAAAAAAAAgAAAAAAAAAAAAAAAAAGAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAA --shared-files --metrics-shmem-handle=4,i,7246668382443159936,5875633039669004937,262144 --field-trial-handle=3,i,3303316443266440961,3958931880799574875,262144 --disable-features=EyeDropper,TranslateUI --variations-seed-version --trace-process-track-uuid=3190708988185955192
+pi          1835  1.4  2.2 33963800 89344 ?      Sl   14:36   0:34 /usr/lib/chromium/chromium --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-GB --service-sandbox-type=none --disable-dev-shm-usage --use-angle=gles --render-node-override=/dev/dri/card1 --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,9855266506652508481,9595954740172036133,524288 --field-trial-handle=3,i,3303316443266440961,3958931880799574875,262144 --disable-features=EyeDropper,TranslateUI --variations-seed-version --trace-process-track-uuid=3190708989122997041
+pi          1860  0.0  1.1 33971792 44280 ?      Sl   14:36   0:00 /usr/lib/chromium/chromium --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-GB --service-sandbox-type=utility --disable-dev-shm-usage --use-angle=gles --render-node-override=/dev/dri/card1 --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,4068420251824429999,7557058509442401681,524288 --field-trial-handle=3,i,3303316443266440961,3958931880799574875,262144 --disable-features=EyeDropper,TranslateUI --variations-seed-version --trace-process-track-uuid=3190708990060038890
+pi          1886  0.0  1.5 205301588 61736 ?     Sl   14:36   0:00 /usr/lib/chromium/chromium --type=renderer --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable --disable-dev-shm-usage --ozone-platform=wayland --lang=en-GB --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=6 --time-ticks-at-unix-epoch=-1771183987309429 --launch-time-ticks=33544667 --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,8602753750359085133,1725231785580239176,2097152 --field-trial-handle=3,i,3303316443266440961,3958931880799574875,262144 --disable-features=EyeDropper,TranslateUI --variations-seed-version --trace-process-track-uuid=3190708991934122588
+pi          1887  6.5  3.4 205339172 133512 ?    Rl   14:36   2:34 /usr/lib/chromium/chromium --type=renderer --crashpad-handler-pid=0 --enable-crash-reporter=,built on Debian GNU/Linux 13 (trixie) --noerrdialogs --change-stack-guard-on-fork=enable --disable-dev-shm-usage --ozone-platform=wayland --lang=en-GB --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=5 --time-ticks-at-unix-epoch=-1771183987309429 --launch-time-ticks=33551288 --shared-files=v8_context_snapshot_data:100 --metrics-shmem-handle=4,i,12974800269848693843,12843906476099884890,2097152 --field-trial-handle=3,i,3303316443266440961,3958931880799574875,262144 --disable-features=EyeDropper,TranslateUI --variations-seed-version --trace-process-track-uuid=3190708990997080739
+pi          4020  0.0  0.0   6384  2020 ?        S    15:15   0:00 grep -E chromium|labwc|weston|Xorg
+
+### systemctl enabled units (system)
+accounts-daemon.service                      enabled         enabled
+alsa-restore.service                         static          -
+alsa-state.service                           static          -
+alsa-utils.service                           masked          enabled
+apparmor.service                             enabled         enabled
+apt-daily-upgrade.service                    static          -
+apt-daily.service                            static          -
+apt-listchanges.service                      static          -
+auth-rpcgss-module.service                   static          -
+avahi-daemon.service                         enabled         enabled
+bluetooth.service                            enabled         enabled
+capsule@.service                             static          -
+cloud-config.service                         enabled         enabled
+cloud-final.service                          enabled         enabled
+cloud-init-hotplugd.service                  static          -
+cloud-init-local.service                     enabled         enabled
+cloud-init-main.service                      enabled         enabled
+cloud-init-network.service                   enabled         enabled
+colord.service                               static          -
+configure-printer@.service                   static          -
+console-setup.service                        enabled         enabled
+container-getty@.service                     static          -
+cron.service                                 enabled         enabled
+cryptdisks-early.service                     masked          enabled
+cryptdisks.service                           masked          enabled
+cups-browsed.service                         enabled         enabled
+cups.service                                 enabled         enabled
+dbus.service                                 static          -
+dpkg-db-backup.service                       static          -
+e2scrub@.service                             static          -
+e2scrub_all.service                          static          -
+e2scrub_fail@.service                        static          -
+e2scrub_reap.service                         enabled         enabled
+emergency.service                            static          -
+fio.service                                  disabled        enabled
+fstrim.service                               static          -
+getty-static.service                         static          -
+getty@.service                               enabled         enabled
+glamor-test.service                          enabled         enabled
+hwclock.service                              masked          enabled
+initrd-cleanup.service                       static          -
+initrd-parse-etc.service                     static          -
+initrd-switch-root.service                   static          -
+initrd-udevadm-cleanup-db.service            static          -
+ipp-usb.service                              static          -
+keyboard-setup.service                       enabled         enabled
+kmod-static-nodes.service                    static          -
+ldconfig.service                             static          -
+lightdm.service                              enabled         enabled
+loadcell-transmitter.service                 enabled         enabled
+logrotate.service                            static          -
+man-db.service                               static          -
+ModemManager.service                         enabled         enabled
+modprobe@.service                            static          -
+netplan-ovs-cleanup.service                  enabled-runtime enabled
+NetworkManager-dispatcher.service            enabled         enabled
+NetworkManager-wait-online.service           enabled         enabled
+NetworkManager.service                       enabled         enabled
+nfs-blkmap.service                           enabled         enabled
+nfs-common.service                           masked          enabled
+nfs-idmapd.service                           static          -
+nfs-utils.service                            static          -
+nftables.service                             disabled        enabled
+nm-priv-helper.service                       static          -
+packagekit-offline-update.service            static          -
+packagekit.service                           static          -
+pam_namespace.service                        static          -
+plymouth-halt.service                        static          -
+plymouth-kexec.service                       static          -
+plymouth-poweroff.service                    static          -
+plymouth-quit-wait.service                   static          -
+plymouth-quit.service                        static          -
+plymouth-read-write.service                  static          -
+plymouth-reboot.service                      static          -
+plymouth-start.service                       static          -
+plymouth-switch-root-initramfs.service       static          -
+plymouth-switch-root.service                 static          -
+polkit.service                               static          -
+ppp@.service                                 disabled        enabled
+quotaon-root.service                         static          -
+quotaon@.service                             static          -
+rc-local.service                             static          -
+regenerate_ssh_host_keys.service             enabled         enabled
+rescue.service                               static          -
+rp1-test.service                             enabled         enabled
+rpc-gssd.service                             static          -
+rpc-statd-notify.service                     static          -
+rpc-statd.service                            static          -
+rpc-svcgssd.service                          static          -
+rpcbind.service                              enabled         enabled
+rpi-eeprom-update.service                    enabled         enabled
+rpi-remove-swap-file@.service                static          -
+rpi-resize-swap-file.service                 static          -
+rpi-resize.service                           disabled        enabled
+rpi-setup-loop@.service                      static          -
+rpi-usb-gadget-ics.service                   disabled        enabled
+rpi-zram-writeback.service                   static          -
+rsync.service                                disabled        enabled
+saned.service                                masked          enabled
+saned@.service                               indirect        enabled
+serial-getty@.service                        indirect        enabled
+ssh.service                                  enabled         enabled
+sshd-keygen.service                          enabled         enabled
+sshd@.service                                indirect        enabled
+sshswitch.service                            enabled         enabled
+sudo.service                                 masked          enabled
+system-update-cleanup.service                static          -
+systemd-ask-password-console.service         static          -
+systemd-ask-password-plymouth.service        static          -
+systemd-ask-password-wall.service            static          -
+systemd-backlight@.service                   static          -
+systemd-battery-check.service                static          -
+systemd-binfmt.service                       static          -
+systemd-bsod.service                         static          -
+systemd-confext.service                      disabled        enabled
+systemd-creds@.service                       static          -
+systemd-exit.service                         static          -
+systemd-firstboot.service                    static          -
+systemd-fsck-root.service                    enabled-runtime enabled
+systemd-fsck@.service                        static          -
+systemd-growfs-root.service                  static          -
+systemd-growfs@.service                      static          -
+systemd-halt.service                         static          -
+systemd-hibernate-clear.service              static          -
+systemd-hibernate-resume.service             static          -
+systemd-hibernate.service                    static          -
+systemd-hostnamed.service                    static          -
+systemd-hwdb-update.service                  static          -
+systemd-hybrid-sleep.service                 static          -
+systemd-initctl.service                      static          -
+systemd-journal-catalog-update.service       static          -
+systemd-journal-flush.service                static          -
+systemd-journald-sync@.service               static          -
+systemd-journald.service                     static          -
+systemd-journald@.service                    static          -
+systemd-kexec.service                        static          -
+systemd-localed.service                      static          -
+systemd-logind.service                       static          -
+systemd-machine-id-commit.service            static          -
+systemd-modules-load.service                 static          -
+systemd-network-generator.service            disabled        enabled
+systemd-networkd-persistent-storage.service  static          -
+systemd-networkd-wait-online.service         disabled        enabled
+systemd-networkd-wait-online@.service        disabled        enabled
+systemd-networkd.service                     disabled        enabled
+systemd-pcrextend@.service                   static          -
+systemd-pcrfs-root.service                   static          -
+systemd-pcrfs@.service                       static          -
+systemd-pcrlock-file-system.service          disabled        enabled
+systemd-pcrlock-firmware-code.service        disabled        enabled
+systemd-pcrlock-firmware-config.service      disabled        enabled
+systemd-pcrlock-machine-id.service           disabled        enabled
+systemd-pcrlock-make-policy.service          disabled        enabled
+systemd-pcrlock-secureboot-authority.service disabled        enabled
+systemd-pcrlock-secureboot-policy.service    disabled        enabled
+systemd-pcrlock@.service                     static          -
+systemd-pcrmachine.service                   static          -
+systemd-pcrphase-initrd.service              static          -
+systemd-pcrphase-sysinit.service             static          -
+systemd-pcrphase.service                     static          -
+systemd-poweroff.service                     static          -
+systemd-pstore.service                       enabled         enabled
+systemd-quotacheck-root.service              static          -
+systemd-quotacheck@.service                  static          -
+systemd-random-seed.service                  static          -
+systemd-reboot.service                       static          -
+systemd-remount-fs.service                   enabled-runtime enabled
+systemd-rfkill.service                       static          -
+systemd-soft-reboot.service                  static          -
+systemd-storagetm.service                    static          -
+systemd-suspend-then-hibernate.service       static          -
+systemd-suspend.service                      static          -
+systemd-sysctl.service                       static          -
+systemd-sysext.service                       disabled        enabled
+systemd-sysext@.service                      static          -
+systemd-sysusers.service                     static          -
+systemd-timedated.service                    static          -
+systemd-timesyncd.service                    enabled         enabled
+systemd-tmpfiles-clean.service               static          -
+systemd-tmpfiles-setup-dev-early.service     static          -
+systemd-tmpfiles-setup-dev.service           static          -
+systemd-tmpfiles-setup.service               static          -
+systemd-tpm2-setup-early.service             static          -
+systemd-tpm2-setup.service                   static          -
+systemd-udev-load-credentials.service        disabled        enabled
+systemd-udev-settle.service                  static          -
+systemd-udev-trigger.service                 static          -
+systemd-udevd.service                        static          -
+systemd-update-done.service                  static          -
+systemd-user-sessions.service                static          -
+systemd-volatile-root.service                static          -
+systemd-zram-setup@.service                  static          -
+udisks2.service                              enabled         enabled
+upower.service                               disabled        enabled
+usb_modeswitch@.service                      static          -
+user-runtime-dir@.service                    static          -
+user@.service                                static          -
+userconfig.service                           masked          enabled
+vncserver-virtuald.service                   disabled        enabled
+vncserver-x11-serviced.service               disabled        enabled
+
+### user systemd unit files dir
+total 20
+drwxr-xr-x 4 pi pi 4096 Feb 10 12:47 .
+drwxr-xr-x 3 pi pi 4096 Dec  4 09:51 ..
+drwx------ 2 pi pi 4096 Feb 10 12:47 default.target.wants
+-rw-r--r-- 1 pi pi  251 Feb 10 12:47 kiosk.service
+drwx------ 2 pi pi 4096 Dec  4 09:51 paths.target.wants

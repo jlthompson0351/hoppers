@@ -1,5 +1,5 @@
 QUICK DEPLOYMENT GUIDE - Copy to Pi
-=====================================
+===================================
 
 This folder contains deploy scripts.
 Copy the **live source files** from `src/` (not the legacy duplicates in this folder).
@@ -17,8 +17,11 @@ METHOD 1 - Using WinSCP (EASIEST):
    ../src/services/acquisition.py           -->   /opt/loadcell-transmitter/src/services/acquisition.py
    ../src/db/repo.py                        -->   /opt/loadcell-transmitter/src/db/repo.py
    ../src/core/zero_tracking.py             -->   /opt/loadcell-transmitter/src/core/zero_tracking.py
+   ../src/core/throughput_cycle.py          -->   /opt/loadcell-transmitter/src/core/throughput_cycle.py
+   ../src/core/post_dump_rezero.py          -->   /opt/loadcell-transmitter/src/core/post_dump_rezero.py
    ../src/core/zeroing.py                   -->   /opt/loadcell-transmitter/src/core/zeroing.py
    ../src/app/templates/dashboard.html      -->   /opt/loadcell-transmitter/src/app/templates/dashboard.html
+   ../src/app/templates/hdmi.html           -->   /opt/loadcell-transmitter/src/app/templates/hdmi.html
    ../src/app/templates/settings.html       -->   /opt/loadcell-transmitter/src/app/templates/settings.html
    ../src/app/templates/scale_settings.html -->   /opt/loadcell-transmitter/src/app/templates/scale_settings.html
    ../src/app/templates/calibration.html    -->   /opt/loadcell-transmitter/src/app/templates/calibration.html
@@ -29,6 +32,12 @@ METHOD 1 - Using WinSCP (EASIEST):
 
 6. Check it worked:
    sudo systemctl status loadcell-transmitter
+
+7. Post-deploy for v3.4 (Job Target Mode):
+   - Go to Settings > Job Target Mode tab
+   - Set a webhook token in Webhook Security
+   - Trigger signal dropdown will populate from existing PLC profile points
+   - Toggle "JOB TARGET MODE" on dashboard when ready to test
 
 
 METHOD 2 - Using PowerShell (if SSH keys set up):
@@ -44,8 +53,10 @@ scp ../src/app/routes.py pi@172.16.190.25:/opt/loadcell-transmitter/src/app/
 scp ../src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transmitter/src/services/
 scp ../src/db/repo.py pi@172.16.190.25:/opt/loadcell-transmitter/src/db/
 scp ../src/core/zero_tracking.py pi@172.16.190.25:/opt/loadcell-transmitter/src/core/
+scp ../src/core/post_dump_rezero.py pi@172.16.190.25:/opt/loadcell-transmitter/src/core/
 scp ../src/core/zeroing.py pi@172.16.190.25:/opt/loadcell-transmitter/src/core/
 scp ../src/app/templates/dashboard.html pi@172.16.190.25:/opt/loadcell-transmitter/src/app/templates/
+scp ../src/app/templates/hdmi.html pi@172.16.190.25:/opt/loadcell-transmitter/src/app/templates/
 scp ../src/app/templates/settings.html pi@172.16.190.25:/opt/loadcell-transmitter/src/app/templates/
 scp ../src/app/templates/scale_settings.html pi@172.16.190.25:/opt/loadcell-transmitter/src/app/templates/
 scp ../src/app/templates/calibration.html pi@172.16.190.25:/opt/loadcell-transmitter/src/app/templates/
@@ -57,14 +68,19 @@ AFTER DEPLOYMENT:
 ----------------
 1. Go to http://172.16.190.25:8080
 2. Press Ctrl+Shift+R to hard refresh
-3. Click ZERO button when stable
-4. Verify "Zero Offset:" changes (not "Tare:")
-5. Enable zero tracking in Settings > Zero & Scale
+3. Confirm Settings page shows "Post-Dump Re-Zero (One-Shot)" section
+4. If hopper is empty/stable: press ZERO once (manual confirm)
+5. Enable/verify AZT + Post-Dump Re-Zero settings
 
 
-WHAT THIS FIXES:
----------------
-✓ ZERO now updates calibration baseline (signal offset)
-✓ ZERO no longer does the same thing as TARE
-✓ Zero tracking feature now works automatically
-✓ Fixes your 7 lb overnight drift problem!
+WHAT THIS UPDATE DOES (v3.4):
+-----------------------------
+✓ Job Target Signal Mode: webhook-driven PLC output. Scale tells PLC when to stop filling.
+  - POST /api/job/webhook receives target weight from external system
+  - Output = 0V while below target, trigger voltage when at/above target
+  - Trigger signal selectable from PLC profile dropdown in Settings
+  - Pretrigger offset for falling-weight compensation
+  - Dashboard mode toggle (Legacy / Job Target Mode) + job status bar
+  - Dedicated Settings tab for target mode configuration
+  - Token auth on all webhook endpoints (X-Scale-Token header)
+✓ Previous: Industrial two-layer auto-zero, post-dump re-zero, throughput spike guard
