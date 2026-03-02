@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 DDL_V1 = """
 PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
+PRAGMA synchronous=FULL;
 
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER NOT NULL
@@ -130,5 +130,64 @@ WHERE NOT EXISTS (
     AND ABS(COALESCE(te.full_lbs, 0.0) - pd.prev_stable_lbs) < 1e-9
     AND ABS(COALESCE(te.empty_lbs, 0.0) - pd.new_stable_lbs) < 1e-9
 );
+"""
+
+
+DDL_V3 = """
+CREATE TABLE IF NOT EXISTS set_weight_current (
+  line_id TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  set_weight_value REAL NOT NULL CHECK(set_weight_value >= 0.0),
+  set_weight_unit TEXT NOT NULL CHECK(set_weight_unit IN ('lb', 'kg', 'g', 'oz')),
+  set_weight_lbs REAL NOT NULL CHECK(set_weight_lbs >= 0.0),
+  source TEXT NOT NULL,
+  source_event_id TEXT,
+  erp_timestamp_utc TEXT,
+  product_id TEXT,
+  operator_id TEXT,
+  job_id TEXT,
+  step_id TEXT,
+  metadata_json TEXT NOT NULL,
+  state_seq INTEGER NOT NULL CHECK(state_seq >= 0),
+  received_at_utc TEXT NOT NULL,
+  updated_at_utc TEXT NOT NULL,
+  PRIMARY KEY (line_id, machine_id),
+  CHECK(length(trim(line_id)) > 0),
+  CHECK(length(trim(machine_id)) > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_set_weight_current_updated
+ON set_weight_current(updated_at_utc DESC);
+
+CREATE TABLE IF NOT EXISTS set_weight_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  received_at_utc TEXT NOT NULL,
+  line_id TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  set_weight_value REAL NOT NULL CHECK(set_weight_value >= 0.0),
+  set_weight_unit TEXT NOT NULL CHECK(set_weight_unit IN ('lb', 'kg', 'g', 'oz')),
+  set_weight_lbs REAL NOT NULL CHECK(set_weight_lbs >= 0.0),
+  source TEXT NOT NULL,
+  source_event_id TEXT,
+  erp_timestamp_utc TEXT,
+  product_id TEXT,
+  operator_id TEXT,
+  job_id TEXT,
+  step_id TEXT,
+  metadata_json TEXT NOT NULL,
+  applied_to_current INTEGER NOT NULL CHECK(applied_to_current IN (0, 1)),
+  duplicate_event INTEGER NOT NULL CHECK(duplicate_event IN (0, 1)),
+  previous_set_weight_lbs REAL,
+  previous_set_weight_unit TEXT CHECK(previous_set_weight_unit IS NULL OR previous_set_weight_unit IN ('lb', 'kg', 'g', 'oz')),
+  state_seq INTEGER NOT NULL CHECK(state_seq >= 0),
+  created_at_utc TEXT NOT NULL,
+  CHECK(length(trim(line_id)) > 0),
+  CHECK(length(trim(machine_id)) > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_set_weight_history_scope_ts
+ON set_weight_history(line_id, machine_id, received_at_utc DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_set_weight_history_ts
+ON set_weight_history(received_at_utc DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_set_weight_history_event
+ON set_weight_history(source_event_id);
 """
 

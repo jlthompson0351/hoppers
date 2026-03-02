@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import platform
@@ -918,6 +919,20 @@ def settings_post() -> Response:
     token_raw = request.form.get("job_webhook_token")
     if token_raw is not None:
         cfg["job_control"]["webhook_token"] = str(token_raw).strip()
+    override_pin_raw = request.form.get("job_override_pin")
+    if override_pin_raw is not None:
+        override_pin_text = str(override_pin_raw).strip()
+        if override_pin_text:
+            override_pin = _normalize_manager_override_pin(override_pin_text)
+            if override_pin is None:
+                repo.log_event(
+                    level="WARNING",
+                    code="OVERRIDE_PIN_REJECTED",
+                    message="Manager override PIN update rejected (must be exactly 4 digits).",
+                    details={},
+                )
+            else:
+                cfg["job_control"]["override_pin_hash"] = _hash_manager_override_pin(override_pin)
 
     # === Signal Tuning ===
     cfg.setdefault("filter", {})
@@ -2620,6 +2635,16 @@ def api_snapshot() -> Response:
     shift_start_utc = production_cfg.get("shift_start_utc")
     shift_total_lbs = repo.get_shift_total(shift_start_utc)
 
+    try:
+        persisted_job_set_weight = float(job_cfg.get("set_weight", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        persisted_job_set_weight = 0.0
+    if persisted_job_set_weight < 0.0:
+        persisted_job_set_weight = 0.0
+    persisted_job_active = bool(job_cfg.get("active", persisted_job_set_weight > 0.0))
+    persisted_job_meta_raw = job_cfg.get("meta")
+    persisted_job_meta = dict(persisted_job_meta_raw) if isinstance(persisted_job_meta_raw, dict) else None
+
     # zero_offset_mv is canonical; zero_offset_lbs is derived when slope is known.
     # Keep a legacy lbs fallback for older persisted configs.
     zero_offset_mv = float(
@@ -2790,9 +2815,9 @@ def api_snapshot() -> Response:
                 snap.get("job_control_pretrigger_lb", job_cfg.get("pretrigger_lb", 0.0)) or 0.0
             ),
             # set_weight: the current target from the last webhook (0 = no active job)
-            "set_weight": float(snap.get("job_set_weight", 0.0) or 0.0),
-            "active": bool(snap.get("job_active", False)),
-            "meta": snap.get("job_meta"),
+            "set_weight": float(snap.get("job_set_weight", persisted_job_set_weight) or 0.0),
+            "active": bool(snap.get("job_active", persisted_job_active)),
+            "meta": snap.get("job_meta", persisted_job_meta),
         },
         "production": {
             "totals": production_totals,
@@ -2892,6 +2917,69 @@ def _is_authorized_job_request(expected_token: str, job_cfg: dict[str, Any]) -> 
     return False
 
 
+def _normalize_manager_override_pin(value: Any) -> Optional[str]:
+    pin = str(value or "").strip()
+    if len(pin) == 4 and pin.isdigit():
+        return pin
+    return None
+
+
+def _hash_manager_override_pin(pin: str) -> str:
+    payload = f"lcs-manager-override-pin:{pin}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _is_authorized_override_pin(supplied_pin: Any, expected_hash: str) -> bool:
+    normalized_pin = _normalize_manager_override_pin(supplied_pin)
+    expected = str(expected_hash or "").strip().lower()
+    if normalized_pin is None or not expected:
+        return False
+    return hmac.compare_digest(_hash_manager_override_pin(normalized_pin), expected)
+
+
+def _first_payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload[key] not in (None, ""):
+            return payload[key]
+    return None
+
+
+def _normalize_weight_unit(value: Any) -> str:
+    unit = str(value or "lb").strip().lower()
+    alias_map = {
+        "lb": "lb",
+        "lbs": "lb",
+        "pound": "lb",
+        "pounds": "lb",
+        "kg": "kg",
+        "kgs": "kg",
+        "kilogram": "kg",
+        "kilograms": "kg",
+        "g": "g",
+        "gram": "g",
+        "grams": "g",
+        "oz": "oz",
+        "ounce": "oz",
+        "ounces": "oz",
+    }
+    normalized = alias_map.get(unit)
+    if normalized is None:
+        raise ValueError(f"Unsupported unit: {value!r}")
+    return normalized
+
+
+def _convert_to_lbs(value: float, unit: str) -> float:
+    if unit == "lb":
+        return float(value)
+    if unit == "kg":
+        return float(value) * 2.2046226218
+    if unit == "g":
+        return float(value) * 0.0022046226218
+    if unit == "oz":
+        return float(value) / 16.0
+    raise ValueError(f"Unsupported unit: {unit!r}")
+
+
 @bp.post("/api/job/webhook")
 def api_job_webhook() -> Response:
     """Receive job target updates from external systems via HTTPS webhook."""
@@ -2960,7 +3048,7 @@ def api_job_webhook() -> Response:
             status=400,
         )
 
-    event_name = str(payload.get("event", "") or "").strip()
+    event_name = str(payload.get("event", "job.load_size_updated") or "job.load_size_updated").strip()
     if event_name != "job.load_size_updated":
         return Response(
             json.dumps({"success": False, "error": "event must be job.load_size_updated"}),
@@ -2968,23 +3056,29 @@ def api_job_webhook() -> Response:
             status=400,
         )
 
-    job_id = str(payload.get("jobId", "") or "").strip()
+    product_id = str(_first_payload_value(payload, "product_id", "productId") or "").strip() or None
+    operator_id = str(_first_payload_value(payload, "operator_id", "operatorId") or "").strip() or None
+
+    job_id = str(_first_payload_value(payload, "jobId", "job_id", "job") or "").strip()
+    if not job_id and product_id:
+        job_id = str(product_id)
     if not job_id:
         return Response(
-            json.dumps({"success": False, "error": "jobId is required"}),
+            json.dumps({"success": False, "error": "jobId is required (or provide product_id as fallback)"}),
             mimetype="application/json",
             status=400,
         )
 
-    machine_key = str(payload.get("machineKey", "") or "").strip()
-    if not machine_key:
+    machine_id = str(_first_payload_value(payload, "machine_id", "machineId", "machineKey") or "").strip()
+    if not machine_id:
         return Response(
-            json.dumps({"success": False, "error": "machineKey is required"}),
+            json.dumps({"success": False, "error": "machine_id (or machineKey) is required"}),
             mimetype="application/json",
             status=400,
         )
+    line_id = str(_first_payload_value(payload, "line_id", "lineId", "line") or "default_line").strip() or "default_line"
 
-    idempotency_key = str(payload.get("idempotencyKey", "") or "").strip()
+    idempotency_key = str(_first_payload_value(payload, "idempotencyKey", "event_id", "eventId") or "").strip()
     if not idempotency_key:
         return Response(
             json.dumps({"success": False, "error": "idempotencyKey is required"}),
@@ -2992,7 +3086,7 @@ def api_job_webhook() -> Response:
             status=400,
         )
 
-    timestamp_raw = str(payload.get("timestamp", "") or "").strip()
+    timestamp_raw = str(_first_payload_value(payload, "timestamp", "erp_timestamp_utc", "erpTimestampUtc") or "").strip()
     if not timestamp_raw:
         return Response(
             json.dumps({"success": False, "error": "timestamp is required"}),
@@ -3000,15 +3094,30 @@ def api_job_webhook() -> Response:
             status=400,
         )
 
-    target_raw = payload.get("loadSize", None)
+    target_raw = _first_payload_value(payload, "set_weight", "setWeight", "loadSize")
     try:
-        target_weight_lb = float(target_raw)
+        target_weight_value = float(target_raw)
     except (TypeError, ValueError):
         return Response(
-            json.dumps({"success": False, "error": "loadSize must be a number"}),
+            json.dumps({"success": False, "error": "set_weight (or loadSize) must be a number"}),
             mimetype="application/json",
             status=400,
         )
+    if target_weight_value < 0.0:
+        return Response(
+            json.dumps({"success": False, "error": "set_weight must be >= 0"}),
+            mimetype="application/json",
+            status=400,
+        )
+    try:
+        set_weight_unit = _normalize_weight_unit(_first_payload_value(payload, "unit", "weight_unit", "weightUnit") or "lb")
+    except ValueError as e:
+        return Response(
+            json.dumps({"success": False, "error": str(e)}),
+            mimetype="application/json",
+            status=400,
+        )
+    target_weight_lb = _convert_to_lbs(target_weight_value, set_weight_unit)
 
     source_ip = request.remote_addr
     try:
@@ -3017,7 +3126,15 @@ def api_job_webhook() -> Response:
             target_weight_lb=target_weight_lb,
             step_id=None,
             event_id=idempotency_key,
-            source=f"api_job_webhook:{source_ip}:{machine_key}:{event_name}:{timestamp_raw}",
+            line_id=line_id,
+            machine_id=machine_id,
+            set_weight_value=target_weight_value,
+            set_weight_unit=set_weight_unit,
+            erp_timestamp_utc=timestamp_raw,
+            product_id=product_id,
+            operator_id=operator_id,
+            payload=payload,
+            source=f"api_job_webhook:{source_ip}:{machine_id}:{event_name}:{timestamp_raw}",
         )
     except ValueError as e:
         return Response(
@@ -3040,6 +3157,154 @@ def api_job_webhook() -> Response:
 
     return Response(
         json.dumps({"success": True, **result}),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@bp.post("/api/job/override")
+def api_job_override() -> Response:
+    """Manually override job set-weight from HDMI using manager PIN."""
+    repo: AppRepository = current_app.config["REPO"]
+    svc = current_app.config.get("ACQ_SERVICE")
+    if svc is None or not hasattr(svc, "ingest_job_webhook"):
+        return Response(
+            json.dumps({"success": False, "error": "Acquisition service unavailable"}),
+            mimetype="application/json",
+            status=503,
+        )
+
+    latest_cfg = repo.get_latest_config()
+    job_cfg = latest_cfg.get("job_control", {}) if isinstance(latest_cfg, dict) else {}
+    mode = str(job_cfg.get("mode", "legacy_weight_mapping") or "legacy_weight_mapping")
+    enabled = bool(job_cfg.get("enabled", False)) and mode == "target_signal_mode"
+    if not enabled:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": "Job target mode is disabled. Enable target signal mode in settings first.",
+                }
+            ),
+            mimetype="application/json",
+            status=409,
+        )
+
+    expected_pin_hash = str(job_cfg.get("override_pin_hash", "") or "").strip().lower()
+    if not expected_pin_hash:
+        return Response(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": "Override PIN not configured. Set a 4-digit manager PIN in settings first.",
+                }
+            ),
+            mimetype="application/json",
+            status=503,
+        )
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return Response(
+            json.dumps({"success": False, "error": "Expected JSON object payload"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    supplied_pin = _first_payload_value(payload, "pin", "manager_pin", "override_pin")
+    if not _is_authorized_override_pin(supplied_pin, expected_pin_hash):
+        repo.log_event(
+            level="WARNING",
+            code="JOB_OVERRIDE_UNAUTHORIZED",
+            message="Rejected manual override: invalid PIN.",
+            details={"source_ip": request.remote_addr},
+        )
+        return Response(
+            json.dumps({"success": False, "error": "Unauthorized"}),
+            mimetype="application/json",
+            status=401,
+        )
+
+    target_raw = _first_payload_value(payload, "set_weight", "setWeight", "weight_lb", "weightLb", "weight")
+    try:
+        target_weight_lb = float(target_raw)
+    except (TypeError, ValueError):
+        return Response(
+            json.dumps({"success": False, "error": "set_weight must be a number"}),
+            mimetype="application/json",
+            status=400,
+        )
+    if target_weight_lb < 0.0:
+        return Response(
+            json.dumps({"success": False, "error": "set_weight must be >= 0"}),
+            mimetype="application/json",
+            status=400,
+        )
+
+    line_id_raw = _first_payload_value(payload, "line_id", "lineId", "line")
+    machine_id_raw = _first_payload_value(payload, "machine_id", "machineId", "machineKey")
+    line_id = str(line_id_raw).strip() if line_id_raw not in (None, "") else None
+    machine_id = str(machine_id_raw).strip() if machine_id_raw not in (None, "") else None
+
+    source_ip = str(request.remote_addr or "unknown")
+    received_utc = _utc_now()
+    override_meta = {
+        "manual_override": True,
+        "overridden": True,
+        "reason": "overridden",
+        "source_ui": "hdmi",
+        "source_ip": source_ip,
+        "requested_set_weight_lb": float(target_weight_lb),
+        "received_utc": received_utc,
+    }
+
+    try:
+        result = svc.ingest_job_webhook(
+            job_id="MANUAL_OVERRIDE",
+            target_weight_lb=target_weight_lb,
+            step_id=None,
+            event_id=None,
+            line_id=line_id,
+            machine_id=machine_id,
+            set_weight_value=target_weight_lb,
+            set_weight_unit="lb",
+            erp_timestamp_utc=received_utc,
+            product_id=None,
+            operator_id=None,
+            payload=override_meta,
+            source=f"manual_override:overridden:hdmi:{source_ip}",
+        )
+    except ValueError as e:
+        return Response(
+            json.dumps({"success": False, "error": str(e)}),
+            mimetype="application/json",
+            status=400,
+        )
+    except Exception as e:  # noqa: BLE001
+        repo.log_event(
+            level="ERROR",
+            code="JOB_OVERRIDE_FAILED",
+            message="Manual override processing failed.",
+            details={"error": str(e)[:500]},
+        )
+        return Response(
+            json.dumps({"success": False, "error": "Manual override failed"}),
+            mimetype="application/json",
+            status=500,
+        )
+
+    repo.log_event(
+        level="INFO",
+        code="JOB_OVERRIDE_APPLIED",
+        message="Manual job set-weight override applied from HDMI.",
+        details={
+            "target_weight_lb": float(target_weight_lb),
+            "line_id": line_id,
+            "machine_id": machine_id,
+        },
+    )
+    return Response(
+        json.dumps({"success": True, "overridden": True, **result}),
         mimetype="application/json",
         headers={"Cache-Control": "no-cache"},
     )

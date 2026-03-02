@@ -61,7 +61,10 @@ class ThroughputCycleDetector:
 
         if self._state == "EMPTY_STABLE":
             if is_stable and gross_lbs <= cfg.empty_threshold_lb:
-                self._empty_baseline_lbs = gross_lbs
+                # Baseline must represent "near-empty" around zero.
+                # Negative compression/drift can appear briefly; if we let that
+                # become the baseline, rise-trigger math can start false fills.
+                self._empty_baseline_lbs = max(0.0, gross_lbs)
             if gross_lbs >= (self._empty_baseline_lbs + cfg.rise_trigger_lb):
                 self._fill_started_s = now_s
                 self._peak_lbs = gross_lbs

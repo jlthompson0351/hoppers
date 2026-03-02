@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import json
 import logging
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -69,15 +70,51 @@ class PlcProfilePointRow:
     plc_displayed_lbs: float
 
 
+@dataclass(frozen=True)
+class SetWeightCurrentRow:
+    line_id: str
+    machine_id: str
+    set_weight_value: float
+    set_weight_unit: str
+    set_weight_lbs: float
+    source: str
+    source_event_id: Optional[str]
+    erp_timestamp_utc: Optional[str]
+    product_id: Optional[str]
+    operator_id: Optional[str]
+    job_id: Optional[str]
+    step_id: Optional[str]
+    metadata: Dict[str, Any]
+    state_seq: int
+    received_at_utc: str
+    updated_at_utc: str
+
+
+@dataclass(frozen=True)
+class SetWeightReceiptResult:
+    applied_to_current: bool
+    duplicate_event: bool
+    state_seq: int
+    current_set_weight_lbs: float
+    current_set_weight_unit: str
+
+
 class AppRepository:
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
 
+    @staticmethod
+    def _configure_connection(conn: sqlite3.Connection) -> None:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=FULL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON;")
+        self._configure_connection(conn)
         try:
             yield conn
             conn.commit()
@@ -91,8 +128,7 @@ class AppRepository:
     def _write_conn(self) -> Iterator[sqlite3.Connection]:
         """Open a write-locked SQLite transaction for atomic RMW updates."""
         conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON;")
+        self._configure_connection(conn)
         conn.execute("BEGIN IMMEDIATE;")
         try:
             yield conn
@@ -192,6 +228,325 @@ class AppRepository:
                 (ts, "INFO", "CONFIG_SAVED", "Configuration saved.", "{}"),
             )
             return cfg
+
+    @staticmethod
+    def _clean_required_text(value: Any, field_name: str) -> str:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            raise ValueError(f"{field_name} is required")
+        return cleaned
+
+    @staticmethod
+    def _clean_optional_text(value: Any) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        cleaned = str(value).strip()
+        return cleaned if cleaned else None
+
+    @staticmethod
+    def _normalize_weight_unit(value: Any) -> str:
+        unit = str(value or "").strip().lower()
+        alias_map = {
+            "lb": "lb",
+            "lbs": "lb",
+            "pound": "lb",
+            "pounds": "lb",
+            "kg": "kg",
+            "kgs": "kg",
+            "kilogram": "kg",
+            "kilograms": "kg",
+            "g": "g",
+            "gram": "g",
+            "grams": "g",
+            "oz": "oz",
+            "ounce": "oz",
+            "ounces": "oz",
+        }
+        normalized = alias_map.get(unit)
+        if normalized is None:
+            raise ValueError(f"Unsupported weight unit: {value!r}")
+        return normalized
+
+    @staticmethod
+    def _parse_metadata_json(value: Any) -> Dict[str, Any]:
+        try:
+            parsed = json.loads(value or "{}")
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _row_to_set_weight_current(self, row: sqlite3.Row) -> SetWeightCurrentRow:
+        return SetWeightCurrentRow(
+            line_id=str(row["line_id"]),
+            machine_id=str(row["machine_id"]),
+            set_weight_value=float(row["set_weight_value"]),
+            set_weight_unit=str(row["set_weight_unit"]),
+            set_weight_lbs=float(row["set_weight_lbs"]),
+            source=str(row["source"]),
+            source_event_id=self._clean_optional_text(row["source_event_id"]),
+            erp_timestamp_utc=self._clean_optional_text(row["erp_timestamp_utc"]),
+            product_id=self._clean_optional_text(row["product_id"]),
+            operator_id=self._clean_optional_text(row["operator_id"]),
+            job_id=self._clean_optional_text(row["job_id"]),
+            step_id=self._clean_optional_text(row["step_id"]),
+            metadata=self._parse_metadata_json(row["metadata_json"]),
+            state_seq=int(row["state_seq"] or 0),
+            received_at_utc=str(row["received_at_utc"]),
+            updated_at_utc=str(row["updated_at_utc"]),
+        )
+
+    # -------- set weight persistence --------
+    def get_set_weight_current(self, line_id: str, machine_id: str) -> Optional[SetWeightCurrentRow]:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
+                "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
+                "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc "
+                "FROM set_weight_current WHERE line_id = ? AND machine_id = ? LIMIT 1;",
+                (line_id_clean, machine_id_clean),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_set_weight_current(row)
+
+    def get_latest_set_weight_current(self) -> Optional[SetWeightCurrentRow]:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
+                "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
+                "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc "
+                "FROM set_weight_current ORDER BY updated_at_utc DESC, rowid DESC LIMIT 1;"
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_set_weight_current(row)
+
+    def record_set_weight_receipt(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        set_weight_value: float,
+        set_weight_unit: str,
+        set_weight_lbs: float,
+        source: str,
+        state_seq: int,
+        received_at_utc: Optional[str] = None,
+        source_event_id: Optional[str] = None,
+        erp_timestamp_utc: Optional[str] = None,
+        product_id: Optional[str] = None,
+        operator_id: Optional[str] = None,
+        job_id: Optional[str] = None,
+        step_id: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> SetWeightReceiptResult:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        unit_clean = self._normalize_weight_unit(set_weight_unit)
+        source_clean = self._clean_required_text(source, "source")
+        source_event_id_clean = self._clean_optional_text(source_event_id)
+        erp_timestamp_utc_clean = self._clean_optional_text(erp_timestamp_utc)
+        product_id_clean = self._clean_optional_text(product_id)
+        operator_id_clean = self._clean_optional_text(operator_id)
+        job_id_clean = self._clean_optional_text(job_id)
+        step_id_clean = self._clean_optional_text(step_id)
+        received_ts = str(received_at_utc or _utc_now())
+        metadata_json = json.dumps(metadata or {}, sort_keys=True)
+
+        weight_value = float(set_weight_value)
+        weight_lbs = float(set_weight_lbs)
+        if (not math.isfinite(weight_value)) or weight_value < 0.0:
+            raise ValueError("set_weight_value must be finite and >= 0")
+        if (not math.isfinite(weight_lbs)) or weight_lbs < 0.0:
+            raise ValueError("set_weight_lbs must be finite and >= 0")
+
+        requested_state_seq = max(0, int(state_seq))
+        current_state_seq = 0
+        current_lbs = 0.0
+        current_unit = unit_clean
+        previous_lbs: Optional[float] = None
+        previous_unit: Optional[str] = None
+        duplicate_event = False
+        applied_to_current = False
+
+        with self._write_conn() as conn:
+            cur = conn.execute(
+                "SELECT set_weight_lbs, set_weight_unit, state_seq "
+                "FROM set_weight_current WHERE line_id = ? AND machine_id = ? LIMIT 1;",
+                (line_id_clean, machine_id_clean),
+            )
+            current_row = cur.fetchone()
+            if current_row is not None:
+                previous_lbs = float(current_row["set_weight_lbs"])
+                previous_unit = str(current_row["set_weight_unit"])
+                current_state_seq = int(current_row["state_seq"] or 0)
+                current_lbs = previous_lbs
+                current_unit = previous_unit
+
+            if source_event_id_clean:
+                dup_cur = conn.execute(
+                    "SELECT 1 FROM set_weight_history "
+                    "WHERE line_id = ? AND machine_id = ? AND source_event_id = ? LIMIT 1;",
+                    (line_id_clean, machine_id_clean, source_event_id_clean),
+                )
+                duplicate_event = dup_cur.fetchone() is not None
+
+            if not duplicate_event:
+                effective_state_seq = max(requested_state_seq, current_state_seq + 1)
+                applied_to_current = True
+                current_state_seq = effective_state_seq
+                current_lbs = weight_lbs
+                current_unit = unit_clean
+                conn.execute(
+                    "INSERT INTO set_weight_current("
+                    "line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
+                    "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
+                    "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc"
+                    ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(line_id, machine_id) DO UPDATE SET "
+                    "set_weight_value=excluded.set_weight_value, "
+                    "set_weight_unit=excluded.set_weight_unit, "
+                    "set_weight_lbs=excluded.set_weight_lbs, "
+                    "source=excluded.source, "
+                    "source_event_id=excluded.source_event_id, "
+                    "erp_timestamp_utc=excluded.erp_timestamp_utc, "
+                    "product_id=excluded.product_id, "
+                    "operator_id=excluded.operator_id, "
+                    "job_id=excluded.job_id, "
+                    "step_id=excluded.step_id, "
+                    "metadata_json=excluded.metadata_json, "
+                    "state_seq=excluded.state_seq, "
+                    "received_at_utc=excluded.received_at_utc, "
+                    "updated_at_utc=excluded.updated_at_utc;",
+                    (
+                        line_id_clean,
+                        machine_id_clean,
+                        weight_value,
+                        unit_clean,
+                        weight_lbs,
+                        source_clean,
+                        source_event_id_clean,
+                        erp_timestamp_utc_clean,
+                        product_id_clean,
+                        operator_id_clean,
+                        job_id_clean,
+                        step_id_clean,
+                        metadata_json,
+                        current_state_seq,
+                        received_ts,
+                        _utc_now(),
+                    ),
+                )
+            else:
+                effective_state_seq = current_state_seq
+
+            conn.execute(
+                "INSERT INTO set_weight_history("
+                "received_at_utc, line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
+                "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
+                "job_id, step_id, metadata_json, applied_to_current, duplicate_event, "
+                "previous_set_weight_lbs, previous_set_weight_unit, state_seq, created_at_utc"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
+                (
+                    received_ts,
+                    line_id_clean,
+                    machine_id_clean,
+                    weight_value,
+                    unit_clean,
+                    weight_lbs,
+                    source_clean,
+                    source_event_id_clean,
+                    erp_timestamp_utc_clean,
+                    product_id_clean,
+                    operator_id_clean,
+                    job_id_clean,
+                    step_id_clean,
+                    metadata_json,
+                    1 if applied_to_current else 0,
+                    1 if duplicate_event else 0,
+                    previous_lbs,
+                    previous_unit,
+                    effective_state_seq,
+                    _utc_now(),
+                ),
+            )
+
+        return SetWeightReceiptResult(
+            applied_to_current=applied_to_current,
+            duplicate_event=duplicate_event,
+            state_seq=current_state_seq,
+            current_set_weight_lbs=current_lbs,
+            current_set_weight_unit=current_unit,
+        )
+
+    def get_set_weight_history_range(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        start_utc: Optional[str] = None,
+        end_utc: Optional[str] = None,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        clauses = ["line_id = ?", "machine_id = ?"]
+        params: List[Any] = [line_id_clean, machine_id_clean]
+        if start_utc:
+            clauses.append("received_at_utc >= ?")
+            params.append(str(start_utc))
+        if end_utc:
+            clauses.append("received_at_utc < ?")
+            params.append(str(end_utc))
+        where_sql = " AND ".join(clauses)
+        sql = (
+            "SELECT id, received_at_utc, line_id, machine_id, set_weight_value, set_weight_unit, "
+            "set_weight_lbs, source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
+            "job_id, step_id, metadata_json, applied_to_current, duplicate_event, "
+            "previous_set_weight_lbs, previous_set_weight_unit, state_seq, created_at_utc "
+            f"FROM set_weight_history WHERE {where_sql} "
+            "ORDER BY received_at_utc DESC, id DESC LIMIT ?;"
+        )
+        params.append(max(1, int(limit)))
+
+        with self._conn() as conn:
+            cur = conn.execute(sql, tuple(params))
+            out: List[Dict[str, Any]] = []
+            for row in cur.fetchall():
+                out.append(
+                    {
+                        "id": int(row["id"]),
+                        "received_at_utc": row["received_at_utc"],
+                        "line_id": row["line_id"],
+                        "machine_id": row["machine_id"],
+                        "set_weight_value": float(row["set_weight_value"]),
+                        "set_weight_unit": row["set_weight_unit"],
+                        "set_weight_lbs": float(row["set_weight_lbs"]),
+                        "source": row["source"],
+                        "source_event_id": row["source_event_id"],
+                        "erp_timestamp_utc": row["erp_timestamp_utc"],
+                        "product_id": row["product_id"],
+                        "operator_id": row["operator_id"],
+                        "job_id": row["job_id"],
+                        "step_id": row["step_id"],
+                        "metadata": self._parse_metadata_json(row["metadata_json"]),
+                        "applied_to_current": bool(row["applied_to_current"]),
+                        "duplicate_event": bool(row["duplicate_event"]),
+                        "previous_set_weight_lbs": (
+                            None
+                            if row["previous_set_weight_lbs"] is None
+                            else float(row["previous_set_weight_lbs"])
+                        ),
+                        "previous_set_weight_unit": row["previous_set_weight_unit"],
+                        "state_seq": int(row["state_seq"] or 0),
+                        "created_at_utc": row["created_at_utc"],
+                    }
+                )
+            return out
 
     def default_config(self) -> Dict[str, Any]:
         """Default config for summing-board scale transmitter."""
@@ -313,6 +668,8 @@ class AppRepository:
                 "pretrigger_lb": 0.0,
                 # Optional shared secret for /api/job/webhook.
                 "webhook_token": "",
+                # SHA-256 hash of 4-digit manager PIN for manual HDMI overrides.
+                "override_pin_hash": "",
             },
             # Timing
             "timing": {

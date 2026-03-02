@@ -31,6 +31,14 @@ class _StubJobService:
         step_id: str | None = None,
         event_id: str | None = None,
         source: str = "webhook",
+        line_id: str | None = None,
+        machine_id: str | None = None,
+        set_weight_value: float | None = None,
+        set_weight_unit: str | None = None,
+        erp_timestamp_utc: str | None = None,
+        product_id: str | None = None,
+        operator_id: str | None = None,
+        payload: dict | None = None,
     ) -> dict:
         self.last_ingest = {
             "job_id": job_id,
@@ -38,6 +46,14 @@ class _StubJobService:
             "step_id": step_id,
             "event_id": event_id,
             "source": source,
+            "line_id": line_id,
+            "machine_id": machine_id,
+            "set_weight_value": set_weight_value,
+            "set_weight_unit": set_weight_unit,
+            "erp_timestamp_utc": erp_timestamp_utc,
+            "product_id": product_id,
+            "operator_id": operator_id,
+            "payload": payload,
         }
         self.status_payload["set_weight"] = float(target_weight_lb)
         self.status_payload["active"] = True
@@ -215,6 +231,37 @@ class ApiJobWebhookTests(unittest.TestCase):
                 headers={"Authorization": "Bearer secret-123"},
             )
         self.assertEqual(resp.status_code, 200)
+
+    def test_webhook_maps_extended_payload_fields_and_units(self) -> None:
+        app, _repo, _state, svc = self._make_app()
+        payload = {
+            "event": "job.load_size_updated",
+            "jobId": "JOB-EXT-1",
+            "line_id": "line-7",
+            "machine_id": "mixer-2",
+            "set_weight": 50.0,
+            "unit": "kg",
+            "idempotencyKey": "ext-evt-1",
+            "timestamp": "2026-03-02T14:00:00.000Z",
+            "product_id": "SKU-77",
+            "operator_id": "op-9",
+        }
+        with app.test_client() as client:
+            resp = client.post(
+                "/api/job/webhook",
+                data=json.dumps(payload),
+                content_type="application/json",
+                headers={"X-API-Key": "secret-123"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(svc.last_ingest)
+        self.assertEqual(svc.last_ingest["line_id"], "line-7")
+        self.assertEqual(svc.last_ingest["machine_id"], "mixer-2")
+        self.assertEqual(svc.last_ingest["set_weight_unit"], "kg")
+        self.assertAlmostEqual(float(svc.last_ingest["set_weight_value"]), 50.0)
+        self.assertAlmostEqual(float(svc.last_ingest["target_weight_lb"]), 110.231131, places=5)
+        self.assertEqual(svc.last_ingest["product_id"], "SKU-77")
+        self.assertEqual(svc.last_ingest["operator_id"], "op-9")
 
     def test_job_status_and_clear_endpoints(self) -> None:
         app, _repo, _state, svc = self._make_app()

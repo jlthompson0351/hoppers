@@ -1,7 +1,7 @@
 # Current UI Reference
 
-**Document Version:** 2.3  
-**Date:** February 12, 2026  
+**Document Version:** 2.4  
+**Date:** March 2, 2026  
 **Purpose:** Document current UI state after redesign and stability fixes
 
 ---
@@ -120,14 +120,17 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Scale HDMI                                      [STABLE] [OK]  │
 ├───────────────────────────────────┬─────────────────────────────┤
-│            75.1                   │  Job Target                  │
-│             lb                    │  Set Weight       100.0 lb   │
-│  Tare: 0.0 lb                     │  Scale Weight      75.1 lb   │
-│  Zero Offset: -2.064 lb (...)     │  Processed Weight            │
-│  Zero Tracking: ACTIVE (...)      │  Shift / Today / Loads / Avg │
-│  Zero Updated: 13:20:24           │  [ CLEAR SHIFT ]             │
+│                                   │  Zero / Tare Data           │
+│                                   │  Tare: 0.0 lb               │
+│            75.1                   │  Zero Offset: -2.064 lb     │
+│             lb                    │  Zero Tracking: ACTIVE      │
+│                                   │  Zero Updated: 13:20:24     │
+│                                   │                             │
+│  Job Target                       │  Processed Weight           │
+│  Scale Weight      75.1 lb        │  Shift / Today / Loads / Avg│
+│  Set Weight       100.0 lb        │  [ CLEAR SHIFT ]            │
 ├───────────────────────────────────┴─────────────────────────────┤
-│ [ ZERO ] [ TARE ] [ CLEAR TARE ] [ SETTINGS ]                   │
+│ [ ZERO ] [ TARE ] [ CLEAR TARE ] [ CLEAR ZERO ] [ SETTINGS ]    │
 ├─────────────────────────────────────────────────────────────────┤
 │ DAQ [●]   I/O [●]   Loop: 20.0 Hz   Updated: 13:01:27          │
 └─────────────────────────────────────────────────────────────────┘
@@ -136,8 +139,8 @@
 ### Key Features
 
 1. **Centered Live Weight Card** - Weight and unit are centered for better readability at distance
-2. **Zero Diagnostics In-Card** - Shows tare, zero offset, zero tracking state/reason, and last zero update
-3. **Job Target Panel** - Shows `Set Weight` and live `Scale Weight` when target mode is active
+2. **Job Target Panel** - Located in the bottom left, shows live `Scale Weight` (turns green when target reached) and `Set Weight` when target mode is active
+3. **Zero Diagnostics In-Card** - Moved to the top right, shows tare, zero offset, zero tracking state/reason, and last zero update
 4. **Processed Totals Panel** - Shows shift/day totals, load count, and average load
 5. **Shift Clear Action** - `CLEAR SHIFT` calls `/api/production/shift/clear` to reset shift window
 6. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `CLEAR ZERO`, `SETTINGS`
@@ -156,7 +159,7 @@
 - `weight.zero_offset_updated_utc`
 - `jobControl.enabled`
 - `jobControl.mode`
-- `jobControl.set_weight`
+- `jobControl.set_weight` (persisted last known target across restart/power cycle)
 - `jobControl.active`
 - `system.loop_hz`
 - `system.last_update_utc`
@@ -171,8 +174,8 @@
 | Clear Tare | `/api/tare/clear` | POST |
 | Clear Zero | `/api/zero/clear` | POST |
 | Clear Shift | `/api/production/shift/clear` | POST |
+| Override Job Target | `/api/job/override` | POST (Requires 4-digit PIN) |
 | Snapshot Poll | `/api/snapshot` | GET |
-| Settings Navigation | `/settings` | GET |
 
 ---
 
@@ -472,12 +475,18 @@ Headers: { "X-API-Key": "your-token", "Content-Type": "application/json" }
 Body: {
   "event": "job.load_size_updated",
   "jobId": "1703487",
-  "machineKey": "PLP6",
-  "loadSize": 200.0,
+  "line_id": "line-1",
+  "machine_id": "PLP6",
+  "set_weight": 200.0,
+  "unit": "lb",
   "idempotencyKey": "1703487:200:6d1c4f60-6ea4-4d0f-9cc9-2a2f5f0e8b2a",
-  "timestamp": "2026-02-27T14:38:45.000Z"
+  "timestamp": "2026-02-27T14:38:45.000Z",
+  "product_id": "SKU-123",
+  "operator_id": "OP-5"
 }
 ```
+
+Compatibility note: legacy keys (`machineKey`, `loadSize`) are still accepted.
 
 **Webhook response (200):**
 ```json
@@ -485,6 +494,11 @@ Body: {
 ```
 
 **Error codes:** 400 (missing required fields), 401 (invalid token), 409 (mode is legacy), 503 (no token configured or service unavailable).
+
+**Persistence note:**  
+- Latest value per scope is stored in `set_weight_current` and restored after service restart/power cycle.  
+- Every authenticated webhook receipt is appended to `set_weight_history`.  
+- Full webhook JSON is stored in `set_weight_history.metadata_json` for audit/tracing.
 
 ### Snapshot Response Schema (Updated)
 

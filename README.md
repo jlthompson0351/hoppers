@@ -101,7 +101,7 @@ plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
 
 The system includes a dedicated, touch-optimized operator interface for HDMI-connected displays (e.g., Elecrow 5" 800x480).
 
-- **HDMI Page**: Accessible at `/hdmi`. The layout is tuned for 800x480 with a centered live-weight card, tare/zero metadata lines (`Zero Offset`, `Zero Tracking`, `Zero Updated`), and a right-side totals placeholder panel for future database-backed daily/shift totals.
+- **HDMI Page**: Accessible at `/hdmi`. The layout is tuned for 800x480 with a left-side live-weight card including Job Target data, and a right-side panel for Zero/Tare metadata (`Zero Offset`, `Zero Tracking`, `Zero Updated`) and Processed Weight totals.
 - **Shift Total Control**: Includes `CLEAR SHIFT` button wired to `/api/production/shift/clear` to reset shift start time and begin a new shift total window.
 - **Auto-Launch**: The Pi can be configured to auto-launch this interface in full-screen (kiosk) mode at boot.
 - **Remote Control**: The main Dashboard includes buttons to `LAUNCH HDMI ON PI` and an emergency `FORCE RELAUNCH HDMI` to recover from stuck browser processes.
@@ -270,7 +270,7 @@ Webhook-driven output mode where the scale tells the PLC when to stop filling in
 **Key details:**
 - All measurement settings (calibration, filtering, zero/tare, stability) remain unchanged
 - Target weight persists until a new webhook changes it or `/api/job/clear` is called
-- Target is in-memory only; Pi restart requires re-sending the webhook
+- Target is persisted and restored across server/Pi restarts (until replaced or cleared)
 - Toggle between modes at any time from the Dashboard
 - If mode is `legacy_weight_mapping`, `/api/job/webhook` returns `409` by design (safety gate)
 

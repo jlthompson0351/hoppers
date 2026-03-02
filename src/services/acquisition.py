@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import deque
 import logging
 import math
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -141,6 +142,8 @@ class AcquisitionService:
         self._last_hw_retry = 0.0
         self._daq_online = hw is not None
         self._megaind_online = hw is not None
+        self._default_line_id = str(os.environ.get("LCS_LINE_ID", "default_line") or "default_line").strip() or "default_line"
+        self._default_machine_id = str(os.environ.get("LCS_MACHINE_ID", "default_machine") or "default_machine").strip() or "default_machine"
 
         # Signal processing
         self._kalman: Optional[KalmanFilter] = None
@@ -184,9 +187,11 @@ class AcquisitionService:
         self._job_lock = threading.Lock()
         self._job_set_weight: float = 0.0   # 0.0 means no active job
         self._job_meta: Optional[dict] = None  # last webhook metadata for status/log
+        self._job_state_seq: int = 0
         self._job_seen_event_ids: set[str] = set()
         self._job_event_id_order: deque[str] = deque()
         self._job_event_id_limit = 1000
+        self._restore_persisted_job_control_state()
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
@@ -200,6 +205,120 @@ class AcquisitionService:
         self._thread.join(timeout=timeout)
 
     # ── Job-target webhook control ────────────────────────────────
+
+    @staticmethod
+    def _coerce_non_negative_weight(value: Any) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if (not math.isfinite(parsed)) or parsed < 0.0:
+            return 0.0
+        return parsed
+
+    @staticmethod
+    def _normalize_weight_unit(value: Any) -> str:
+        unit = str(value or "lb").strip().lower()
+        alias_map = {
+            "lb": "lb",
+            "lbs": "lb",
+            "pound": "lb",
+            "pounds": "lb",
+            "kg": "kg",
+            "g": "g",
+            "oz": "oz",
+        }
+        return alias_map.get(unit, "lb")
+
+    def _normalize_scope_ids(self, line_id: Optional[str], machine_id: Optional[str]) -> tuple[str, str]:
+        line_clean = str(line_id or self._default_line_id or "default_line").strip() or "default_line"
+        machine_clean = str(machine_id or self._default_machine_id or "default_machine").strip() or "default_machine"
+        return line_clean, machine_clean
+
+    def _restore_persisted_job_control_state(self) -> None:
+        restored_weight = 0.0
+        restored_meta: Optional[dict[str, Any]] = None
+        restored_seq = 0
+
+        current_row = self.repo.get_set_weight_current(
+            line_id=self._default_line_id,
+            machine_id=self._default_machine_id,
+        )
+        if current_row is None:
+            current_row = self.repo.get_latest_set_weight_current()
+
+        if current_row is not None:
+            restored_weight = self._coerce_non_negative_weight(current_row.set_weight_lbs)
+            restored_seq = max(0, int(current_row.state_seq))
+            if restored_weight > 0.0:
+                restored_meta = {
+                    "job_id": current_row.job_id,
+                    "step_id": current_row.step_id,
+                    "event_id": current_row.source_event_id,
+                    "target_weight_lb": restored_weight,
+                    "target_weight": current_row.set_weight_value,
+                    "unit": current_row.set_weight_unit,
+                    "line_id": current_row.line_id,
+                    "machine_id": current_row.machine_id,
+                    "product_id": current_row.product_id,
+                    "operator_id": current_row.operator_id,
+                    "source": current_row.source,
+                    "erp_timestamp_utc": current_row.erp_timestamp_utc,
+                    "received_utc": current_row.received_at_utc,
+                }
+            else:
+                restored_meta = None
+        else:
+            cfg = self.repo.get_latest_config()
+            job_cfg = cfg.get("job_control", {}) if isinstance(cfg, dict) else {}
+            restored_weight = self._coerce_non_negative_weight(job_cfg.get("set_weight", 0.0))
+            restored_meta_raw = job_cfg.get("meta")
+            restored_meta = dict(restored_meta_raw) if isinstance(restored_meta_raw, dict) else None
+            try:
+                restored_seq = int(job_cfg.get("state_seq", 0) or 0)
+            except (TypeError, ValueError):
+                restored_seq = 0
+            restored_seq = max(0, restored_seq)
+
+        with self._job_lock:
+            self._job_set_weight = restored_weight
+            self._job_meta = restored_meta
+            self._job_state_seq = restored_seq
+
+        # Seed snapshot fields before the first acquisition loop tick.
+        self.state.set(
+            job_set_weight=restored_weight,
+            job_active=restored_weight > 0.0,
+            job_meta=(dict(restored_meta) if restored_meta else None),
+        )
+
+    def _persist_job_control_state(
+        self,
+        *,
+        set_weight: float,
+        meta: Optional[dict[str, Any]],
+        state_seq: int,
+        updated_utc: Optional[str] = None,
+    ) -> None:
+        persisted_weight = self._coerce_non_negative_weight(set_weight)
+        persisted_meta = dict(meta) if isinstance(meta, dict) else None
+        persisted_seq = max(0, int(state_seq))
+        persisted_updated_utc = str(updated_utc or _utc_now())
+
+        def _mutate(section: dict[str, Any], _cfg: dict[str, Any]) -> None:
+            try:
+                existing_seq = int(section.get("state_seq", 0) or 0)
+            except (TypeError, ValueError):
+                existing_seq = 0
+            if persisted_seq < existing_seq:
+                return
+            section["state_seq"] = persisted_seq
+            section["set_weight"] = persisted_weight
+            section["active"] = persisted_weight > 0.0
+            section["meta"] = persisted_meta
+            section["updated_utc"] = persisted_updated_utc
+
+        self.repo.update_config_section("job_control", _mutate)
 
     def get_job_control_status(self, pretrigger_lb: float = 0.0) -> dict[str, Any]:
         with self._job_lock:
@@ -220,6 +339,14 @@ class AcquisitionService:
         event_id: Optional[str] = None,
         source: str = "webhook",
         pretrigger_lb: float = 0.0,
+        line_id: Optional[str] = None,
+        machine_id: Optional[str] = None,
+        set_weight_value: Optional[float] = None,
+        set_weight_unit: Optional[str] = None,
+        erp_timestamp_utc: Optional[str] = None,
+        product_id: Optional[str] = None,
+        operator_id: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         job_id_clean = str(job_id or "").strip()
         if not job_id_clean:
@@ -230,31 +357,75 @@ class AcquisitionService:
         step_id_clean = str(step_id).strip() if step_id not in (None, "") else None
         event_id_clean = str(event_id).strip() if event_id not in (None, "") else None
         source_clean = str(source or "webhook").strip() or "webhook"
+        line_id_clean, machine_id_clean = self._normalize_scope_ids(line_id, machine_id)
+        unit_clean = self._normalize_weight_unit(set_weight_unit)
+        if set_weight_value is None:
+            set_weight_input = target_lb
+        else:
+            set_weight_input = float(set_weight_value)
         now_utc = _utc_now()
+        payload_meta: dict[str, Any] = dict(payload) if isinstance(payload, dict) else {}
+        next_meta: dict[str, Any]
+
         with self._job_lock:
-            if event_id_clean and event_id_clean in self._job_seen_event_ids:
-                status = {
-                    "set_weight": self._job_set_weight,
-                    "active": self._job_set_weight > 0.0,
-                    "meta": dict(self._job_meta) if self._job_meta else None,
-                }
-                return {
-                    "accepted": True,
-                    "duplicate": True,
-                    "action": "ignored_duplicate",
-                    "status": status,
-                }
-            self._job_set_weight = target_lb
-            self._job_meta = {
+            requested_state_seq = self._job_state_seq + 1
+            next_meta = {
                 "job_id": job_id_clean,
                 "step_id": step_id_clean,
                 "event_id": event_id_clean,
                 "target_weight_lb": target_lb,
+                "target_weight": set_weight_input,
+                "unit": unit_clean,
+                "line_id": line_id_clean,
+                "machine_id": machine_id_clean,
+                "product_id": (str(product_id).strip() if product_id not in (None, "") else None),
+                "operator_id": (str(operator_id).strip() if operator_id not in (None, "") else None),
+                "erp_timestamp_utc": (str(erp_timestamp_utc).strip() if erp_timestamp_utc not in (None, "") else None),
                 "received_utc": now_utc,
                 "source": source_clean,
             }
-            if event_id_clean:
-                self._remember_job_event_id(event_id_clean)
+
+            receipt_result = self.repo.record_set_weight_receipt(
+                line_id=line_id_clean,
+                machine_id=machine_id_clean,
+                set_weight_value=set_weight_input,
+                set_weight_unit=unit_clean,
+                set_weight_lbs=target_lb,
+                source=source_clean,
+                state_seq=requested_state_seq,
+                received_at_utc=now_utc,
+                source_event_id=event_id_clean,
+                erp_timestamp_utc=erp_timestamp_utc,
+                product_id=product_id,
+                operator_id=operator_id,
+                job_id=job_id_clean,
+                step_id=step_id_clean,
+                metadata=payload_meta,
+            )
+
+            if receipt_result.applied_to_current:
+                self._job_set_weight = float(receipt_result.current_set_weight_lbs)
+                self._job_meta = dict(next_meta)
+                self._job_state_seq = int(receipt_result.state_seq)
+                if event_id_clean:
+                    self._remember_job_event_id(event_id_clean)
+
+        if receipt_result.applied_to_current:
+            try:
+                self._persist_job_control_state(
+                    set_weight=target_lb,
+                    meta=next_meta,
+                    state_seq=receipt_result.state_seq,
+                    updated_utc=now_utc,
+                )
+            except Exception as e:  # noqa: BLE001
+                self.repo.log_event(
+                    level="WARNING",
+                    code="JOB_CONTROL_LEGACY_PERSIST_FAILED",
+                    message="Legacy config persistence failed after durable set-weight write.",
+                    details={"error": str(e)[:500]},
+                )
+
         self.repo.log_event(
             level="INFO",
             code="JOB_WEBHOOK_RECEIVED",
@@ -264,12 +435,17 @@ class AcquisitionService:
                 "target_weight_lb": target_lb,
                 "step_id": step_id_clean,
                 "event_id": event_id_clean,
+                "line_id": line_id_clean,
+                "machine_id": machine_id_clean,
+                "unit": unit_clean,
+                "duplicate_event": bool(receipt_result.duplicate_event),
+                "applied_to_current": bool(receipt_result.applied_to_current),
             },
         )
         return {
             "accepted": True,
-            "duplicate": False,
-            "action": "activated",
+            "duplicate": bool(receipt_result.duplicate_event),
+            "action": "activated" if receipt_result.applied_to_current else "ignored_duplicate",
             "status": self.get_job_control_status(),
         }
 
@@ -287,10 +463,45 @@ class AcquisitionService:
 
     def clear_job_control(self, reason: str = "manual_clear", pretrigger_lb: float = 0.0) -> dict[str, Any]:
         reason_text = str(reason or "manual_clear")
+        had_weight = False
+        receipt_state_seq = 0
+        cleared_meta = {
+            "reason": reason_text,
+            "line_id": self._default_line_id,
+            "machine_id": self._default_machine_id,
+        }
         with self._job_lock:
             had_weight = self._job_set_weight > 0.0
-            self._job_set_weight = 0.0
+            requested_state_seq = self._job_state_seq + 1
+            receipt_result = self.repo.record_set_weight_receipt(
+                line_id=self._default_line_id,
+                machine_id=self._default_machine_id,
+                set_weight_value=0.0,
+                set_weight_unit="lb",
+                set_weight_lbs=0.0,
+                source=f"clear_job_control:{reason_text}",
+                state_seq=requested_state_seq,
+                received_at_utc=_utc_now(),
+                metadata=cleared_meta,
+            )
+            self._job_set_weight = float(receipt_result.current_set_weight_lbs)
             self._job_meta = None
+            self._job_state_seq = int(receipt_result.state_seq)
+            receipt_state_seq = int(receipt_result.state_seq)
+        try:
+            self._persist_job_control_state(
+                set_weight=0.0,
+                meta=None,
+                state_seq=receipt_state_seq,
+                updated_utc=_utc_now(),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.repo.log_event(
+                level="WARNING",
+                code="JOB_CONTROL_LEGACY_PERSIST_FAILED",
+                message="Legacy config persistence failed while clearing set weight.",
+                details={"error": str(e)[:500]},
+            )
         self.repo.log_event(
             level="INFO",
             code="JOB_CONTROL_CLEARED",

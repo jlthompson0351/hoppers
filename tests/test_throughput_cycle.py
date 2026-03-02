@@ -222,6 +222,54 @@ class ThroughputCycleDetectorTests(unittest.TestCase):
         # Processed should not be inflated by negative compression dip.
         self.assertLess(evt.processed_lbs, 40.0)
 
+    def test_negative_empty_baseline_does_not_false_start_fill(self) -> None:
+        detector = ThroughputCycleDetector()
+        cfg = ThroughputCycleConfig(
+            empty_threshold_lb=2.0,
+            rise_trigger_lb=8.0,
+            full_min_lb=15.0,
+            dump_drop_lb=6.0,
+            full_stability_s=1.0,
+            empty_confirm_s=1.0,
+            min_processed_lb=5.0,
+            max_cycle_s=600.0,
+        )
+
+        now = 0.0
+
+        def step(weight: float, stable: bool, dt: float = 0.5):
+            nonlocal now
+            now += dt
+            return detector.update(now_s=now, gross_lbs=weight, is_stable=stable, cfg=cfg)
+
+        # Compression/drift can briefly report very negative values at empty.
+        for _ in range(4):
+            self.assertIsNone(step(-40.0, stable=True))
+
+        # Near-empty noise should NOT be treated as an in-progress fill.
+        for _ in range(20):  # 10 seconds of idle near empty
+            self.assertIsNone(step(3.0, stable=False))
+
+        # Run a normal cycle.
+        for w in (10.0, 16.0, 22.0, 24.0):
+            self.assertIsNone(step(w, stable=False))
+        for _ in range(3):
+            self.assertIsNone(step(24.0, stable=False))
+        for w in (18.0, 12.0, 6.0, 2.0):
+            self.assertIsNone(step(w, stable=False))
+
+        evt = None
+        for _ in range(4):
+            evt = step(1.0, stable=False)
+            if evt is not None:
+                break
+
+        self.assertIsNotNone(evt)
+        assert evt is not None
+        # Idle near-empty time should not be included in cycle duration.
+        self.assertLessEqual(evt.duration_ms, 8000)
+        self.assertGreater(evt.processed_lbs, 20.0)
+
 
 if __name__ == "__main__":
     unittest.main()

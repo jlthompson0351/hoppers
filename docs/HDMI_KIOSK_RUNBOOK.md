@@ -13,7 +13,7 @@ This project now includes a dedicated HDMI operator page at `/hdmi` with:
 - `ZERO`
 - `TARE`
 - `CLEAR TARE`
-- `SETTINGS` (opens `/settings`)
+- `OVERRIDE` (opens modal for PIN-protected manual job target override)
 - `CLEAR SHIFT TOTAL` (UI placeholder for upcoming DB integration)
 
 ## Kiosk Setup on Raspberry Pi
@@ -70,6 +70,6 @@ If the screen is mounted upside down, two files must be configured:
 2. Confirm live weight is updating
 3. Confirm `ZERO` and `TARE` are disabled when unstable
 4. Confirm `CLEAR TARE` works
-5. Confirm `SETTINGS` opens `/settings`
+5. Confirm `OVERRIDE` opens the PIN modal
 6. Confirm `Zero Offset`, `Zero Tracking`, and `Zero Updated` update from `/api/snapshot`
 7. Confirm `CLEAR SHIFT TOTAL` shows a placeholder feedback message (no backend mutation yet)

@@ -17,8 +17,11 @@ Live Production - v3.4 deployed on Pi with external webhook ingress active (Tail
 - [ ] Monitor first live production cycles (set weight -> fill -> trigger -> PLC stop -> dump)
 - [ ] Investigate mode auto-switch bug (`legacy_weight_mapping` switching back unexpectedly)
 - [ ] Implement and verify mode persistence across startup/reboot
+- [ ] Create a fresh full OS image backup with latest add-ons and fixes
 - [ ] Tune pretrigger offset per material/fill dynamics
 - [ ] Rotate webhook token after go-live validation window
+- [x] Update HDMI UI layout (move Job Target to left, Zero/Tare data to right, add Settings button)
+- [x] Persist job target set weight across restart/power cycle
 - [x] Implement Job Target Signal Mode (webhook-driven PLC output)
 - [x] Add dedicated Settings tab for Job Target Mode
 - [x] Replace raw trigger signal input with PLC profile dropdown
@@ -39,7 +42,7 @@ Live Production - v3.4 deployed on Pi with external webhook ingress active (Tail
 - Trigger signal value selected from PLC profile points dropdown (not a raw number input). Operator picks a known voltage/weight pair.
 - Webhook contract switched to external backend format: `{event, jobId, machineKey, loadSize, idempotencyKey, timestamp}`.
 - Webhook auth supports `X-API-Key` (primary), `Authorization` bearer/basic, and legacy `X-Scale-Token`.
-- Target weight is in-memory only (not persisted to DB). Pi restart requires external system to re-send webhook.
+- Target state is now persisted (`job_control.set_weight/active/meta/state_seq/updated_utc`) and restored after restart/power cycle.
 - Mode toggle only writes job_control.mode and job_control.enabled -- no other config sections touched.
 - Pretrigger offset for falling-weight compensation adjustable per-site in Settings.
 - PLC behavior confirmed: above trigger voltage = stop upfeed, below = keep filling. Overshoot from in-flight material is acceptable.
@@ -52,13 +55,28 @@ Live Production - v3.4 deployed on Pi with external webhook ingress active (Tail
 3. Investigate/resolve mode auto-switch and startup persistence bug (tracked in `docs/TODO_BACKLOG.md`)
 4. Tune pretrigger offset by material/fill speed profile
 5. Rotate webhook token and confirm backend credential update
-6. Re-pull baseline Pi image after burn-in with stable v3.4 behavior
+6. Create and verify a new full OS image backup with latest add-ons/fixes
 </next_steps>
 <!-- AI_CONTEXT_END -->
 
 ---
 
 ## 📜 Log History
+
+### 2026-02-27
+**Focus:** Job Target Set-Weight Persistence + Documentation Sync
+- **Completed:**
+  - Identified root cause for "waiting..." after restart: `_job_set_weight` lived in-memory only.
+  - Implemented persistence in `src/services/acquisition.py`:
+    - persist `job_control.set_weight`, `active`, `meta`, `state_seq`, `updated_utc` on webhook updates and clear;
+    - restore persisted state during service startup before first loop tick.
+  - Updated `src/app/routes.py` `/api/snapshot` to fall back to persisted `job_control` values when runtime snapshot keys are not yet populated.
+  - Added regression tests:
+    - `tests/test_target_signal_mode.py` restart restore + clear persistence checks
+    - `tests/test_snapshot_job_control.py` persisted fallback check
+  - Updated documentation: `README.md`, `docs/CURRENT_IMPLEMENTATION.md`, `docs/Architecture.md`, `docs/CURRENT_UI_REFERENCE.md`, `docs/TODO_BACKLOG.md`, `DAILY_LOG.md`.
+- **Operational Constraint Honored:** No Pi/server restart performed while line is live.
+- **Follow-up Added:** New TODO item to create a complete fresh OS image backup with all latest add-ons/fixes.
 
 ### 2026-02-27
 **Focus:** v3.4 Live Deployment + External Webhook Go-Live

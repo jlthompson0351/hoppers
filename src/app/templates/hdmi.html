@@ -91,12 +91,20 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
       text-align: center;
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       background: var(--card);
       padding: 6px 10px;
+    }
+
+    .main-weight-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
     }
 
     .weight-value {
@@ -171,18 +179,20 @@
     }
 
     .job-target-section {
-      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      margin-bottom: 4px;
+      width: 100%;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      padding-top: 8px;
       padding-bottom: 4px;
+      text-align: left;
     }
 
     .job-target-title {
-      font-size: 10px;
+      font-size: 16px;
       font-weight: 700;
       letter-spacing: 0.5px;
       color: var(--muted);
       text-transform: uppercase;
-      margin-bottom: 1px;
+      margin-bottom: 6px;
     }
 
     .job-target-row {
@@ -190,21 +200,43 @@
       align-items: baseline;
       justify-content: space-between;
       gap: 6px;
-      padding: 2px 0;
+      padding: 4px 0;
     }
 
     .job-target-label {
-      font-size: 12px;
+      font-size: 18px;
       color: var(--muted);
       font-weight: 600;
     }
 
     .job-target-value {
-      font-size: 20px;
+      font-size: 36px;
       font-weight: 800;
-      letter-spacing: -0.4px;
+      letter-spacing: -0.5px;
       white-space: nowrap;
       color: var(--muted);
+    }
+
+    .job-target-value-scale {
+      font-size: 34px;
+    }
+
+    .job-target-value-set {
+      font-size: 38px;
+    }
+
+    .zero-tare-section {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      text-align: left;
+    }
+
+    .zero-tare-section .weight-meta {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: left;
     }
 
     .job-target-value.active { color: var(--warn); }
@@ -307,6 +339,89 @@
 
     .conn-dot.ok { background: var(--ok); }
     .conn-dot.bad { background: var(--bad); }
+
+    .override-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 20;
+      padding: 14px;
+    }
+
+    .override-modal.open { display: flex; }
+
+    .override-modal-card {
+      width: min(420px, 100%);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: #101a2c;
+      padding: 14px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    .override-title {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--warn);
+    }
+
+    .override-copy {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .override-field {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+
+    .override-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.2px;
+    }
+
+    .override-input {
+      width: 100%;
+      min-height: 40px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.18);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .override-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
+
+    .override-btn {
+      min-height: 40px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 800;
+      padding: 0 16px;
+      transition: transform 0.05s ease, filter 0.15s ease;
+    }
+
+    .override-btn:active { transform: scale(0.98); }
+    .override-btn.cancel { background: #55616c; color: #fff; }
+    .override-btn.confirm { background: var(--settings); color: #fff; }
+    .override-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
   </style>
 </head>
 <body>
@@ -323,35 +438,40 @@
 
     <section class="main-content">
       <section class="weight-panel">
-        <p class="weight-value" id="weight-value">
-          {% if weight_decimals == 0 %}
-            {{ "%.0f"|format(snap.total_weight_lbs or 0.0) }}
-          {% elif weight_decimals == 2 %}
-            {{ "%.2f"|format(snap.total_weight_lbs or 0.0) }}
-          {% else %}
-            {{ "%.1f"|format(snap.total_weight_lbs or 0.0) }}
-          {% endif %}
-        </p>
-        <div class="weight-unit">lb</div>
-        <div class="weight-meta" id="tare-meta">Tare: 0.0 lb</div>
-        <div class="weight-meta" id="zero-info">Zero Offset: 0.000 lb (0.000000 mV)</div>
-        <div class="weight-meta" id="zero-tracking-info">Zero Tracking: LOCKED</div>
-        <div class="weight-meta" id="post-dump-rezero-info">Post-Dump Re-Zero: IDLE</div>
-        <div class="weight-meta" id="zero-updated-info">Zero Updated: --</div>
+        <div class="main-weight-area">
+          <p class="weight-value" id="weight-value">
+            {% if weight_decimals == 0 %}
+              {{ "%.0f"|format(snap.total_weight_lbs or 0.0) }}
+            {% elif weight_decimals == 2 %}
+              {{ "%.2f"|format(snap.total_weight_lbs or 0.0) }}
+            {% else %}
+              {{ "%.1f"|format(snap.total_weight_lbs or 0.0) }}
+            {% endif %}
+          </p>
+          <div class="weight-unit">lb</div>
+        </div>
+        <div class="job-target-section">
+          <div class="job-target-title">Job Target</div>
+          <div class="job-target-row">
+            <span class="job-target-label">Scale Weight</span>
+            <span class="job-target-value job-target-value-scale" id="job-scale-weight">--</span>
+          </div>
+          <div class="job-target-row">
+            <span class="job-target-label">Set Weight</span>
+            <span class="job-target-value job-target-value-set" id="job-set-weight">--</span>
+          </div>
+        </div>
       </section>
 
       <section class="totals-panel">
         <div>
-          <div class="job-target-section">
-            <div class="job-target-title">Job Target</div>
-            <div class="job-target-row">
-              <span class="job-target-label">Set Weight</span>
-              <span class="job-target-value" id="job-set-weight">--</span>
-            </div>
-            <div class="job-target-row">
-              <span class="job-target-label">Scale Weight</span>
-              <span class="job-target-value" id="job-scale-weight">--</span>
-            </div>
+          <div class="zero-tare-section">
+            <p class="totals-title">Zero / Tare Data</p>
+            <div class="weight-meta" id="tare-meta">Tare: 0.0 lb</div>
+            <div class="weight-meta" id="zero-info">Zero Offset: 0.000 lb (0.000000 mV)</div>
+            <div class="weight-meta" id="zero-tracking-info">Zero Tracking: LOCKED</div>
+            <div class="weight-meta" id="post-dump-rezero-info">Post-Dump Re-Zero: IDLE</div>
+            <div class="weight-meta" id="zero-updated-info">Zero Updated: --</div>
           </div>
           <p class="totals-title">Processed Weight</p>
           <div class="totals-grid">
@@ -385,7 +505,7 @@
       <button type="button" class="btn tare" id="btn-tare">TARE</button>
       <button type="button" class="btn clear" id="btn-clear">CLEAR TARE</button>
       <button type="button" class="btn clear-zero" id="btn-clear-zero">CLEAR ZERO</button>
-      <button type="button" class="btn settings" id="btn-settings">SETTINGS</button>
+      <button type="button" class="btn settings" id="btn-override">OVERRIDE</button>
     </div>
 
     <div class="bottom-meta">
@@ -396,6 +516,43 @@
     </div>
   </div>
 
+  <div class="override-modal" id="override-modal" aria-hidden="true">
+    <div class="override-modal-card" role="dialog" aria-modal="true" aria-labelledby="override-title">
+      <h2 class="override-title" id="override-title">Manager Override</h2>
+      <p class="override-copy">Enter a 4-digit PIN and the new set weight in pounds.</p>
+      <form id="override-form">
+        <div class="override-field">
+          <label class="override-label" for="override-pin">Manager PIN</label>
+          <input
+            class="override-input"
+            id="override-pin"
+            type="password"
+            inputmode="numeric"
+            maxlength="4"
+            pattern="[0-9]{4}"
+            autocomplete="off"
+            required
+          >
+        </div>
+        <div class="override-field">
+          <label class="override-label" for="override-weight">New Set Weight (lb)</label>
+          <input
+            class="override-input"
+            id="override-weight"
+            type="number"
+            min="0"
+            step="0.1"
+            required
+          >
+        </div>
+        <div class="override-actions">
+          <button type="button" class="override-btn cancel" id="btn-override-cancel">Cancel</button>
+          <button type="submit" class="override-btn confirm" id="btn-override-confirm">Apply Override</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
     (function() {
       const POLL_MS = {{ poll_rate_ms | default(500) | int }};
@@ -403,6 +560,7 @@
       const SHOW_DECIMAL_POINT = {{ 'true' if show_decimal else 'false' }};
       let pollTimer = null;
       let lastStable = false;
+      let lastJobSetWeight = 0.0;
 
       function formatWeight(w) {
         var s = w.toFixed(WEIGHT_DECIMALS);
@@ -553,25 +711,25 @@
         const jobCtrl = data.jobControl || {};
         const jobEnabled = Boolean(jobCtrl.enabled) && jobCtrl.mode === "target_signal_mode";
         const jobSetWeight = Number(jobCtrl.set_weight || 0);
-        const jobActive = Boolean(jobCtrl.active);
+        lastJobSetWeight = jobSetWeight;
         const jobSetEl = document.getElementById("job-set-weight");
         const jobScaleEl = document.getElementById("job-scale-weight");
-        if (jobEnabled && jobActive && jobSetWeight > 0) {
+        if (jobEnabled && jobSetWeight > 0) {
           const triggered = weight >= jobSetWeight;
           jobSetEl.textContent = jobSetWeight.toFixed(1) + " lb";
-          jobSetEl.className = "job-target-value active";
+          jobSetEl.className = "job-target-value job-target-value-set active";
           jobScaleEl.textContent = formatWeight(weight) + " lb";
-          jobScaleEl.className = "job-target-value " + (triggered ? "triggered" : "active");
+          jobScaleEl.className = "job-target-value job-target-value-scale " + (triggered ? "triggered" : "active");
         } else if (jobEnabled) {
           jobSetEl.textContent = "waiting...";
-          jobSetEl.className = "job-target-value";
+          jobSetEl.className = "job-target-value job-target-value-set";
           jobScaleEl.textContent = formatWeight(weight) + " lb";
-          jobScaleEl.className = "job-target-value";
+          jobScaleEl.className = "job-target-value job-target-value-scale";
         } else {
           jobSetEl.textContent = "--";
-          jobSetEl.className = "job-target-value";
+          jobSetEl.className = "job-target-value job-target-value-set";
           jobScaleEl.textContent = "--";
-          jobScaleEl.className = "job-target-value";
+          jobScaleEl.className = "job-target-value job-target-value-scale";
         }
 
         // Update processed weight totals
@@ -628,6 +786,71 @@
           });
       }
 
+      function openOverrideModal() {
+        const modal = document.getElementById("override-modal");
+        const pinInput = document.getElementById("override-pin");
+        const weightInput = document.getElementById("override-weight");
+        pinInput.value = "";
+        weightInput.value = lastJobSetWeight > 0 ? lastJobSetWeight.toFixed(1) : "";
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+        window.setTimeout(function() {
+          pinInput.focus();
+        }, 0);
+      }
+
+      function closeOverrideModal() {
+        const modal = document.getElementById("override-modal");
+        const submitBtn = document.getElementById("btn-override-confirm");
+        submitBtn.disabled = false;
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
+      function submitOverride() {
+        const pinInput = document.getElementById("override-pin");
+        const weightInput = document.getElementById("override-weight");
+        const submitBtn = document.getElementById("btn-override-confirm");
+        const pin = String(pinInput.value || "").trim();
+        if (!/^\d{4}$/.test(pin)) {
+          showFeedback("PIN must be exactly 4 digits", true);
+          return;
+        }
+
+        const newWeight = Number(weightInput.value);
+        if (!Number.isFinite(newWeight) || newWeight < 0) {
+          showFeedback("Enter a valid weight >= 0", true);
+          return;
+        }
+
+        submitBtn.disabled = true;
+        fetch("/api/job/override", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pin: pin,
+            set_weight: newWeight
+          })
+        })
+          .then(function(response) {
+            return response.json().catch(function() { return {}; }).then(function(payload) {
+              if (!response.ok || !payload.success) {
+                throw new Error(payload.error || "Override failed");
+              }
+              return payload;
+            });
+          })
+          .then(function() {
+            closeOverrideModal();
+            showFeedback("Override set to " + newWeight.toFixed(1) + " lb", false);
+            poll();
+          })
+          .catch(function(err) {
+            submitBtn.disabled = false;
+            showFeedback(err.message || "Override failed", true);
+          });
+      }
+
       document.getElementById("btn-zero").addEventListener("click", function() {
         if (!lastStable) {
           showFeedback("Scale not stable", true);
@@ -652,8 +875,30 @@
         postAction("/api/zero/clear", "Zero offset cleared");
       });
 
-      document.getElementById("btn-settings").addEventListener("click", function() {
-        window.location.href = "/settings";
+      document.getElementById("btn-override").addEventListener("click", function() {
+        openOverrideModal();
+      });
+
+      document.getElementById("btn-override-cancel").addEventListener("click", function() {
+        closeOverrideModal();
+      });
+
+      document.getElementById("override-form").addEventListener("submit", function(evt) {
+        evt.preventDefault();
+        submitOverride();
+      });
+
+      document.getElementById("override-modal").addEventListener("click", function(evt) {
+        if (evt.target === this) {
+          closeOverrideModal();
+        }
+      });
+
+      window.addEventListener("keydown", function(evt) {
+        const modal = document.getElementById("override-modal");
+        if (evt.key === "Escape" && modal.classList.contains("open")) {
+          closeOverrideModal();
+        }
       });
 
       document.getElementById("btn-shift-clear").addEventListener("click", function() {

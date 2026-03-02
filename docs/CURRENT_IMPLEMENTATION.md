@@ -374,8 +374,9 @@ The scale can operate in two distinct output modes:
 
 **How Job Target Mode Works:**
 - An external system sends an HTTP `POST` to `/api/job/webhook` with payload:
-  `{"event":"job.load_size_updated","jobId":"...","machineKey":"...","loadSize":100.0,"idempotencyKey":"...","timestamp":"..."}`
-- The scale stores `loadSize` as `set_weight` and tracks `idempotencyKey` as the webhook dedupe identity.
+  `{"event":"job.load_size_updated","jobId":"...","machine_id":"...","line_id":"...","set_weight":100.0,"unit":"lb","idempotencyKey":"...","timestamp":"...","product_id":"...","operator_id":"..."}`
+- Backward-compatible payload keys are still accepted (`machineKey`, `loadSize`).
+- On each authenticated receipt, the full webhook JSON payload is stored in `set_weight_history.metadata_json`.
 - While `scale_weight < (set_weight - pretrigger_lb)`, the scale outputs a fixed `low_signal_value` (e.g., 0.0V).
 - When `scale_weight >= (set_weight - pretrigger_lb)`, the scale outputs a fixed `trigger_signal_value` (e.g., 10.0V).
 - The mode is toggleable from the main Dashboard UI or the Settings page.
@@ -403,16 +404,23 @@ The scale can operate in two distinct output modes:
 | `/api/job/trigger/from-nudge` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Captures current output nudge value as trigger signal |
 
 **Webhook payload requirements:**
-- `event` (string, required; must be `job.load_size_updated`)
-- `jobId` (string, required)
-- `machineKey` (string, required)
-- `loadSize` (float, required, >= 0)
+- `event` (string, optional; if present must be `job.load_size_updated`)
+- `jobId` (string, required; `product_id` can be used as fallback)
+- `machine_id` or `machineKey` (string, required)
+- `line_id` (string, optional; defaults to `default_line`)
+- `set_weight` or `loadSize` (float, required, >= 0)
+- `unit` (optional; `lb`, `kg`, `g`, `oz`; defaults to `lb`)
 - `idempotencyKey` (string, required, used for dedupe)
 - `timestamp` (ISO-8601 string, required)
+- `product_id` / `operator_id` (optional, persisted)
 
 **Runtime behavior:**
-- Target weight (`_job_set_weight`) is stored in-memory only -- not persisted to DB. Pi restart loses the active target; external system must re-send the webhook.
-- Duplicate `idempotencyKey` values are accepted as no-op replays (`duplicate=true`, `action=ignored_duplicate`).
+- Durable persistence uses SQLite tables:
+  - `set_weight_current` for fast latest lookup by `(line_id, machine_id)`
+  - `set_weight_history` for append-only audit (every authenticated receipt)
+- The full webhook payload is stored in `set_weight_history.metadata_json`.
+- Duplicate `idempotencyKey` values are accepted as replays; they append history with `duplicate_event=1` and do not overwrite `set_weight_current`.
+- On startup, acquisition restores from `set_weight_current` first; legacy `job_control` config is kept as compatibility fallback.
 - The trigger signal dropdown on the Settings > Job Target Mode tab is populated from existing PLC profile points (Calibration Hub). Operator picks a known voltage/weight pair instead of typing a raw number.
 - Switching mode via dashboard toggle immediately changes the output path. If a job is active during toggle to legacy, output reverts to proportional weight mapping.
 
@@ -766,10 +774,11 @@ megaind 0 board
 
 ### HDMI Interface Features
 - **Optimized Layout**: Designed for 800x480 industrial touch panels.
-- **Two-Column Operator View**: Left card for centered live weight, right card reserved for daily/shift totals.
-- **Zero Diagnostics on HDMI**: Shows `Tare`, `Zero Offset`, `Zero Tracking`, and `Zero Updated` directly under the weight value.
-- **Future Throughput Controls Placeholder**: Includes a `CLEAR SHIFT TOTAL` UI placeholder pending database integration.
-- **Simplified Controls**: Large touch-friendly buttons for ZERO, TARE, CLEAR TARE, and SETTINGS.
+- **Two-Column Operator View**: Left card for centered live weight and Job Target data, right card for Zero/Tare diagnostics and daily/shift totals.
+- **Job Target Panel**: Shows live `Scale Weight` and `Set Weight` when target mode is active.
+- **Zero Diagnostics on HDMI**: Shows `Tare`, `Zero Offset`, `Zero Tracking`, and `Zero Updated` in the right panel.
+- **Processed Weight Totals**: Includes shift/day totals, load count, average load, and a `CLEAR SHIFT` button.
+- **Simplified Controls**: Large touch-friendly buttons for ZERO, TARE, CLEAR TARE, CLEAR ZERO, and SETTINGS.
 - **Auto-Start**: Managed by `kiosk.service` to launch at boot.
 
 ### Calibration Hub Features (Hand-in-Hand)

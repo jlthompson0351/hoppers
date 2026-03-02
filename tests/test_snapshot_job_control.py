@@ -76,6 +76,38 @@ class SnapshotJobControlTests(unittest.TestCase):
         self.assertFalse(job.get("active", True))
         self.assertAlmostEqual(float(job.get("set_weight", 0.0)), 0.0)
 
+    def test_snapshot_falls_back_to_persisted_job_set_weight(self) -> None:
+        app, repo, _state = self._make_app()
+        repo.update_config_section(
+            "job_control",
+            lambda section, _cfg: section.update(
+                {
+                    "enabled": True,
+                    "mode": "target_signal_mode",
+                    "trigger_mode": "exact",
+                    "set_weight": 88.0,
+                    "active": True,
+                    "meta": {
+                        "job_id": "JOB-PERSISTED",
+                        "step_id": "STEP-1",
+                        "event_id": "evt-persisted-1",
+                        "target_weight_lb": 88.0,
+                    },
+                }
+            ),
+        )
+
+        # No runtime state set yet (simulates startup before first loop tick).
+        with app.test_client() as client:
+            resp = client.get("/api/snapshot")
+            self.assertEqual(resp.status_code, 200)
+            body = json.loads(resp.data.decode("utf-8"))
+
+        job = body.get("jobControl", {})
+        self.assertTrue(job.get("active", False))
+        self.assertAlmostEqual(float(job.get("set_weight", 0.0)), 88.0)
+        self.assertEqual((job.get("meta") or {}).get("job_id"), "JOB-PERSISTED")
+
 
 if __name__ == "__main__":
     unittest.main()

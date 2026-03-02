@@ -352,6 +352,27 @@
           <input type="password" id="job_webhook_token" name="job_webhook_token" autocomplete="new-password" value="{{ job_control.get('webhook_token', '') }}">
         </div>
       </div>
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Manager Override PIN</div>
+          <div class="setting-help">
+            4-digit PIN required for HDMI <code>OVERRIDE</code>. Leave blank to keep the current PIN.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input
+            type="password"
+            id="job_override_pin"
+            name="job_override_pin"
+            inputmode="numeric"
+            pattern="[0-9]{4}"
+            maxlength="4"
+            autocomplete="new-password"
+            placeholder="Enter new 4-digit PIN"
+          >
+        </div>
+      </div>
     </div>
   </div>
 

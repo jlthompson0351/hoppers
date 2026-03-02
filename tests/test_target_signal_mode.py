@@ -64,6 +64,51 @@ class TargetSignalModeTests(unittest.TestCase):
         self.assertAlmostEqual(svc.get_job_control_status()["set_weight"], 0.0)
         self.assertFalse(svc.get_job_control_status()["active"])
 
+    def test_job_set_weight_restores_after_service_restart(self) -> None:
+        tmp = tempfile.mkdtemp(prefix="target-signal-restart-tests-")
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        db_path = Path(tmp) / "app.sqlite3"
+        ensure_db(db_path)
+        repo = AppRepository(db_path)
+
+        svc_first = AcquisitionService(hw=None, repo=repo, state=LiveState())
+        svc_first.ingest_job_webhook(
+            job_id="JOB-RST-1",
+            target_weight_lb=125.5,
+            step_id="STEP-RST",
+            event_id="rst-e1",
+        )
+
+        # Simulate a process restart by creating a fresh service instance.
+        svc_after_restart = AcquisitionService(hw=None, repo=repo, state=LiveState())
+        restored = svc_after_restart.get_job_control_status()
+        self.assertTrue(restored["active"])
+        self.assertAlmostEqual(float(restored["set_weight"]), 125.5)
+        self.assertEqual((restored.get("meta") or {}).get("job_id"), "JOB-RST-1")
+
+    def test_clear_persists_after_service_restart(self) -> None:
+        tmp = tempfile.mkdtemp(prefix="target-signal-clear-restart-tests-")
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        db_path = Path(tmp) / "app.sqlite3"
+        ensure_db(db_path)
+        repo = AppRepository(db_path)
+
+        svc_first = AcquisitionService(hw=None, repo=repo, state=LiveState())
+        svc_first.ingest_job_webhook(
+            job_id="JOB-CLEAR-1",
+            target_weight_lb=99.0,
+            step_id="STEP-CLEAR",
+            event_id="clear-e1",
+        )
+        clear_result = svc_first.clear_job_control()
+        self.assertTrue(clear_result["cleared"])
+
+        svc_after_restart = AcquisitionService(hw=None, repo=repo, state=LiveState())
+        restored = svc_after_restart.get_job_control_status()
+        self.assertFalse(restored["active"])
+        self.assertAlmostEqual(float(restored["set_weight"]), 0.0)
+        self.assertIsNone(restored["meta"])
+
     def test_threshold_is_exact_by_default(self) -> None:
         """set_weight=100, pretrigger=0 → trigger exactly at 100 lb."""
         svc = self._make_service()

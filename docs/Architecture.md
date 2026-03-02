@@ -63,9 +63,9 @@ $ sudo i2cdetect -y 1
 | **OS** | Debian GNU/Linux (aarch64), Kernel 6.12.47 |
 | **SSH** | Enabled, running on port 22 |
 
-### 1.4 HDMI Operator Interface (Updated Feb 2026)
+### 1.4 HDMI Operator Interface (Updated March 2026)
 - **HDMI Page**: `/hdmi` route serving a touch-optimized UI.
-- **Layout**: Two-column 800x480 layout with centered live-weight card and right-side daily/shift placeholder totals panel.
+- **Layout**: Two-column 800x480 layout with left-side live-weight/Job Target card and right-side Zero/Tare diagnostics and daily/shift totals panel.
 - **Weight Metadata**: HDMI card mirrors dashboard zero diagnostics (`Tare`, `Zero Offset`, `Zero Tracking`, `Zero Updated`) from `/api/snapshot`.
 - **Kiosk Service**: `kiosk.service` (systemd user unit) auto-launches Chromium to `/hdmi` at boot.
 - **Remote Launch**: Dashboard includes buttons to trigger or force-relaunch the kiosk browser on the Pi display.
@@ -150,7 +150,7 @@ graph TD
   - sets fault state and drives safe output
 - **Role Resolver**: Dynamically identifies which physical pins are assigned to system roles (e.g. PLC Weight, Excitation Monitor).
 - **Calibration Overrides**: Suspends weight-based output during calibration to allow manual signal "nudging."
-- **Job Target Signal Mode**: When `job_control.mode == "target_signal_mode"`, the acquisition loop bypasses `OutputWriter.compute()` and directly compares filtered weight to `_job_set_weight - pretrigger_lb`. Outputs either `trigger_signal_value` (at/above threshold) or `low_signal_value` (below). Thread-safe via `_job_lock`. Target weight is set via `ingest_job_webhook()` and cleared via `clear_job_control()`.
+- **Job Target Signal Mode**: When `job_control.mode == "target_signal_mode"`, the acquisition loop bypasses `OutputWriter.compute()` and directly compares filtered weight to `_job_set_weight - pretrigger_lb`. Outputs either `trigger_signal_value` (at/above threshold) or `low_signal_value` (below). Thread-safe via `_job_lock`. Target state is set via `ingest_job_webhook()`, cleared via `clear_job_control()`, durably persisted in SQLite (`set_weight_current` + `set_weight_history`), and restored on startup from DB.
 
 ### 4.2 `src/services/output_writer.py`
 - Converts desired weight to analog output based on:
@@ -194,6 +194,8 @@ graph TD
 - `schema_version`: DB schema version
 - `config_versions`: versioned config JSON blobs
 - `events`: faults/warnings/info events with details JSON
+- `set_weight_current`: latest target set weight per `(line_id, machine_id)` for fast lookup and startup restore
+- `set_weight_history`: append-only webhook audit log (includes full payload JSON in `metadata_json`)
 - `calibration_points`: saved calibration points (signal, known weight, legacy `ratiometric` flag)
 - `plc_profile_points`: PLC mapping curve points (system uses trained profile points for output mapping; internal 0-250 lb linear fallback only when no points exist)
 - `trends_excitation`: excitation voltage samples
