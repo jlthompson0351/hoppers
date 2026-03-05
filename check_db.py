@@ -1,20 +1,15 @@
 import sqlite3
+conn = sqlite3.connect("/var/lib/loadcell-transmitter/data/app.sqlite3")
+cursor = conn.cursor()
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+tables = [t[0] for t in cursor.fetchall()]
+print("Tables:", tables)
 
-conn = sqlite3.connect('/opt/loadcell-transmitter/data/scale.db')
-cur = conn.cursor()
-
-# Check throughput_events
-cur.execute('SELECT COUNT(*), COALESCE(SUM(processed_lbs), 0) FROM throughput_events')
-event_count, event_total = cur.fetchone()
-print(f"throughput_events: {event_count} events, {event_total:.1f} lb total")
-
-# Check production_totals for today
-cur.execute('SELECT period_type, period_start, total_lbs FROM production_totals WHERE period_type="day" ORDER BY period_start DESC LIMIT 1')
-result = cur.fetchone()
-if result:
-    period_type, period_start, total_lbs = result
-    print(f"production_totals (day): {total_lbs:.1f} lb on {period_start}")
-else:
-    print("production_totals (day): No data found")
-
-conn.close()
+# Check for dump/fill related tables
+for table in tables:
+    if any(kw in table.lower() for kw in ['dump', 'fill', 'event', 'cycle', 'process']):
+        print(f"\n=== {table} ===")
+        cursor.execute(f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT 5")
+        rows = cursor.fetchall()
+        for row in rows:
+            print(row)

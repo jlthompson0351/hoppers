@@ -6,14 +6,17 @@ writes proportional 0-10V (or 4-20mA) to MegaIND for PLC.
 from __future__ import annotations
 
 from collections import deque
+import json
 import logging
 import math
 import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from src.core.filtering import KalmanFilter, StabilityDetector
 from src.core.post_dump_rezero import PostDumpRezeroConfig, PostDumpRezeroController
@@ -115,6 +118,11 @@ class _Cfg:
     job_control_trigger_signal_value: float
     job_control_low_signal_value: float
     job_control_pretrigger_lb: float
+    completed_job_webhook_url: Optional[str]
+    completed_job_webhook_timeout_s: float
+    completed_job_webhook_dispatch_interval_s: float
+    completed_job_webhook_retry_min_s: float
+    completed_job_webhook_retry_max_s: float
     # (no empty_reset_lb / empty_confirm_s — output is pure threshold, no timers)
 
 
@@ -191,6 +199,7 @@ class AcquisitionService:
         self._job_seen_event_ids: set[str] = set()
         self._job_event_id_order: deque[str] = deque()
         self._job_event_id_limit = 1000
+        self._job_outbox_last_dispatch_s = 0.0
         self._restore_persisted_job_control_state()
 
     # ── Lifecycle ─────────────────────────────────────────────────
@@ -235,6 +244,277 @@ class AcquisitionService:
         machine_clean = str(machine_id or self._default_machine_id or "default_machine").strip() or "default_machine"
         return line_clean, machine_clean
 
+    @staticmethod
+    def _is_manual_override_job_id(job_id: Optional[str]) -> bool:
+        return str(job_id or "").strip().upper() == "MANUAL_OVERRIDE"
+
+    def _build_completed_job_payload(
+        self,
+        *,
+        lifecycle_state: Any,
+        closed_at_record_time_set_utc: str,
+    ) -> dict[str, Any]:
+        throughput_summary = self.repo.get_job_window_throughput_summary(
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
+        set_weight_summary = self.repo.get_job_window_set_weight_summary(
+            line_id=lifecycle_state.line_id,
+            machine_id=lifecycle_state.machine_id,
+            job_id=lifecycle_state.active_job_id,
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
+        override_count = max(
+            int(lifecycle_state.override_count or 0),
+            int(set_weight_summary.get("override_count", 0) or 0),
+        )
+        final_set_weight_lbs = set_weight_summary.get("final_set_weight_lbs")
+        if final_set_weight_lbs is None:
+            final_set_weight_lbs = lifecycle_state.last_set_weight_lbs
+        final_set_weight_unit = set_weight_summary.get("final_set_weight_unit")
+        if final_set_weight_unit in (None, ""):
+            final_set_weight_unit = lifecycle_state.last_set_weight_unit
+        avg_cycle_time_ms = float(throughput_summary.get("avg_cycle_time_ms", 0.0) or 0.0)
+        return {
+            "schema_version": 1,
+            "job_id": lifecycle_state.active_job_id,
+            "line_id": lifecycle_state.line_id,
+            "machine_id": lifecycle_state.machine_id,
+            "job_start_record_time_set_utc": lifecycle_state.active_job_started_record_time_set_utc,
+            "job_end_record_time_set_utc": closed_at_record_time_set_utc,
+            "first_erp_timestamp_utc": lifecycle_state.active_job_first_erp_timestamp_utc,
+            "last_erp_timestamp_utc": lifecycle_state.active_job_last_erp_timestamp_utc,
+            "cycle_count": int(throughput_summary.get("cycle_count", 0) or 0),
+            "dump_count": int(throughput_summary.get("dump_count", 0) or 0),
+            "total_processed_lbs": float(
+                throughput_summary.get("total_processed_lbs", 0.0) or 0.0
+            ),
+            "avg_weight_lbs": float(throughput_summary.get("avg_weight_lbs", 0.0) or 0.0),
+            "avg_cycle_time_ms": int(round(avg_cycle_time_ms)),
+            "override_seen": override_count > 0,
+            "override_count": override_count,
+            "final_set_weight_lbs": (
+                None if final_set_weight_lbs is None else float(final_set_weight_lbs)
+            ),
+            "final_set_weight_unit": (
+                None if final_set_weight_unit in (None, "") else str(final_set_weight_unit)
+            ),
+            "completed_at_utc": _utc_now(),
+        }
+
+    def _handle_job_lifecycle_event(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        job_id: str,
+        record_time_set_utc: str,
+        erp_timestamp_utc: Optional[str],
+        set_weight_lbs: float,
+        set_weight_unit: str,
+        source_event_id: Optional[str],
+        applied_to_current: bool,
+    ) -> None:
+        if not applied_to_current:
+            return
+        line_id_clean, machine_id_clean = self._normalize_scope_ids(line_id, machine_id)
+        current_job_id = str(job_id or "").strip()
+        if not current_job_id:
+            return
+        record_time_clean = str(record_time_set_utc or "").strip()
+        if not record_time_clean:
+            return
+        erp_ts_clean = str(erp_timestamp_utc).strip() if erp_timestamp_utc not in (None, "") else None
+        source_event_id_clean = str(source_event_id).strip() if source_event_id not in (None, "") else None
+
+        lifecycle_state = self.repo.get_job_lifecycle_state(
+            line_id=line_id_clean,
+            machine_id=machine_id_clean,
+        )
+
+        if self._is_manual_override_job_id(current_job_id):
+            if lifecycle_state and not self._is_manual_override_job_id(lifecycle_state.active_job_id):
+                self.repo.increment_job_lifecycle_override(
+                    line_id=line_id_clean,
+                    machine_id=machine_id_clean,
+                    last_record_time_set_utc=record_time_clean,
+                    last_set_weight_lbs=float(set_weight_lbs),
+                    last_set_weight_unit=set_weight_unit,
+                    last_source_event_id=source_event_id_clean,
+                    active_job_last_erp_timestamp_utc=erp_ts_clean,
+                )
+            return
+
+        if lifecycle_state is None:
+            self.repo.set_job_lifecycle_state(
+                line_id=line_id_clean,
+                machine_id=machine_id_clean,
+                active_job_id=current_job_id,
+                active_job_started_record_time_set_utc=record_time_clean,
+                active_job_last_record_time_set_utc=record_time_clean,
+                active_job_first_erp_timestamp_utc=erp_ts_clean,
+                active_job_last_erp_timestamp_utc=erp_ts_clean,
+                override_count=0,
+                last_set_weight_lbs=float(set_weight_lbs),
+                last_set_weight_unit=set_weight_unit,
+                last_source_event_id=source_event_id_clean,
+            )
+            return
+
+        if self._is_manual_override_job_id(lifecycle_state.active_job_id):
+            self.repo.set_job_lifecycle_state(
+                line_id=line_id_clean,
+                machine_id=machine_id_clean,
+                active_job_id=current_job_id,
+                active_job_started_record_time_set_utc=record_time_clean,
+                active_job_last_record_time_set_utc=record_time_clean,
+                active_job_first_erp_timestamp_utc=erp_ts_clean,
+                active_job_last_erp_timestamp_utc=erp_ts_clean,
+                override_count=0,
+                last_set_weight_lbs=float(set_weight_lbs),
+                last_set_weight_unit=set_weight_unit,
+                last_source_event_id=source_event_id_clean,
+            )
+            return
+
+        if lifecycle_state.active_job_id == current_job_id:
+            self.repo.set_job_lifecycle_state(
+                line_id=line_id_clean,
+                machine_id=machine_id_clean,
+                active_job_id=lifecycle_state.active_job_id,
+                active_job_started_record_time_set_utc=lifecycle_state.active_job_started_record_time_set_utc,
+                active_job_last_record_time_set_utc=record_time_clean,
+                active_job_first_erp_timestamp_utc=(
+                    lifecycle_state.active_job_first_erp_timestamp_utc or erp_ts_clean
+                ),
+                active_job_last_erp_timestamp_utc=(
+                    erp_ts_clean or lifecycle_state.active_job_last_erp_timestamp_utc
+                ),
+                override_count=lifecycle_state.override_count,
+                last_set_weight_lbs=float(set_weight_lbs),
+                last_set_weight_unit=set_weight_unit,
+                last_source_event_id=source_event_id_clean,
+            )
+            return
+
+        payload = self._build_completed_job_payload(
+            lifecycle_state=lifecycle_state,
+            closed_at_record_time_set_utc=record_time_clean,
+        )
+        outbox_id = self.repo.enqueue_job_completion_outbox(
+            line_id=line_id_clean,
+            machine_id=machine_id_clean,
+            job_id=lifecycle_state.active_job_id,
+            job_start_record_time_set_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            job_end_record_time_set_utc=record_time_clean,
+            payload=payload,
+        )
+        self.repo.log_event(
+            level="INFO",
+            code="JOB_COMPLETION_ENQUEUED",
+            message="Completed job summary enqueued for outbound webhook delivery.",
+            details={
+                "outbox_id": outbox_id,
+                "job_id": lifecycle_state.active_job_id,
+                "line_id": line_id_clean,
+                "machine_id": machine_id_clean,
+                "job_start_record_time_set_utc": lifecycle_state.active_job_started_record_time_set_utc,
+                "job_end_record_time_set_utc": record_time_clean,
+            },
+        )
+        self.repo.set_job_lifecycle_state(
+            line_id=line_id_clean,
+            machine_id=machine_id_clean,
+            active_job_id=current_job_id,
+            active_job_started_record_time_set_utc=record_time_clean,
+            active_job_last_record_time_set_utc=record_time_clean,
+            active_job_first_erp_timestamp_utc=erp_ts_clean,
+            active_job_last_erp_timestamp_utc=erp_ts_clean,
+            override_count=0,
+            last_set_weight_lbs=float(set_weight_lbs),
+            last_set_weight_unit=set_weight_unit,
+            last_source_event_id=source_event_id_clean,
+        )
+
+    def _dispatch_job_completion_outbox(self, *, cfg: _Cfg, now_s: float) -> None:
+        dispatch_interval_s = max(1.0, float(cfg.completed_job_webhook_dispatch_interval_s))
+        if (now_s - self._job_outbox_last_dispatch_s) < dispatch_interval_s:
+            return
+        self._job_outbox_last_dispatch_s = now_s
+
+        target_url = str(cfg.completed_job_webhook_url or "").strip()
+        if not target_url:
+            return
+
+        timeout_s = max(1.0, float(cfg.completed_job_webhook_timeout_s))
+        retry_min_s = max(1.0, float(cfg.completed_job_webhook_retry_min_s))
+        retry_max_s = max(retry_min_s, float(cfg.completed_job_webhook_retry_max_s))
+        pending_rows = self.repo.get_pending_job_completion_outbox(
+            now_utc=_utc_now(),
+            limit=5,
+        )
+        for row in pending_rows:
+            outbox_id = int(row["id"])
+            payload = row.get("payload") or {}
+            attempted_utc = _utc_now()
+            try:
+                body = json.dumps(payload, sort_keys=True).encode("utf-8")
+                req = urllib_request.Request(
+                    url=target_url,
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib_request.urlopen(req, timeout=timeout_s) as resp:
+                    status_code = int(getattr(resp, "status", 200))
+                if status_code < 200 or status_code >= 300:
+                    raise RuntimeError(f"Unexpected status code {status_code}")
+                self.repo.mark_job_completion_outbox_sent(
+                    outbox_id=outbox_id,
+                    sent_at_utc=attempted_utc,
+                )
+                self.repo.log_event(
+                    level="INFO",
+                    code="JOB_COMPLETION_WEBHOOK_SENT",
+                    message="Completed job summary webhook delivered.",
+                    details={
+                        "outbox_id": outbox_id,
+                        "job_id": row.get("job_id"),
+                        "status_code": status_code,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, urllib_error.HTTPError):
+                    err_text = f"HTTP {exc.code}: {exc.reason}"
+                else:
+                    err_text = str(exc)
+                next_attempt = int(row.get("attempt_count", 0) or 0) + 1
+                backoff_s = min(
+                    retry_max_s,
+                    retry_min_s * (2 ** max(0, next_attempt - 1)),
+                )
+                next_retry_at = (
+                    datetime.now(timezone.utc) + timedelta(seconds=backoff_s)
+                ).isoformat(timespec="seconds")
+                self.repo.mark_job_completion_outbox_retry(
+                    outbox_id=outbox_id,
+                    last_error=err_text,
+                    next_retry_at_utc=next_retry_at,
+                    attempted_at_utc=attempted_utc,
+                )
+                self.repo.log_event(
+                    level="WARNING",
+                    code="JOB_COMPLETION_WEBHOOK_RETRY_SCHEDULED",
+                    message="Completed job summary webhook delivery failed; retry scheduled.",
+                    details={
+                        "outbox_id": outbox_id,
+                        "job_id": row.get("job_id"),
+                        "error": err_text[:500],
+                        "next_retry_at_utc": next_retry_at,
+                    },
+                )
+
     def _restore_persisted_job_control_state(self) -> None:
         restored_weight = 0.0
         restored_meta: Optional[dict[str, Any]] = None
@@ -264,6 +544,7 @@ class AcquisitionService:
                     "operator_id": current_row.operator_id,
                     "source": current_row.source,
                     "erp_timestamp_utc": current_row.erp_timestamp_utc,
+                    "record_time_set_utc": current_row.record_time_set_utc,
                     "received_utc": current_row.received_at_utc,
                 }
             else:
@@ -401,6 +682,7 @@ class AcquisitionService:
                 job_id=job_id_clean,
                 step_id=step_id_clean,
                 metadata=payload_meta,
+                record_time_set_utc=now_utc,
             )
 
             if receipt_result.applied_to_current:
@@ -442,6 +724,30 @@ class AcquisitionService:
                 "applied_to_current": bool(receipt_result.applied_to_current),
             },
         )
+        try:
+            self._handle_job_lifecycle_event(
+                line_id=line_id_clean,
+                machine_id=machine_id_clean,
+                job_id=job_id_clean,
+                record_time_set_utc=now_utc,
+                erp_timestamp_utc=erp_timestamp_utc,
+                set_weight_lbs=target_lb,
+                set_weight_unit=unit_clean,
+                source_event_id=event_id_clean,
+                applied_to_current=bool(receipt_result.applied_to_current),
+            )
+        except Exception as lifecycle_err:  # noqa: BLE001
+            self.repo.log_event(
+                level="WARNING",
+                code="JOB_LIFECYCLE_TRACKING_FAILED",
+                message="Failed to update job lifecycle tracking after set-weight receipt.",
+                details={
+                    "error": str(lifecycle_err)[:500],
+                    "line_id": line_id_clean,
+                    "machine_id": machine_id_clean,
+                    "job_id": job_id_clean,
+                },
+            )
         return {
             "accepted": True,
             "duplicate": bool(receipt_result.duplicate_event),
@@ -616,6 +922,25 @@ class AcquisitionService:
         else:
             job_trigger_signal_value = max(0.0, min(10.0, job_trigger_signal_value))
             job_low_signal_value = max(0.0, min(10.0, job_low_signal_value))
+        completed_job_webhook_url = (
+            str(job_control.get("completed_job_webhook_url", "") or "").strip() or None
+        )
+        completed_job_webhook_timeout_s = max(
+            1.0,
+            float(job_control.get("completed_job_webhook_timeout_s", 5.0) or 5.0),
+        )
+        completed_job_webhook_dispatch_interval_s = max(
+            1.0,
+            float(job_control.get("completed_job_webhook_dispatch_interval_s", 2.0) or 2.0),
+        )
+        completed_job_webhook_retry_min_s = max(
+            1.0,
+            float(job_control.get("completed_job_webhook_retry_min_s", 5.0) or 5.0),
+        )
+        completed_job_webhook_retry_max_s = max(
+            completed_job_webhook_retry_min_s,
+            float(job_control.get("completed_job_webhook_retry_max_s", 300.0) or 300.0),
+        )
         ao_default = int(out.get("ao_channel", out.get("ao_channel_v", 1)) or 1)
         ao_channel_v = max(1, min(4, int(out.get("ao_channel_v", ao_default) or ao_default)))
         ao_channel_ma = max(1, min(4, int(out.get("ao_channel_ma", ao_default) or ao_default)))
@@ -757,6 +1082,11 @@ class AcquisitionService:
                 0.0,
                 float(job_control.get("pretrigger_lb", 0.0) or 0.0),
             ),
+            completed_job_webhook_url=completed_job_webhook_url,
+            completed_job_webhook_timeout_s=completed_job_webhook_timeout_s,
+            completed_job_webhook_dispatch_interval_s=completed_job_webhook_dispatch_interval_s,
+            completed_job_webhook_retry_min_s=completed_job_webhook_retry_min_s,
+            completed_job_webhook_retry_max_s=completed_job_webhook_retry_max_s,
         )
 
     # ── Hardware reconnect ────────────────────────────────────────
@@ -797,9 +1127,21 @@ class AcquisitionService:
         filtered_lbs: float,
         target_relative_lbs: float,
         throughput_full_min_relative_lb: float,
+        target_set_weight_lbs: Optional[float] = None,
     ) -> bool:
         max_allowed_lbs = max(1.0, float(cfg.range_max_lb or 300.0))
         processed_lbs = float(throughput_evt.processed_lbs)
+        min_processed_lb = max(0.0, float(getattr(cfg, "throughput_min_processed_lb", 5.0) or 5.0))
+
+        if target_set_weight_lbs is not None and target_set_weight_lbs > 0.0:
+            if processed_lbs >= target_set_weight_lbs * 0.65:
+                dump_type = "full"
+            elif processed_lbs >= min_processed_lb:
+                dump_type = "end_of_lot"
+            else:
+                dump_type = "empty"
+        else:
+            dump_type = "full" if processed_lbs >= min_processed_lb else "empty"
 
         if processed_lbs > max_allowed_lbs:
             self.repo.log_event(
@@ -839,18 +1181,22 @@ class AcquisitionService:
             confidence=throughput_evt.confidence,
             device_id=cfg.throughput_device_id,
             hopper_id=cfg.throughput_hopper_id,
+            target_set_weight_lbs=target_set_weight_lbs,
+            dump_type=dump_type,
         )
-        # Keep legacy production totals in sync for existing dashboards.
         self.repo.record_dump_and_increment_totals(
             prev_stable_lbs=throughput_full_lbs,
             new_stable_lbs=throughput_empty_lbs,
             processed_lbs=processed_lbs,
+            target_set_weight_lbs=target_set_weight_lbs,
+            dump_type=dump_type,
         )
         self.repo.log_event(
             level="INFO",
             code="THROUGHPUT_CYCLE_COMPLETE",
             message=(
-                f"Throughput cycle complete: {processed_lbs:.2f} lb processed."
+                f"Throughput cycle complete: {processed_lbs:.2f} lb processed "
+                f"(type={dump_type})."
             ),
             details={
                 "timestamp_utc": event_ts,
@@ -861,6 +1207,8 @@ class AcquisitionService:
                 "confidence": throughput_evt.confidence,
                 "device_id": cfg.throughput_device_id,
                 "hopper_id": cfg.throughput_hopper_id,
+                "target_set_weight_lbs": target_set_weight_lbs,
+                "dump_type": dump_type,
                 "zero_target_lb": float(cfg.zero_target_lb),
                 "full_min_relative_lb": throughput_full_min_relative_lb,
                 "range_max_lb": float(cfg.range_max_lb),
@@ -880,6 +1228,19 @@ class AcquisitionService:
 
             # --- Offline: retry hardware ---
             if self.hw is None:
+                if self._cfg is None or (t - self._last_cfg_load) > (
+                    self._cfg.config_refresh_s if self._cfg else 2.0
+                ):
+                    try:
+                        self._cfg = self._load_cfg()
+                        self._last_cfg_load = t
+                    except Exception:
+                        pass
+                if self._cfg is not None:
+                    try:
+                        self._dispatch_job_completion_outbox(cfg=self._cfg, now_s=t)
+                    except Exception:
+                        pass
                 if (t - self._last_hw_retry) >= HW_RETRY_INTERVAL_S:
                     self._last_hw_retry = t
                     self._try_reinit()
@@ -1040,6 +1401,11 @@ class AcquisitionService:
                     if throughput_evt is not None:
                         throughput_full_lbs = float(throughput_evt.full_lbs + cfg.zero_target_lb)
                         throughput_empty_lbs = float(throughput_evt.empty_lbs + cfg.zero_target_lb)
+                        with self._job_lock:
+                            active_set_weight_lbs = float(self._job_set_weight)
+                        target_set_weight_lbs = (
+                            active_set_weight_lbs if active_set_weight_lbs > 0.0 else None
+                        )
                         # Arm post-dump re-zero on each completed dump/cycle event.
                         # This is the industrial-style “one-shot” correction layer.
                         if cfg.zero_tracking_enabled and cfg.post_dump_rezero_enabled:
@@ -1057,6 +1423,7 @@ class AcquisitionService:
                                 filtered_lbs=filtered_lbs,
                                 target_relative_lbs=target_relative_lbs,
                                 throughput_full_min_relative_lb=throughput_full_min_relative_lb,
+                                target_set_weight_lbs=target_set_weight_lbs,
                             )
                         except Exception as event_err:  # noqa: BLE001
                             log.warning("Failed to persist throughput event: %s", event_err)
@@ -1638,6 +2005,11 @@ class AcquisitionService:
                     active_channel=cfg.channel,
                     enabled_channels=cfg.enabled_channels,
                 )
+
+                try:
+                    self._dispatch_job_completion_outbox(cfg=cfg, now_s=t)
+                except Exception as outbox_err:  # noqa: BLE001
+                    log.warning("Job completion outbox dispatch failed: %s", outbox_err)
 
             except Exception as e:
                 log.error("Acquisition loop error: %s", e)

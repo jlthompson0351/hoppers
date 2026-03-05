@@ -75,9 +75,35 @@ class PostDumpRezeroTests(unittest.TestCase):
         self.assertAlmostEqual(float(applied.new_zero_offset_mv or 0.0), 0.03, places=6)
         self.assertAlmostEqual(float(applied.new_zero_offset_lbs or 0.0), 3.0, places=6)
 
-        # One-shot: controller disarms after requesting apply.
-        idle = ctrl.update(
+        # After one-shot apply, continue telemetry tracking until fill resumes.
+        waiting_fill = ctrl.update(
             now_s=1.1,
+            raw_mv=5.03,
+            gross_lbs=0.0,
+            is_stable=True,
+            current_zero_offset_mv=0.03,
+            cal_points=self._points(),
+            cfg=cfg,
+        )
+        self.assertEqual(waiting_fill.state, "applied_waiting_fill_resume")
+        self.assertIsNone(waiting_fill.time_to_fill_resume_s)
+        self.assertFalse(waiting_fill.should_apply)
+
+        completed = ctrl.update(
+            now_s=1.6,
+            raw_mv=5.07,
+            gross_lbs=7.0,
+            is_stable=False,
+            current_zero_offset_mv=0.03,
+            cal_points=self._points(),
+            cfg=cfg,
+        )
+        self.assertEqual(completed.state, "completed")
+        self.assertEqual(completed.reason, "fill_resumed")
+        self.assertAlmostEqual(float(completed.time_to_fill_resume_s or 0.0), 1.6, places=3)
+
+        idle = ctrl.update(
+            now_s=1.7,
             raw_mv=5.03,
             gross_lbs=0.0,
             is_stable=True,

@@ -32,6 +32,7 @@ class ThroughputGuardTests(unittest.TestCase):
             zero_target_lb=0.0,
             zero_offset_mv=0.35,
             zero_offset_lbs=39.2,
+            throughput_min_processed_lb=5.0,
         )
 
     def test_rejects_cycle_above_max_and_logs_anomaly(self) -> None:
@@ -52,6 +53,7 @@ class ThroughputGuardTests(unittest.TestCase):
             filtered_lbs=301.0,
             target_relative_lbs=301.0,
             throughput_full_min_relative_lb=15.0,
+            target_set_weight_lbs=190.0,
         )
 
         self.assertFalse(accepted)
@@ -88,6 +90,7 @@ class ThroughputGuardTests(unittest.TestCase):
             filtered_lbs=250.0,
             target_relative_lbs=250.0,
             throughput_full_min_relative_lb=15.0,
+            target_set_weight_lbs=175.0,
         )
         self.assertTrue(below_accepted)
 
@@ -108,6 +111,7 @@ class ThroughputGuardTests(unittest.TestCase):
             filtered_lbs=300.0,
             target_relative_lbs=300.0,
             throughput_full_min_relative_lb=15.0,
+            target_set_weight_lbs=190.0,
         )
         self.assertTrue(boundary_accepted)
 
@@ -119,6 +123,15 @@ class ThroughputGuardTests(unittest.TestCase):
         self.assertIsNotNone(last_dump)
         assert last_dump is not None
         self.assertAlmostEqual(last_dump["processed_lbs"], 300.0, places=6)
+        self.assertAlmostEqual(float(last_dump["target_set_weight_lbs"]), 190.0, places=6)
+
+        events = self.repo.get_throughput_events_range(order_desc=False)
+        self.assertEqual(len(events), 2)
+        self.assertAlmostEqual(float(events[0]["target_set_weight_lbs"]), 175.0, places=6)
+        self.assertAlmostEqual(float(events[1]["target_set_weight_lbs"]), 190.0, places=6)
+        self.assertEqual(events[0]["dump_type"], "full")
+        self.assertEqual(events[1]["dump_type"], "full")
+        self.assertEqual(last_dump["dump_type"], "full")
 
         codes = [e["code"] for e in self.repo.get_recent_events(limit=20)]
         self.assertIn("THROUGHPUT_CYCLE_COMPLETE", codes)

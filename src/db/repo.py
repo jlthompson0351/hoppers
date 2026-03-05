@@ -87,6 +87,7 @@ class SetWeightCurrentRow:
     metadata: Dict[str, Any]
     state_seq: int
     received_at_utc: str
+    record_time_set_utc: str
     updated_at_utc: str
 
 
@@ -97,6 +98,22 @@ class SetWeightReceiptResult:
     state_seq: int
     current_set_weight_lbs: float
     current_set_weight_unit: str
+
+
+@dataclass(frozen=True)
+class JobLifecycleStateRow:
+    line_id: str
+    machine_id: str
+    active_job_id: str
+    active_job_started_record_time_set_utc: str
+    active_job_last_record_time_set_utc: str
+    active_job_first_erp_timestamp_utc: Optional[str]
+    active_job_last_erp_timestamp_utc: Optional[str]
+    override_count: int
+    last_set_weight_lbs: Optional[float]
+    last_set_weight_unit: Optional[str]
+    last_source_event_id: Optional[str]
+    updated_at_utc: str
 
 
 class AppRepository:
@@ -292,6 +309,7 @@ class AppRepository:
             metadata=self._parse_metadata_json(row["metadata_json"]),
             state_seq=int(row["state_seq"] or 0),
             received_at_utc=str(row["received_at_utc"]),
+            record_time_set_utc=str(row["record_time_set_utc"] or row["received_at_utc"]),
             updated_at_utc=str(row["updated_at_utc"]),
         )
 
@@ -303,7 +321,7 @@ class AppRepository:
             cur = conn.execute(
                 "SELECT line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
                 "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
-                "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc "
+                "job_id, step_id, metadata_json, state_seq, received_at_utc, record_time_set_utc, updated_at_utc "
                 "FROM set_weight_current WHERE line_id = ? AND machine_id = ? LIMIT 1;",
                 (line_id_clean, machine_id_clean),
             )
@@ -317,7 +335,7 @@ class AppRepository:
             cur = conn.execute(
                 "SELECT line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
                 "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
-                "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc "
+                "job_id, step_id, metadata_json, state_seq, received_at_utc, record_time_set_utc, updated_at_utc "
                 "FROM set_weight_current ORDER BY updated_at_utc DESC, rowid DESC LIMIT 1;"
             )
             row = cur.fetchone()
@@ -343,6 +361,7 @@ class AppRepository:
         job_id: Optional[str] = None,
         step_id: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        record_time_set_utc: Optional[str] = None,
     ) -> SetWeightReceiptResult:
         line_id_clean = self._clean_required_text(line_id, "line_id")
         machine_id_clean = self._clean_required_text(machine_id, "machine_id")
@@ -355,6 +374,7 @@ class AppRepository:
         job_id_clean = self._clean_optional_text(job_id)
         step_id_clean = self._clean_optional_text(step_id)
         received_ts = str(received_at_utc or _utc_now())
+        record_time_set_ts = str(record_time_set_utc or received_ts)
         metadata_json = json.dumps(metadata or {}, sort_keys=True)
 
         weight_value = float(set_weight_value)
@@ -405,8 +425,8 @@ class AppRepository:
                     "INSERT INTO set_weight_current("
                     "line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
                     "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
-                    "job_id, step_id, metadata_json, state_seq, received_at_utc, updated_at_utc"
-                    ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    "job_id, step_id, metadata_json, state_seq, received_at_utc, record_time_set_utc, updated_at_utc"
+                    ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     "ON CONFLICT(line_id, machine_id) DO UPDATE SET "
                     "set_weight_value=excluded.set_weight_value, "
                     "set_weight_unit=excluded.set_weight_unit, "
@@ -421,6 +441,7 @@ class AppRepository:
                     "metadata_json=excluded.metadata_json, "
                     "state_seq=excluded.state_seq, "
                     "received_at_utc=excluded.received_at_utc, "
+                    "record_time_set_utc=excluded.record_time_set_utc, "
                     "updated_at_utc=excluded.updated_at_utc;",
                     (
                         line_id_clean,
@@ -438,6 +459,7 @@ class AppRepository:
                         metadata_json,
                         current_state_seq,
                         received_ts,
+                        record_time_set_ts,
                         _utc_now(),
                     ),
                 )
@@ -446,13 +468,14 @@ class AppRepository:
 
             conn.execute(
                 "INSERT INTO set_weight_history("
-                "received_at_utc, line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
+                "received_at_utc, record_time_set_utc, line_id, machine_id, set_weight_value, set_weight_unit, set_weight_lbs, "
                 "source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
                 "job_id, step_id, metadata_json, applied_to_current, duplicate_event, "
                 "previous_set_weight_lbs, previous_set_weight_unit, state_seq, created_at_utc"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
                 (
                     received_ts,
+                    record_time_set_ts,
                     line_id_clean,
                     machine_id_clean,
                     weight_value,
@@ -504,7 +527,7 @@ class AppRepository:
             params.append(str(end_utc))
         where_sql = " AND ".join(clauses)
         sql = (
-            "SELECT id, received_at_utc, line_id, machine_id, set_weight_value, set_weight_unit, "
+            "SELECT id, received_at_utc, record_time_set_utc, line_id, machine_id, set_weight_value, set_weight_unit, "
             "set_weight_lbs, source, source_event_id, erp_timestamp_utc, product_id, operator_id, "
             "job_id, step_id, metadata_json, applied_to_current, duplicate_event, "
             "previous_set_weight_lbs, previous_set_weight_unit, state_seq, created_at_utc "
@@ -521,6 +544,7 @@ class AppRepository:
                     {
                         "id": int(row["id"]),
                         "received_at_utc": row["received_at_utc"],
+                        "record_time_set_utc": row["record_time_set_utc"],
                         "line_id": row["line_id"],
                         "machine_id": row["machine_id"],
                         "set_weight_value": float(row["set_weight_value"]),
@@ -547,6 +571,427 @@ class AppRepository:
                     }
                 )
             return out
+
+    def get_job_lifecycle_state(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+    ) -> Optional[JobLifecycleStateRow]:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT line_id, machine_id, active_job_id, "
+                "active_job_started_record_time_set_utc, active_job_last_record_time_set_utc, "
+                "active_job_first_erp_timestamp_utc, active_job_last_erp_timestamp_utc, "
+                "override_count, last_set_weight_lbs, last_set_weight_unit, "
+                "last_source_event_id, updated_at_utc "
+                "FROM job_lifecycle_state WHERE line_id = ? AND machine_id = ? LIMIT 1;",
+                (line_id_clean, machine_id_clean),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return JobLifecycleStateRow(
+            line_id=str(row["line_id"]),
+            machine_id=str(row["machine_id"]),
+            active_job_id=str(row["active_job_id"]),
+            active_job_started_record_time_set_utc=str(
+                row["active_job_started_record_time_set_utc"]
+            ),
+            active_job_last_record_time_set_utc=str(
+                row["active_job_last_record_time_set_utc"]
+            ),
+            active_job_first_erp_timestamp_utc=self._clean_optional_text(
+                row["active_job_first_erp_timestamp_utc"]
+            ),
+            active_job_last_erp_timestamp_utc=self._clean_optional_text(
+                row["active_job_last_erp_timestamp_utc"]
+            ),
+            override_count=max(0, int(row["override_count"] or 0)),
+            last_set_weight_lbs=(
+                None
+                if row["last_set_weight_lbs"] is None
+                else float(row["last_set_weight_lbs"])
+            ),
+            last_set_weight_unit=self._clean_optional_text(row["last_set_weight_unit"]),
+            last_source_event_id=self._clean_optional_text(row["last_source_event_id"]),
+            updated_at_utc=str(row["updated_at_utc"]),
+        )
+
+    def set_job_lifecycle_state(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        active_job_id: str,
+        active_job_started_record_time_set_utc: str,
+        active_job_last_record_time_set_utc: str,
+        active_job_first_erp_timestamp_utc: Optional[str] = None,
+        active_job_last_erp_timestamp_utc: Optional[str] = None,
+        override_count: int = 0,
+        last_set_weight_lbs: Optional[float] = None,
+        last_set_weight_unit: Optional[str] = None,
+        last_source_event_id: Optional[str] = None,
+    ) -> None:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        active_job_id_clean = self._clean_required_text(active_job_id, "active_job_id")
+        started_clean = str(active_job_started_record_time_set_utc or "").strip()
+        last_clean = str(active_job_last_record_time_set_utc or "").strip()
+        if not started_clean:
+            raise ValueError("active_job_started_record_time_set_utc is required")
+        if not last_clean:
+            raise ValueError("active_job_last_record_time_set_utc is required")
+        first_erp_clean = self._clean_optional_text(active_job_first_erp_timestamp_utc)
+        last_erp_clean = self._clean_optional_text(active_job_last_erp_timestamp_utc)
+        last_unit_clean = (
+            None
+            if last_set_weight_unit in (None, "")
+            else self._normalize_weight_unit(last_set_weight_unit)
+        )
+        last_event_clean = self._clean_optional_text(last_source_event_id)
+        updated_utc = _utc_now()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO job_lifecycle_state("
+                "line_id, machine_id, active_job_id, "
+                "active_job_started_record_time_set_utc, active_job_last_record_time_set_utc, "
+                "active_job_first_erp_timestamp_utc, active_job_last_erp_timestamp_utc, "
+                "override_count, last_set_weight_lbs, last_set_weight_unit, "
+                "last_source_event_id, updated_at_utc"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(line_id, machine_id) DO UPDATE SET "
+                "active_job_id=excluded.active_job_id, "
+                "active_job_started_record_time_set_utc=excluded.active_job_started_record_time_set_utc, "
+                "active_job_last_record_time_set_utc=excluded.active_job_last_record_time_set_utc, "
+                "active_job_first_erp_timestamp_utc=excluded.active_job_first_erp_timestamp_utc, "
+                "active_job_last_erp_timestamp_utc=excluded.active_job_last_erp_timestamp_utc, "
+                "override_count=excluded.override_count, "
+                "last_set_weight_lbs=excluded.last_set_weight_lbs, "
+                "last_set_weight_unit=excluded.last_set_weight_unit, "
+                "last_source_event_id=excluded.last_source_event_id, "
+                "updated_at_utc=excluded.updated_at_utc;",
+                (
+                    line_id_clean,
+                    machine_id_clean,
+                    active_job_id_clean,
+                    started_clean,
+                    last_clean,
+                    first_erp_clean,
+                    last_erp_clean,
+                    max(0, int(override_count)),
+                    (
+                        None
+                        if last_set_weight_lbs is None
+                        else float(last_set_weight_lbs)
+                    ),
+                    last_unit_clean,
+                    last_event_clean,
+                    updated_utc,
+                ),
+            )
+
+    def increment_job_lifecycle_override(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        last_record_time_set_utc: str,
+        last_set_weight_lbs: Optional[float] = None,
+        last_set_weight_unit: Optional[str] = None,
+        last_source_event_id: Optional[str] = None,
+        active_job_last_erp_timestamp_utc: Optional[str] = None,
+    ) -> None:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        last_record_time_clean = str(last_record_time_set_utc or "").strip()
+        if not last_record_time_clean:
+            raise ValueError("last_record_time_set_utc is required")
+        last_unit_clean = (
+            None
+            if last_set_weight_unit in (None, "")
+            else self._normalize_weight_unit(last_set_weight_unit)
+        )
+        last_event_clean = self._clean_optional_text(last_source_event_id)
+        last_erp_clean = self._clean_optional_text(active_job_last_erp_timestamp_utc)
+        updated_utc = _utc_now()
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE job_lifecycle_state SET "
+                "override_count = override_count + 1, "
+                "active_job_last_record_time_set_utc = ?, "
+                "active_job_last_erp_timestamp_utc = COALESCE(?, active_job_last_erp_timestamp_utc), "
+                "last_set_weight_lbs = COALESCE(?, last_set_weight_lbs), "
+                "last_set_weight_unit = COALESCE(?, last_set_weight_unit), "
+                "last_source_event_id = COALESCE(?, last_source_event_id), "
+                "updated_at_utc = ? "
+                "WHERE line_id = ? AND machine_id = ?;",
+                (
+                    last_record_time_clean,
+                    last_erp_clean,
+                    (
+                        None
+                        if last_set_weight_lbs is None
+                        else float(last_set_weight_lbs)
+                    ),
+                    last_unit_clean,
+                    last_event_clean,
+                    updated_utc,
+                    line_id_clean,
+                    machine_id_clean,
+                ),
+            )
+
+    def clear_job_lifecycle_state(self, *, line_id: str, machine_id: str) -> None:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM job_lifecycle_state WHERE line_id = ? AND machine_id = ?;",
+                (line_id_clean, machine_id_clean),
+            )
+
+    def get_job_window_throughput_summary(
+        self,
+        *,
+        start_utc: str,
+        end_utc: str,
+    ) -> Dict[str, Any]:
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT "
+                "COUNT(*) AS total_cycle_count, "
+                "SUM(CASE WHEN dump_type IN ('full','end_of_lot') THEN 1 ELSE 0 END) AS dump_count, "
+                "COALESCE(SUM(CASE WHEN dump_type IN ('full','end_of_lot') THEN processed_lbs ELSE 0.0 END), 0.0) AS total_processed_lbs, "
+                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN processed_lbs END), 0.0) AS avg_weight_lbs, "
+                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN duration_ms END), 0.0) AS avg_cycle_time_ms "
+                "FROM throughput_events WHERE timestamp_utc >= ? AND timestamp_utc < ?;",
+                (start_clean, end_clean),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return {
+                "cycle_count": 0,
+                "dump_count": 0,
+                "total_processed_lbs": 0.0,
+                "avg_weight_lbs": 0.0,
+                "avg_cycle_time_ms": 0.0,
+            }
+        return {
+            "cycle_count": int(row["total_cycle_count"] or 0),
+            "dump_count": int(row["dump_count"] or 0),
+            "total_processed_lbs": float(row["total_processed_lbs"] or 0.0),
+            "avg_weight_lbs": float(row["avg_weight_lbs"] or 0.0),
+            "avg_cycle_time_ms": float(row["avg_cycle_time_ms"] or 0.0),
+        }
+
+    def get_job_window_set_weight_summary(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        job_id: str,
+        start_utc: str,
+        end_utc: str,
+    ) -> Dict[str, Any]:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        job_id_clean = self._clean_required_text(job_id, "job_id")
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT "
+                "SUM(CASE WHEN source LIKE 'manual_override:%' THEN 1 ELSE 0 END) AS override_count "
+                "FROM set_weight_history "
+                "WHERE line_id = ? AND machine_id = ? "
+                "AND record_time_set_utc >= ? AND record_time_set_utc < ? "
+                "AND (job_id = ? OR source LIKE 'manual_override:%');",
+                (
+                    line_id_clean,
+                    machine_id_clean,
+                    start_clean,
+                    end_clean,
+                    job_id_clean,
+                ),
+            )
+            count_row = cur.fetchone()
+            cur = conn.execute(
+                "SELECT set_weight_lbs, set_weight_unit, record_time_set_utc "
+                "FROM set_weight_history "
+                "WHERE line_id = ? AND machine_id = ? "
+                "AND record_time_set_utc >= ? AND record_time_set_utc < ? "
+                "AND (job_id = ? OR source LIKE 'manual_override:%') "
+                "ORDER BY record_time_set_utc DESC, id DESC LIMIT 1;",
+                (
+                    line_id_clean,
+                    machine_id_clean,
+                    start_clean,
+                    end_clean,
+                    job_id_clean,
+                ),
+            )
+            last_row = cur.fetchone()
+
+        return {
+            "override_count": int((count_row["override_count"] if count_row else 0) or 0),
+            "final_set_weight_lbs": (
+                None if last_row is None else float(last_row["set_weight_lbs"])
+            ),
+            "final_set_weight_unit": (
+                None if last_row is None else str(last_row["set_weight_unit"])
+            ),
+            "final_set_weight_record_time_set_utc": (
+                None if last_row is None else str(last_row["record_time_set_utc"])
+            ),
+        }
+
+    def enqueue_job_completion_outbox(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        job_id: str,
+        job_start_record_time_set_utc: str,
+        job_end_record_time_set_utc: str,
+        payload: Dict[str, Any],
+    ) -> int:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        job_id_clean = self._clean_required_text(job_id, "job_id")
+        start_clean = str(job_start_record_time_set_utc or "").strip()
+        end_clean = str(job_end_record_time_set_utc or "").strip()
+        if not start_clean:
+            raise ValueError("job_start_record_time_set_utc is required")
+        if not end_clean:
+            raise ValueError("job_end_record_time_set_utc is required")
+        created_utc = _utc_now()
+        payload_json = json.dumps(payload or {}, sort_keys=True)
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO job_completion_outbox("
+                "created_at_utc, line_id, machine_id, job_id, "
+                "job_start_record_time_set_utc, job_end_record_time_set_utc, payload_json, "
+                "status, attempt_count, next_retry_at_utc"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?);",
+                (
+                    created_utc,
+                    line_id_clean,
+                    machine_id_clean,
+                    job_id_clean,
+                    start_clean,
+                    end_clean,
+                    payload_json,
+                    "pending",
+                    0,
+                    created_utc,
+                ),
+            )
+            inserted = int(cur.lastrowid or 0)
+            if inserted > 0:
+                return inserted
+            cur = conn.execute(
+                "SELECT id FROM job_completion_outbox "
+                "WHERE line_id = ? AND machine_id = ? AND job_id = ? "
+                "AND job_start_record_time_set_utc = ? AND job_end_record_time_set_utc = ? "
+                "LIMIT 1;",
+                (line_id_clean, machine_id_clean, job_id_clean, start_clean, end_clean),
+            )
+            row = cur.fetchone()
+            return int(row["id"]) if row else 0
+
+    def get_pending_job_completion_outbox(
+        self,
+        *,
+        now_utc: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        now_clean = str(now_utc or _utc_now())
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT id, created_at_utc, line_id, machine_id, job_id, "
+                "job_start_record_time_set_utc, job_end_record_time_set_utc, "
+                "payload_json, status, attempt_count, next_retry_at_utc, "
+                "last_attempt_at_utc, last_error, sent_at_utc "
+                "FROM job_completion_outbox "
+                "WHERE status = 'pending' AND next_retry_at_utc <= ? "
+                "ORDER BY id ASC LIMIT ?;",
+                (now_clean, max(1, int(limit))),
+            )
+            rows = cur.fetchall()
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "id": int(row["id"]),
+                    "created_at_utc": row["created_at_utc"],
+                    "line_id": row["line_id"],
+                    "machine_id": row["machine_id"],
+                    "job_id": row["job_id"],
+                    "job_start_record_time_set_utc": row["job_start_record_time_set_utc"],
+                    "job_end_record_time_set_utc": row["job_end_record_time_set_utc"],
+                    "payload": self._parse_metadata_json(row["payload_json"]),
+                    "status": row["status"],
+                    "attempt_count": int(row["attempt_count"] or 0),
+                    "next_retry_at_utc": row["next_retry_at_utc"],
+                    "last_attempt_at_utc": row["last_attempt_at_utc"],
+                    "last_error": row["last_error"],
+                    "sent_at_utc": row["sent_at_utc"],
+                }
+            )
+        return out
+
+    def mark_job_completion_outbox_sent(
+        self,
+        *,
+        outbox_id: int,
+        sent_at_utc: Optional[str] = None,
+    ) -> None:
+        sent_ts = str(sent_at_utc or _utc_now())
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE job_completion_outbox SET "
+                "status = 'sent', "
+                "sent_at_utc = ?, "
+                "last_attempt_at_utc = ?, "
+                "last_error = NULL "
+                "WHERE id = ?;",
+                (sent_ts, sent_ts, int(outbox_id)),
+            )
+
+    def mark_job_completion_outbox_retry(
+        self,
+        *,
+        outbox_id: int,
+        last_error: str,
+        next_retry_at_utc: str,
+        attempted_at_utc: Optional[str] = None,
+    ) -> None:
+        attempted_ts = str(attempted_at_utc or _utc_now())
+        next_retry_ts = str(next_retry_at_utc or attempted_ts)
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE job_completion_outbox SET "
+                "attempt_count = attempt_count + 1, "
+                "last_attempt_at_utc = ?, "
+                "last_error = ?, "
+                "next_retry_at_utc = ? "
+                "WHERE id = ?;",
+                (
+                    attempted_ts,
+                    str(last_error or "")[:1000],
+                    next_retry_ts,
+                    int(outbox_id),
+                ),
+            )
 
     def default_config(self) -> Dict[str, Any]:
         """Default config for summing-board scale transmitter."""
@@ -668,6 +1113,13 @@ class AppRepository:
                 "pretrigger_lb": 0.0,
                 # Optional shared secret for /api/job/webhook.
                 "webhook_token": "",
+                # Destination URL for completed-job summary webhook POSTs.
+                "completed_job_webhook_url": "",
+                # Dispatcher runtime settings for durable outbox delivery.
+                "completed_job_webhook_timeout_s": 5.0,
+                "completed_job_webhook_dispatch_interval_s": 2.0,
+                "completed_job_webhook_retry_min_s": 5.0,
+                "completed_job_webhook_retry_max_s": 300.0,
                 # SHA-256 hash of 4-digit manager PIN for manual HDMI overrides.
                 "override_pin_hash": "",
             },
@@ -905,6 +1357,8 @@ class AppRepository:
         confidence: Optional[float] = None,
         device_id: Optional[str] = None,
         hopper_id: Optional[str] = None,
+        target_set_weight_lbs: Optional[float] = None,
+        dump_type: Optional[str] = None,
     ) -> int:
         ts_utc = str(timestamp_utc or _utc_now())
         created_at = _utc_now()
@@ -912,8 +1366,9 @@ class AppRepository:
         with self._conn() as conn:
             cur = conn.execute(
                 "INSERT INTO throughput_events("
-                "timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, confidence, device_id, hopper_id, created_at"
-                ") VALUES (?,?,?,?,?,?,?,?,?);",
+                "timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, confidence, device_id, "
+                "hopper_id, target_set_weight_lbs, dump_type, created_at"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?);",
                 (
                     ts_utc,
                     float(processed_lbs),
@@ -923,6 +1378,8 @@ class AppRepository:
                     (None if confidence is None else float(confidence)),
                     (None if device_id is None else str(device_id)),
                     (None if hopper_id is None else str(hopper_id)),
+                    (None if target_set_weight_lbs is None else float(target_set_weight_lbs)),
+                    (None if dump_type is None else str(dump_type)),
                     created_at,
                 ),
             )
@@ -953,7 +1410,7 @@ class AppRepository:
 
             cur = conn.execute(
                 "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
-                "confidence, device_id, hopper_id, created_at "
+                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, created_at "
                 f"FROM throughput_events{where_sql} "
                 "ORDER BY timestamp_utc DESC, id DESC LIMIT ? OFFSET ?;",
                 tuple(where_params + [page_size, offset]),
@@ -972,6 +1429,12 @@ class AppRepository:
                         "confidence": (None if row["confidence"] is None else float(row["confidence"])),
                         "device_id": row["device_id"],
                         "hopper_id": row["hopper_id"],
+                        "target_set_weight_lbs": (
+                            None
+                            if row["target_set_weight_lbs"] is None
+                            else float(row["target_set_weight_lbs"])
+                        ),
+                        "dump_type": row["dump_type"],
                         "created_at": row["created_at"],
                     }
                 )
@@ -990,7 +1453,7 @@ class AppRepository:
         with self._conn() as conn:
             cur = conn.execute(
                 "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
-                "confidence, device_id, hopper_id, created_at "
+                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, created_at "
                 f"FROM throughput_events{where_sql} "
                 f"ORDER BY timestamp_utc {order_sql}, id {order_sql};",
                 tuple(where_params),
@@ -1008,6 +1471,12 @@ class AppRepository:
                         "confidence": (None if row["confidence"] is None else float(row["confidence"])),
                         "device_id": row["device_id"],
                         "hopper_id": row["hopper_id"],
+                        "target_set_weight_lbs": (
+                            None
+                            if row["target_set_weight_lbs"] is None
+                            else float(row["target_set_weight_lbs"])
+                        ),
+                        "dump_type": row["dump_type"],
                         "created_at": row["created_at"],
                     }
                 )
@@ -1154,14 +1623,33 @@ class AppRepository:
             return date(d.year, 1, 1).isoformat()
         raise ValueError(f"Unknown period_type: {period_type}")
 
-    def record_dump_and_increment_totals(self, prev_stable_lbs: float, new_stable_lbs: float, processed_lbs: float) -> None:
+    def record_dump_and_increment_totals(
+        self,
+        prev_stable_lbs: float,
+        new_stable_lbs: float,
+        processed_lbs: float,
+        target_set_weight_lbs: Optional[float] = None,
+        dump_type: Optional[str] = None,
+    ) -> None:
         ts = _utc_now()
         processed_lbs = float(processed_lbs)
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO production_dumps(ts, prev_stable_lbs, new_stable_lbs, processed_lbs) VALUES (?,?,?,?);",
-                (ts, float(prev_stable_lbs), float(new_stable_lbs), processed_lbs),
+                "INSERT INTO production_dumps("
+                "ts, prev_stable_lbs, new_stable_lbs, processed_lbs, target_set_weight_lbs, dump_type"
+                ") VALUES (?,?,?,?,?,?);",
+                (
+                    ts,
+                    float(prev_stable_lbs),
+                    float(new_stable_lbs),
+                    processed_lbs,
+                    (None if target_set_weight_lbs is None else float(target_set_weight_lbs)),
+                    (None if dump_type is None else str(dump_type)),
+                ),
             )
+
+            if dump_type == "empty":
+                return
 
             d = datetime.now(timezone.utc).date()
             for period_type in ("day", "week", "month", "year"):
@@ -1239,7 +1727,8 @@ class AppRepository:
 
         with self._conn() as conn:
             cur = conn.execute(
-                "SELECT COUNT(*) as cnt FROM production_dumps WHERE ts >= ? AND ts <= ?;",
+                "SELECT COUNT(*) as cnt FROM production_dumps "
+                "WHERE ts >= ? AND ts <= ? AND (dump_type IS NULL OR dump_type = 'full');",
                 (start_ts, end_ts),
             )
             row = cur.fetchone()
@@ -1249,7 +1738,9 @@ class AppRepository:
         """Get the most recent dump record."""
         with self._conn() as conn:
             cur = conn.execute(
-                "SELECT ts, prev_stable_lbs, new_stable_lbs, processed_lbs FROM production_dumps ORDER BY id DESC LIMIT 1;"
+                "SELECT ts, prev_stable_lbs, new_stable_lbs, processed_lbs, "
+                "target_set_weight_lbs, dump_type "
+                "FROM production_dumps ORDER BY id DESC LIMIT 1;"
             )
             row = cur.fetchone()
             if not row:
@@ -1259,6 +1750,12 @@ class AppRepository:
                 "prev_stable_lbs": float(row["prev_stable_lbs"]),
                 "new_stable_lbs": float(row["new_stable_lbs"]),
                 "processed_lbs": float(row["processed_lbs"]),
+                "target_set_weight_lbs": (
+                    None
+                    if row["target_set_weight_lbs"] is None
+                    else float(row["target_set_weight_lbs"])
+                ),
+                "dump_type": row["dump_type"],
             }
 
 

@@ -27,12 +27,12 @@
   - Trace where processing weight is calculated and where dump counts are incremented/reset.
   - Add/expand regression tests to cover processing weight updates and dump counting.
 
-- [ ] Audit weight storage and dump detection logic.
-  - Reported behavior: processing weight is not adding up correctly and/or dumps are not being detected.
-  - Trace how weight is stored at each stage (raw read → processed weight → stored value).
-  - Verify dump detection thresholds, conditions, and state transitions are firing as expected.
-  - Determine whether the issue is in weight accumulation, dump detection, or both.
-  - Add regression tests to cover weight storage accuracy and dump detection edge cases.
+- [x] Audit weight storage and dump detection logic.
+  - Root cause: `ThroughputCycleDetector` emitted `full_lbs` from transient peak values, which inflated `prev_stable_lbs` and `processed_lbs` under vibration/spike conditions.
+  - Fix: detector now reports the last stable pre-dump full reading (with fallback to prior behavior when no stable sample is available).
+  - Fix: post-dump telemetry now continues after one-shot apply until fill resumes, so `time_to_fill_resume_s` is populated and logged.
+  - Fix: added `target_set_weight_lbs` persistence on both `throughput_events` and `production_dumps` (schema v4 migration + acquisition/repo plumbing).
+  - Added regression coverage for transient full spikes, post-dump fill-resume telemetry, and target-set-weight persistence.
 
 - [ ] Create a new complete OS image backup with latest add-ons.
   - Run a full post-change image backup (current production stack + job-target persistence updates).

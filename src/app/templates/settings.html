@@ -355,6 +355,24 @@
 
       <div class="setting-row">
         <div>
+          <div class="setting-label">Completed Job Webhook URL</div>
+          <div class="setting-help">
+            Optional destination for summary-only completed job payloads sent when a new normal job ID starts.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input
+            type="url"
+            id="completed_job_webhook_url"
+            name="completed_job_webhook_url"
+            placeholder="https://your-backend.example.com/webhooks/job-complete"
+            value="{{ job_control.get('completed_job_webhook_url', '') }}"
+          >
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
           <div class="setting-label">Manager Override PIN</div>
           <div class="setting-help">
             4-digit PIN required for HDMI <code>OVERRIDE</code>. Leave blank to keep the current PIN.

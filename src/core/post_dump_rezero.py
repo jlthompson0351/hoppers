@@ -61,6 +61,7 @@ class PostDumpRezeroController:
         self._first_stable_s: Optional[float] = None
         self._first_empty_s: Optional[float] = None
         self._fill_resume_s: Optional[float] = None
+        self._apply_requested: bool = False
 
     def trigger(self, *, now_s: float) -> None:
         """Arm the controller after a detected dump event."""
@@ -68,6 +69,7 @@ class PostDumpRezeroController:
         self._first_stable_s = None
         self._first_empty_s = None
         self._fill_resume_s = None
+        self._apply_requested = False
         self._emit(
             level="INFO",
             code="POST_DUMP_REZERO_TRIGGERED",
@@ -141,6 +143,43 @@ class PostDumpRezeroController:
             fill_resume_threshold = float(cfg.empty_threshold_lb) + max(1.0, float(cfg.empty_threshold_lb) * 0.5)
             if float(gross_lbs) > fill_resume_threshold:
                 self._fill_resume_s = now_s
+
+        if self._apply_requested:
+            # After one-shot apply, keep telemetry armed long enough to measure
+            # when fill resumes; this metric is useful for cycle timing analysis.
+            if self._fill_resume_s is not None:
+                step = PostDumpRezeroStep(
+                    active=False,
+                    state="completed",
+                    reason="fill_resumed",
+                    dump_age_s=age_s,
+                    time_to_stable_s=self._delta_or_none(self._first_stable_s, dump_time),
+                    time_to_empty_s=self._delta_or_none(self._first_empty_s, dump_time),
+                    time_to_fill_resume_s=self._delta_or_none(self._fill_resume_s, dump_time),
+                )
+                self._emit(
+                    level="INFO",
+                    code="POST_DUMP_REZERO_FILL_RESUME",
+                    message="Post-dump fill resumed.",
+                    details={
+                        "dump_age_s": age_s,
+                        "time_to_stable_s": step.time_to_stable_s,
+                        "time_to_empty_s": step.time_to_empty_s,
+                        "time_to_fill_resume_s": step.time_to_fill_resume_s,
+                    },
+                )
+                self.reset()
+                return step
+
+            return PostDumpRezeroStep(
+                active=False,
+                state="applied_waiting_fill_resume",
+                reason="awaiting_fill_resume",
+                dump_age_s=age_s,
+                time_to_stable_s=self._delta_or_none(self._first_stable_s, dump_time),
+                time_to_empty_s=self._delta_or_none(self._first_empty_s, dump_time),
+                time_to_fill_resume_s=self._delta_or_none(self._fill_resume_s, dump_time),
+            )
 
         min_delay_s = max(0.0, float(cfg.min_delay_s))
         if age_s < min_delay_s:
@@ -301,8 +340,9 @@ class PostDumpRezeroController:
                 "time_to_fill_resume_s": step.time_to_fill_resume_s,
             },
         )
-        # One-shot: after requesting apply, disarm so we cannot apply twice.
-        self.reset()
+        # One-shot apply requested: keep telemetry armed until fill resumes so
+        # time_to_fill_resume_s can be captured reliably.
+        self._apply_requested = True
         return step
 
     def _emit(self, *, level: str, code: str, message: str, details: Optional[dict]) -> None:

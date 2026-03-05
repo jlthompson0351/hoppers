@@ -919,6 +919,11 @@ def settings_post() -> Response:
     token_raw = request.form.get("job_webhook_token")
     if token_raw is not None:
         cfg["job_control"]["webhook_token"] = str(token_raw).strip()
+    completed_job_webhook_url_raw = request.form.get("completed_job_webhook_url")
+    if completed_job_webhook_url_raw is not None:
+        cfg["job_control"]["completed_job_webhook_url"] = str(
+            completed_job_webhook_url_raw
+        ).strip()
     override_pin_raw = request.form.get("job_override_pin")
     if override_pin_raw is not None:
         override_pin_text = str(override_pin_raw).strip()
@@ -1240,6 +1245,8 @@ def throughput_events() -> Response:
                 "confidence": row["confidence"],
                 "device_id": row["device_id"],
                 "hopper_id": row["hopper_id"],
+                "target_set_weight_lbs": row.get("target_set_weight_lbs"),
+                "dump_type": row.get("dump_type"),
             }
             for row in events
         ],
@@ -3245,6 +3252,16 @@ def api_job_override() -> Response:
     machine_id_raw = _first_payload_value(payload, "machine_id", "machineId", "machineKey")
     line_id = str(line_id_raw).strip() if line_id_raw not in (None, "") else None
     machine_id = str(machine_id_raw).strip() if machine_id_raw not in (None, "") else None
+    if line_id is None or machine_id is None:
+        status_payload = svc.get_job_control_status() if hasattr(svc, "get_job_control_status") else {}
+        status_meta = status_payload.get("meta") if isinstance(status_payload, dict) else None
+        if isinstance(status_meta, dict):
+            if line_id is None:
+                line_guess = str(status_meta.get("line_id", "") or "").strip()
+                line_id = line_guess or None
+            if machine_id is None:
+                machine_guess = str(status_meta.get("machine_id", "") or "").strip()
+                machine_id = machine_guess or None
 
     source_ip = str(request.remote_addr or "unknown")
     received_utc = _utc_now()

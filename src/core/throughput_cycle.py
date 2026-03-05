@@ -38,6 +38,7 @@ class ThroughputCycleDetector:
         self._fill_started_s: Optional[float] = None
         self._peak_lbs = 0.0
         self._full_lbs: Optional[float] = None
+        self._last_stable_full_lbs: Optional[float] = None
         self._full_candidate_s: Optional[float] = None
         self._empty_confirm_started_s: Optional[float] = None
         self._dump_min_lbs: Optional[float] = None
@@ -69,6 +70,7 @@ class ThroughputCycleDetector:
                 self._fill_started_s = now_s
                 self._peak_lbs = gross_lbs
                 self._full_lbs = None
+                self._last_stable_full_lbs = None
                 self._full_candidate_s = None
                 self._empty_confirm_started_s = None
                 self._dump_min_lbs = None
@@ -77,6 +79,8 @@ class ThroughputCycleDetector:
 
         if self._state == "FILLING":
             self._peak_lbs = max(self._peak_lbs, gross_lbs)
+            if is_stable and gross_lbs >= cfg.full_min_lb:
+                self._last_stable_full_lbs = gross_lbs
 
             # Full detection should not require "stable" in violent hopper motion.
             # We still require sustained time above threshold via full_stability_s.
@@ -97,10 +101,18 @@ class ThroughputCycleDetector:
 
         if self._state == "FULL_STABLE":
             self._peak_lbs = max(self._peak_lbs, gross_lbs)
+            if is_stable and gross_lbs >= cfg.full_min_lb:
+                self._last_stable_full_lbs = gross_lbs
             ref_full = self._full_lbs if self._full_lbs is not None else self._peak_lbs
             if gross_lbs <= (ref_full - cfg.dump_drop_lb):
                 self._empty_confirm_started_s = None
                 self._dump_min_lbs = gross_lbs
+                # Reported "full" should represent the last stable pre-dump reading
+                # when available, not a transient peak spike.
+                if self._last_stable_full_lbs is not None:
+                    self._full_lbs = float(self._last_stable_full_lbs)
+                elif self._full_lbs is None:
+                    self._full_lbs = ref_full
                 self._transition("DUMPING", now_s)
             return None
 
@@ -116,7 +128,11 @@ class ThroughputCycleDetector:
                 if self._empty_confirm_started_s is None:
                     self._empty_confirm_started_s = now_s
                 elif (now_s - self._empty_confirm_started_s) >= cfg.empty_confirm_s:
-                    full_lbs = max(self._peak_lbs, self._full_lbs or self._peak_lbs)
+                    full_lbs = (
+                        float(self._full_lbs)
+                        if self._full_lbs is not None
+                        else float(self._peak_lbs)
+                    )
                     # Pull-type load cells can dip negative when the hopper compresses
                     # at the bottom of travel. Floor empty to pre-fill baseline so we do
                     # not overcount processed weight because of this transient.
@@ -137,8 +153,6 @@ class ThroughputCycleDetector:
                     )
                     self.reset()
                     self._state_started_s = now_s
-                    if processed_lbs < cfg.min_processed_lb:
-                        return None
                     return ThroughputCycleEvent(
                         processed_lbs=processed_lbs,
                         full_lbs=full_lbs,
@@ -158,6 +172,7 @@ class ThroughputCycleDetector:
                 self._fill_started_s = now_s
                 self._peak_lbs = gross_lbs
                 self._full_lbs = None
+                self._last_stable_full_lbs = None
                 self._full_candidate_s = None
                 self._empty_confirm_started_s = None
                 self._dump_min_lbs = None

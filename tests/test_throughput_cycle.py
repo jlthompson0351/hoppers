@@ -54,7 +54,7 @@ class ThroughputCycleDetectorTests(unittest.TestCase):
         self.assertGreaterEqual(evt.confidence, 0.0)
         self.assertLessEqual(evt.confidence, 1.0)
 
-    def test_rejects_cycle_below_min_processed(self) -> None:
+    def test_emits_sub_threshold_cycle_for_downstream_classification(self) -> None:
         detector = ThroughputCycleDetector()
         cfg = ThroughputCycleConfig(
             empty_threshold_lb=2.0,
@@ -86,8 +86,15 @@ class ThroughputCycleDetectorTests(unittest.TestCase):
         for w in (4.0, 2.5):
             self.assertIsNone(step(w, stable=False))
 
+        evt = None
         for _ in range(3):
-            self.assertIsNone(step(1.8, stable=True))
+            evt = step(1.8, stable=True)
+            if evt is not None:
+                break
+
+        self.assertIsNotNone(evt)
+        assert evt is not None
+        self.assertLess(evt.processed_lbs, 10.0)
 
     def test_gradual_dump_does_not_restart_as_fill(self) -> None:
         detector = ThroughputCycleDetector()
@@ -269,6 +276,52 @@ class ThroughputCycleDetectorTests(unittest.TestCase):
         # Idle near-empty time should not be included in cycle duration.
         self.assertLessEqual(evt.duration_ms, 8000)
         self.assertGreater(evt.processed_lbs, 20.0)
+
+    def test_uses_last_stable_full_before_dump_not_transient_peak(self) -> None:
+        detector = ThroughputCycleDetector()
+        cfg = ThroughputCycleConfig(
+            empty_threshold_lb=2.0,
+            rise_trigger_lb=8.0,
+            full_min_lb=15.0,
+            dump_drop_lb=6.0,
+            full_stability_s=1.0,
+            empty_confirm_s=1.0,
+            min_processed_lb=5.0,
+            max_cycle_s=600.0,
+        )
+
+        now = 0.0
+
+        def step(weight: float, stable: bool, dt: float = 0.5):
+            nonlocal now
+            now += dt
+            return detector.update(now_s=now, gross_lbs=weight, is_stable=stable, cfg=cfg)
+
+        for _ in range(4):
+            self.assertIsNone(step(0.3, stable=True))
+
+        # Transient fill spike (e.g., vibration) should not become the stored full weight.
+        for w in (12.0, 40.0, 110.0, 190.0, 270.0, 195.0):
+            self.assertIsNone(step(w, stable=False))
+
+        # Stable pre-dump plateau near the true batch weight.
+        for _ in range(4):
+            self.assertIsNone(step(190.0, stable=True))
+
+        for w in (160.0, 120.0, 60.0, 20.0, 5.0):
+            self.assertIsNone(step(w, stable=False))
+
+        evt = None
+        for _ in range(4):
+            evt = step(0.8, stable=True)
+            if evt is not None:
+                break
+
+        self.assertIsNotNone(evt)
+        assert evt is not None
+        self.assertLess(abs(evt.full_lbs - 190.0), 8.0)
+        self.assertLess(evt.full_lbs, 220.0)
+        self.assertLess(evt.processed_lbs, 220.0)
 
 
 if __name__ == "__main__":
