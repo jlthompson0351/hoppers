@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 DDL_V1 = """
@@ -257,5 +257,29 @@ CREATE INDEX IF NOT EXISTS idx_job_completion_outbox_job
 ON job_completion_outbox(job_id, created_at_utc DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_job_completion_outbox_dedupe
 ON job_completion_outbox(line_id, machine_id, job_id, job_start_record_time_set_utc, job_end_record_time_set_utc);
+"""
+
+
+DDL_V7 = """
+CREATE TABLE IF NOT EXISTS counted_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp_utc TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_channel INTEGER,
+  line_id TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK(length(trim(event_type)) > 0),
+  CHECK(length(trim(source)) > 0),
+  CHECK(length(trim(line_id)) > 0),
+  CHECK(length(trim(machine_id)) > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_counted_events_ts
+ON counted_events(timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_counted_events_type_ts
+ON counted_events(event_type, timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_counted_events_scope_ts
+ON counted_events(line_id, machine_id, timestamp_utc);
 """
 

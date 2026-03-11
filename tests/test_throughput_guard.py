@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.app import create_app
+from src.core.plc_profile import PlcProfileCurve
 from src.core.throughput_cycle import ThroughputCycleEvent
 from src.db.migrate import ensure_db
 from src.db.repo import AppRepository
@@ -171,6 +172,82 @@ class SettingsMaxWeightTests(unittest.TestCase):
         cfg = self.repo.get_latest_config()
         range_cfg = cfg.get("range") or {}
         self.assertAlmostEqual(float(range_cfg.get("max_lb", 0.0)), 275.5, places=6)
+
+    def test_settings_page_exposes_and_persists_floor_controls(self) -> None:
+        get_resp = self.client.get("/settings")
+        self.assertEqual(get_resp.status_code, 200)
+        body = get_resp.data.decode("utf-8")
+        self.assertIn('name="zero_target_lb"', body)
+        self.assertIn('name="legacy_floor_signal_value"', body)
+
+        post_resp = self.client.post(
+            "/settings",
+            data={
+                "output_mode": "0_10V",
+                "output_channel": "1",
+                "safe_output": "0.0",
+                "zero_target_lb": "3.0",
+                "job_control_mode": "legacy_weight_mapping",
+                "legacy_floor_signal_value": "1.75",
+            },
+        )
+        self.assertEqual(post_resp.status_code, 302)
+
+        cfg = self.repo.get_latest_config()
+        scale_cfg = cfg.get("scale") or {}
+        job_control = cfg.get("job_control") or {}
+        self.assertAlmostEqual(float(scale_cfg.get("zero_target_lb", 0.0)), 3.0, places=6)
+        self.assertAlmostEqual(
+            float(job_control.get("legacy_floor_signal_value", 0.0)),
+            1.75,
+            places=6,
+        )
+
+
+class LegacyFloorSignalResolutionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="legacy-floor-signal-tests-")
+        self.addCleanup(lambda: shutil.rmtree(self._tmp, ignore_errors=True))
+        self.db_path = Path(self._tmp) / "app.sqlite3"
+        ensure_db(self.db_path)
+        repo = AppRepository(self.db_path)
+        self.service = AcquisitionService(hw=None, repo=repo, state=LiveState())
+
+    @staticmethod
+    def _cfg(
+        *,
+        output_mode: str = "0_10V",
+        zero_target_lb: float = 3.0,
+        legacy_floor_signal_value: float | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            output_mode=output_mode,
+            zero_target_lb=float(zero_target_lb),
+            job_control_legacy_floor_signal_value=legacy_floor_signal_value,
+        )
+
+    def test_explicit_legacy_floor_signal_overrides_profile(self) -> None:
+        cfg = self._cfg(legacy_floor_signal_value=1.9)
+        curve = PlcProfileCurve(output_mode="0_10V", points=[(0.0, 0.0), (10.0, 4.0)])
+
+        resolved = self.service._resolve_legacy_floor_signal_value(cfg, curve)
+
+        self.assertAlmostEqual(resolved, 1.9, places=6)
+
+    def test_auto_legacy_floor_signal_uses_profile_value_at_floor(self) -> None:
+        cfg = self._cfg(zero_target_lb=3.0)
+        curve = PlcProfileCurve(output_mode="0_10V", points=[(0.0, 0.0), (10.0, 5.0)])
+
+        resolved = self.service._resolve_legacy_floor_signal_value(cfg, curve)
+
+        self.assertAlmostEqual(resolved, 1.5, places=6)
+
+    def test_auto_legacy_floor_signal_uses_linear_fallback_without_profile(self) -> None:
+        cfg = self._cfg(output_mode="0_10V", zero_target_lb=25.0)
+
+        resolved = self.service._resolve_legacy_floor_signal_value(cfg, None)
+
+        self.assertAlmostEqual(resolved, 1.0, places=6)
 
 
 if __name__ == "__main__":

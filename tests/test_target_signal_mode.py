@@ -132,6 +132,34 @@ class TargetSignalModeTests(unittest.TestCase):
         threshold = max(0.0, set_w - pretrigger)
         self.assertAlmostEqual(threshold, 90.0)
 
+    def test_target_signal_mode_config_keeps_zero_floor_at_zero(self) -> None:
+        svc = self._make_service()
+        svc.repo.update_config_section(
+            "scale",
+            lambda section, _cfg: section.update({"zero_target_lb": 0.0}),
+        )
+        svc.repo.update_config_section(
+            "job_control",
+            lambda section, _cfg: section.update(
+                {
+                    "enabled": True,
+                    "mode": "target_signal_mode",
+                    "trigger_mode": "exact",
+                    "trigger_signal_value": 1.75,
+                    "low_signal_value": 0.25,
+                    "legacy_floor_signal_value": 0.9,
+                }
+            ),
+        )
+
+        cfg = svc._load_cfg()
+
+        self.assertAlmostEqual(cfg.zero_target_lb, 0.0, places=6)
+        self.assertEqual(cfg.job_control_mode, "target_signal_mode")
+        self.assertTrue(cfg.job_control_enabled)
+        self.assertAlmostEqual(cfg.job_control_trigger_signal_value, 1.75, places=6)
+        self.assertAlmostEqual(cfg.job_control_low_signal_value, 0.25, places=6)
+
     def test_no_set_weight_means_no_signal(self) -> None:
         svc = self._make_service()
         status = svc.get_job_control_status()

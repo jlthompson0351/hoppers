@@ -130,4 +130,37 @@ This document describes the general test strategy. For a step-by-step deployment
 - DB schema migrates cleanly on existing DB
 - safe output behavior works when fault conditions occur
 
+## 6. Completed Job Webhook Tests (March 2026)
+
+### TP-14 Job Transition Completion Payload
+- Send normal job A then normal job B for the same `line_id` + `machine_id`.
+- Verify:
+  - one completed-job payload is produced for job A
+  - payload shape matches integration contract
+  - values include dump count, totals, averages, and final set weight
+
+### TP-15 Manual Override Attribution
+- During active normal job A, apply HDMI manual override.
+- Then send normal job B to close A.
+- Verify:
+  - `override_seen=true` in completed payload for A
+  - override value is reflected in summary fields
+  - orphan overrides (no active normal job) do not create completion payloads
+
+### TP-16 Durable Outbox Retry
+- Configure completed-job webhook URL to an unavailable endpoint.
+- Trigger a completed job.
+- Verify:
+  - row appears in `job_completion_outbox`
+  - `attempt_count` increments and `next_retry_at_utc` advances
+  - once endpoint is restored, row transitions to sent
+
+### TP-17 Basket Dump Opto Counting
+- Map one or more MegaIND opto inputs to **Basket Dump Count** (Settings → Buttons).
+- During an active normal job, trigger rising-edge pulses on the mapped opto(s).
+- Send a new normal job ID to close the prior job.
+- Verify:
+  - `counted_events` table contains rows with `event_type='basket_dump'` and correct `source_channel`
+  - completed-job payload includes `basket_dump_count` matching the job window total
+
 

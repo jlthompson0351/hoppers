@@ -2,12 +2,16 @@
 
 ## Scope
 
-This runbook covers rollout of durable set-weight persistence and append-only audit history in SQLite:
+This runbook covers rollout of durable set-weight persistence, append-only audit history, and completed-job webhook outbox plumbing in SQLite:
 
 - `set_weight_current` (quick latest lookup by line/machine)
 - `set_weight_history` (append-only audit per authenticated receipt)
+- `job_lifecycle_state` (active job tracker per line/machine)
+- `job_completion_outbox` (retryable completed-job outbound webhook queue)
+- `counted_events` (opto-driven counts, e.g. basket_dump; schema v7; completed-job payload includes `basket_dump_count`)
 
 No Raspberry Pi reboot is required for this rollout.
+Service restart is still required to load new code/migrations.
 
 ### 3. Manual Override (HDMI UI)
 - Operators with the 4-digit Manager PIN can manually override the active set weight from the HDMI interface.
@@ -33,7 +37,7 @@ No Raspberry Pi reboot is required for this rollout.
    - `src/app/routes.py`
    - `src/services/acquisition.py`
    - test files/docs as needed
-2. Apply service process restart so migration code is loaded:
+2. Apply service process restart so migration code is loaded (during approved production window):
    - `sudo systemctl restart loadcell-transmitter`
 3. Validate service health:
    - `sudo systemctl is-active loadcell-transmitter`
@@ -43,14 +47,25 @@ No Raspberry Pi reboot is required for this rollout.
 
 1. Confirm schema version and new tables:
    - `sudo sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 "SELECT version FROM schema_version;"`
-   - `sudo sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 ".tables" | grep -E "set_weight_current|set_weight_history"`
-2. Send a webhook payload and verify:
+   - `sudo sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 ".tables" | grep -E "set_weight_current|set_weight_history|job_lifecycle_state|job_completion_outbox|counted_events"`
+2. Confirm new timestamp column:
+   - `sudo sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 "PRAGMA table_info(set_weight_history);"` (verify `record_time_set_utc`)
+3. Send a webhook payload and verify:
    - `set_weight_current` row updates for expected `line_id` + `machine_id`
    - one `set_weight_history` row inserted
-3. Send the same `idempotencyKey` again and verify:
+4. Send the same `idempotencyKey` again and verify:
    - another `set_weight_history` row inserted
    - `duplicate_event=1`
    - `set_weight_current` remains unchanged
+
+### Completed-job webhook checks
+
+1. Set `job_control.completed_job_webhook_url` in Settings.
+2. Send two different normal job IDs sequentially on the same machine scope.
+3. Verify one row appears in `job_completion_outbox`.
+4. Verify outbound status transitions:
+   - success: `status='sent'`
+   - endpoint unavailable: `attempt_count` increments, `next_retry_at_utc` advances, `last_error` populated
 
 ## Power-Cycle Test Procedure
 

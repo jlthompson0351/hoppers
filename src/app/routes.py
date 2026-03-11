@@ -865,6 +865,11 @@ def settings_post() -> Response:
         1.0,
         parse_float("max_lb", float(cfg["range"].get("max_lb", 300.0) or 300.0)),
     )
+    cfg.setdefault("scale", {})
+    cfg["scale"]["zero_target_lb"] = max(
+        0.0,
+        parse_float("zero_target_lb", float(cfg["scale"].get("zero_target_lb", 0.0) or 0.0)),
+    )
 
     # === Job Target Mode (webhook-driven threshold signal) ===
     cfg.setdefault("job_control", {})
@@ -905,6 +910,15 @@ def settings_post() -> Response:
         low_signal = low_default
         if abs(trigger_signal - low_signal) < 1e-6:
             trigger_signal = min((20.0 if is_ma_mode else 10.0), low_signal + 0.5)
+    legacy_floor_signal = parse_float_opt("legacy_floor_signal_value")
+    if legacy_floor_signal is not None:
+        if is_ma_mode:
+            legacy_floor_signal = max(4.0, min(20.0, float(legacy_floor_signal)))
+        else:
+            legacy_floor_signal = max(0.0, min(10.0, float(legacy_floor_signal)))
+        cfg["job_control"]["legacy_floor_signal_value"] = float(legacy_floor_signal)
+    else:
+        cfg["job_control"]["legacy_floor_signal_value"] = None
     cfg["job_control"]["trigger_signal_value"] = float(trigger_signal)
     cfg["job_control"]["low_signal_value"] = float(low_signal)
     cfg["job_control"]["pretrigger_lb"] = max(

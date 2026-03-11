@@ -14,11 +14,21 @@ Status note (Feb 2026):
 - **Job Target Signal Mode:** Added a webhook-driven output control mode (`POST /api/job/webhook`). When active, the scale output holds a low signal until the scale weight reaches a target weight (minus an optional pretrigger offset), at which point it sends a fixed trigger signal to the PLC.
 - **Simplified Target Logic:** Replaced complex state machine with a pure threshold comparison (`scale_weight >= target - pretrigger`).
 - **Dashboard Mode Toggle:** Added a quick toggle on the dashboard to switch between "Legacy Weight Mapping" and "Job Target Mode".
-- **Target-Aware Auto-Zero:** Zero tracking now tracks `error = weight - zero_target_lb` (3.0 lb), allowing auto-zero to work with a non-zero floor.
+- **Target-Aware Auto-Zero:** Zero tracking now tracks `error = weight - zero_target_lb`, allowing auto-zero to work with an operator-configurable floor instead of assuming 0 lb.
 - **Post-Dump Re-Zero:** Implemented one-shot correction after dump cycle completion.
 - **Unrounded Control Loop:** Auto-zero and stability logic now use unrounded filtered weight for precision; rounding is display-only.
 - **Bug Fix:** Fixed `NameError` in opto-button ZERO path.
-- **Throughput Alignment:** Throughput cycle detection thresholds are now target-relative to support the 3.0 lb floor.
+- **Throughput Alignment:** Throughput cycle detection thresholds are now target-relative to support a configurable zero floor.
+
+**Recent Update (Mar 5, 2026):**
+- **Completed Job Webhook Pipeline:** Added transition-based job completion detection (close previous job when the next normal job ID arrives on the same line/machine scope).
+- **Durable Outbox Retry:** Added persisted outbound queue for completed-job webhook delivery with retry/backoff.
+- **Override Attribution:** Manual HDMI overrides are attributed to the active normal job window for summary reporting.
+- **Record Timestamping:** Added `record_time_set_utc` (server-entered time) for set-weight records, independent of ERP timestamps.
+
+**Recent Update (Mar 6, 2026):**
+- **Basket Dump Opto Counting:** New opto action `basket_dump` records rising-edge pulses into `counted_events` table. Completed-job payload now includes `basket_dump_count`. Schema v7 migration adds `counted_events` table.
+- **Configurable Floor Threshold:** Replaced implicit 3 lb floor with operator-editable `scale.zero_target_lb`. Job Target Signal mode can use 0.0 lb floor. Legacy mode holds `job_control.legacy_floor_signal_value` when `net_lbs <= zero_target_lb`.
 
 ---
 
@@ -91,7 +101,7 @@ new_zero_offset_mv = old_zero_offset_mv + drift_mv
 **Zero Tracking Operation (Target-Aware):**
 ```python
 # Auto zero tracking (src/core/zero_tracking.py):
-weight_error_lbs = current_gross_weight_lbs - zero_target_lb  # Target is 3.0 lb (floor)
+weight_error_lbs = current_gross_weight_lbs - zero_target_lb  # Target is the configured floor
 signal_correction_mv = weight_error_lbs / lbs_per_mv  # Convert lbs → mV
 new_zero_offset_mv = old_zero_offset_mv + signal_correction_mv
 # Derive for display: zero_offset_lbs = zero_offset_mv * lbs_per_mv
@@ -388,10 +398,12 @@ The scale can operate in two distinct output modes:
 | `enabled` | bool | `false` | Whether target mode is active. |
 | `mode` | str | `legacy_weight_mapping` | `legacy_weight_mapping` or `target_signal_mode`. |
 | `trigger_mode` | str | `exact` | `exact` (trigger at target) or `early` (trigger at target - offset). |
+| `legacy_floor_signal_value` | float/null | `null` | Optional fixed legacy-mode PLC output to hold while live weight is at/below `scale.zero_target_lb`. `null` means auto-follow the PLC profile at the floor weight. |
 | `trigger_signal_value` | float | `1.0` | Output value when target is reached. |
 | `low_signal_value` | float | `0.0` | Output value when below target. |
 | `pretrigger_lb` | float | `0.0` | Early trigger offset (only applied if `trigger_mode` is `early`). |
 | `webhook_token` | str | `""` | Required token for API endpoints. |
+| `completed_job_webhook_url` | str | `""` | Optional destination URL for completed-job summary POST delivery. |
 
 **API Endpoints:**
 
@@ -418,9 +430,14 @@ The scale can operate in two distinct output modes:
 - Durable persistence uses SQLite tables:
   - `set_weight_current` for fast latest lookup by `(line_id, machine_id)`
   - `set_weight_history` for append-only audit (every authenticated receipt)
+  - `job_lifecycle_state` for restart-safe active job tracking
+  - `job_completion_outbox` for durable retryable completed-job webhook delivery
+  - `counted_events` for opto-driven counts (e.g. `basket_dump`) per job window; completed-job payload includes `basket_dump_count`
+- `set_weight_current` and `set_weight_history` include `record_time_set_utc` (server-entered record time).
 - The full webhook payload is stored in `set_weight_history.metadata_json`.
 - Duplicate `idempotencyKey` values are accepted as replays; they append history with `duplicate_event=1` and do not overwrite `set_weight_current`.
 - On startup, acquisition restores from `set_weight_current` first; legacy `job_control` config is kept as compatibility fallback.
+- On job transition, a completed-job summary payload is enqueued and posted asynchronously from the acquisition service.
 - The trigger signal dropdown on the Settings > Job Target Mode tab is populated from existing PLC profile points (Calibration Hub). Operator picks a known voltage/weight pair instead of typing a raw number.
 - Switching mode via dashboard toggle immediately changes the output path. If a job is active during toggle to legacy, output reverts to proportional weight mapping.
 
@@ -494,7 +511,7 @@ The scale can operate in two distinct output modes:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scale.tare_offset_lbs` | float | `0.0` | Software tare offset |
-| `scale.zero_target_lb` | float | `3.0` | **NEW:** Zero floor - ZERO button targets this weight instead of 0 lb (prevents PLC dead zone) |
+| `scale.zero_target_lb` | float | `0.0` | Operator-editable floor threshold. ZERO and target-aware empty logic use this weight as the floor target. Set to `0.0` when no floor is desired. |
 
 ### Dump Detection
 

@@ -791,6 +791,72 @@ class AppRepository:
             "avg_cycle_time_ms": float(row["avg_cycle_time_ms"] or 0.0),
         }
 
+    def record_counted_event(
+        self,
+        *,
+        timestamp_utc: Optional[str] = None,
+        event_type: str,
+        source: str,
+        line_id: str,
+        machine_id: str,
+        source_channel: Optional[int] = None,
+    ) -> int:
+        timestamp_clean = str(timestamp_utc or _utc_now()).strip()
+        event_type_clean = self._clean_required_text(event_type, "event_type")
+        source_clean = self._clean_required_text(source, "source")
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        created_at = _utc_now()
+        source_channel_value = (
+            None if source_channel is None else max(1, int(source_channel))
+        )
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO counted_events("
+                "timestamp_utc, event_type, source, source_channel, line_id, machine_id, created_at"
+                ") VALUES (?,?,?,?,?,?,?);",
+                (
+                    timestamp_clean,
+                    event_type_clean,
+                    source_clean,
+                    source_channel_value,
+                    line_id_clean,
+                    machine_id_clean,
+                    created_at,
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def get_job_window_counted_event_summary(
+        self,
+        *,
+        line_id: str,
+        machine_id: str,
+        start_utc: str,
+        end_utc: str,
+    ) -> Dict[str, int]:
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT event_type, COUNT(*) AS event_count "
+                "FROM counted_events "
+                "WHERE line_id = ? AND machine_id = ? "
+                "AND timestamp_utc >= ? AND timestamp_utc < ? "
+                "GROUP BY event_type;",
+                (line_id_clean, machine_id_clean, start_clean, end_clean),
+            )
+            rows = cur.fetchall()
+        return {
+            str(row["event_type"]): int(row["event_count"] or 0)
+            for row in rows
+            if str(row["event_type"] or "").strip()
+        }
+
     def get_job_window_set_weight_summary(
         self,
         *,
@@ -1104,6 +1170,10 @@ class AppRepository:
                 "enabled": False,
                 "mode": "legacy_weight_mapping",
                 "trigger_mode": "exact",
+                # Optional fixed output to hold while legacy mode is at/below
+                # the configured floor threshold. When None, follow the PLC
+                # profile's mapped output at the floor weight.
+                "legacy_floor_signal_value": None,
                 # Fixed output signal to send when scale_weight >= set_weight.
                 # Units follow output.mode (V for 0-10V, mA for 4-20mA).
                 "trigger_signal_value": 1.0,

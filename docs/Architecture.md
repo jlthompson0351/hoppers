@@ -1,8 +1,8 @@
 # Architecture
 
-## 🎯 LIVE SYSTEM (December 18, 2025)
+## 🎯 LIVE SYSTEM (March 6, 2026)
 
-**Dashboard:** http://172.16.190.25:8080
+**Dashboard:** http://172.16.190.25:8080 | **Tailscale:** https://hoppers.tail840434.ts.net
 
 | Component | Status | Details |
 |-----------|--------|---------|
@@ -80,12 +80,12 @@ $ sudo i2cdetect -y 1
 - **Trade-off:** Simplifies wiring but removes ability to detect individual load cell drift/failure in software.
 - **Current Calibration**: 9-point piecewise linear (3-335 lbs), slope 112 lb/mV, with 3 lb zero floor.
 
-**Zero Floor Feature:**
-To prevent the PLC analog output from dropping into the non-linear "dead zone" (below ~0.1V) when the scale is empty, the system implements a "Zero Floor":
-- **Concept:** The scale is calibrated to read **3.0 lbs** when physically empty, instead of 0.0 lbs.
-- **Implementation:** The calibration anchor point is set to `3 lbs @ [Empty_mV]`.
-- **Effect:** When the scale is empty, it outputs ~0.13V (at 100 lb/V scaling), keeping the signal in the linear range of the PLC input.
-- **Operator View:** The display shows 3.0 lbs when empty. The ZERO button targets 3.0 lbs.
+**Zero Floor Feature (Configurable):**
+To prevent the PLC analog output from dropping into the non-linear "dead zone" (below ~0.1V) when the scale is empty, the system implements a configurable "Zero Floor":
+- **Concept:** The scale targets `scale.zero_target_lb` (default 3.0 lbs) when physically empty. Operators can set 0.0 lb in Job Target Signal mode.
+- **Implementation:** Settings → Quick Setup → Floor Threshold (`scale.zero_target_lb`). Legacy mode can hold a fixed PLC signal at/below the floor via `job_control.legacy_floor_signal_value`.
+- **Effect:** When the scale is at or below the floor, Legacy mode can hold a chosen analog value; Job Target mode uses the floor for zero-tracking and trigger logic.
+- **Operator View:** The display shows the floor when empty. The ZERO button targets the configured floor.
 
 ## 2. Processes and Threads
 - **Main process**: single Python process.
@@ -104,6 +104,7 @@ To prevent the PLC analog output from dropping into the non-linear "dead zone" (
   - Serves **JSON API** (`/api/snapshot`) for client-side polling.
   - Handles configuration/calibration commands.
   - **Job Target API**: `/api/job/webhook` (receive target weight), `/api/job/status`, `/api/job/clear`, `/api/job/mode` (toggle), `/api/job/trigger/from-nudge`. All except `/api/job/mode` require API token auth (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`).
+  - **Completed Job Outbound Delivery**: no inbound API route; completion payloads are generated in acquisition and sent via durable outbox retry worker.
   - **HDMI Control API**: `/api/hdmi/launch` and `/api/hdmi/force-launch` for remote kiosk management.
 - **Chromium Process**: Independent browser process running in kiosk mode, managed by `kiosk.service`.
 
@@ -151,6 +152,7 @@ graph TD
 - **Role Resolver**: Dynamically identifies which physical pins are assigned to system roles (e.g. PLC Weight, Excitation Monitor).
 - **Calibration Overrides**: Suspends weight-based output during calibration to allow manual signal "nudging."
 - **Job Target Signal Mode**: When `job_control.mode == "target_signal_mode"`, the acquisition loop bypasses `OutputWriter.compute()` and directly compares filtered weight to `_job_set_weight - pretrigger_lb`. Outputs either `trigger_signal_value` (at/above threshold) or `low_signal_value` (below). Thread-safe via `_job_lock`. Target state is set via `ingest_job_webhook()`, cleared via `clear_job_control()`, durably persisted in SQLite (`set_weight_current` + `set_weight_history`), and restored on startup from DB.
+- **Completed Job Webhook**: on transition to a new normal job ID, the prior job window is summarized and queued in `job_completion_outbox`; delivery retries run in-loop with backoff until success.
 
 ### 4.2 `src/services/output_writer.py`
 - Converts desired weight to analog output based on:
@@ -196,6 +198,10 @@ graph TD
 - `events`: faults/warnings/info events with details JSON
 - `set_weight_current`: latest target set weight per `(line_id, machine_id)` for fast lookup and startup restore
 - `set_weight_history`: append-only webhook audit log (includes full payload JSON in `metadata_json`)
+  - includes `record_time_set_utc` server-entered timestamp
+- `job_lifecycle_state`: active job tracker per `(line_id, machine_id)` for close-on-next-job completion logic
+- `job_completion_outbox`: durable outbound queue for completed-job webhook payloads
+- `counted_events`: opto-driven event counts (e.g. `basket_dump`) per job window; schema v7
 - `calibration_points`: saved calibration points (signal, known weight, legacy `ratiometric` flag)
 - `plc_profile_points`: PLC mapping curve points (system uses trained profile points for output mapping; internal 0-250 lb linear fallback only when no points exist)
 - `trends_excitation`: excitation voltage samples

@@ -4,6 +4,62 @@ This document records all deployments to production Pi systems.
 
 ---
 
+## 2026-03-06 - Staged: Basket Dump Opto + Floor Threshold + Full Sync (No Restart)
+
+**Prepared By**: jthompson (with AI assistance)  
+**Sites Updated**: Pi `hoppers.tail840434.ts.net` (Tailscale) — files staged to `/opt/loadcell-transmitter`  
+**Version**: main branch (basket dump + floor threshold + schema v7)
+
+**Scope Staged**:
+- **Basket Dump Opto Counting**: New opto action `basket_dump` records rising-edge pulses into `counted_events` table. Completed-job webhook payload includes `basket_dump_count`. Schema v7 migration.
+- **Configurable Floor Threshold**: `scale.zero_target_lb` and `job_control.legacy_floor_signal_value` for operator-editable floor and legacy PLC signal at/below floor.
+- **Full Sync**: All changed runtime files, docs, and tests copied to Pi.
+
+**Production Safety Constraint**:
+- Service **not** restarted; Pi still running previous code.
+- Restart required to activate basket dump and floor threshold changes.
+
+**Files Staged** (examples):
+- `src/db/schema.py`, `src/db/migrate.py`, `src/db/repo.py`
+- `src/services/acquisition.py`, `src/app/routes.py`
+- `src/app/templates/settings.html`
+- `tests/test_counted_events.py`, `tests/test_job_completion_webhook.py`
+- All updated docs
+
+**Planned Window Actions**:
+1. Restart `loadcell-transmitter` service.
+2. Verify schema migration to v7 and `counted_events` table.
+3. Verify Settings → Buttons → Basket Dump Count option.
+4. Verify completed-job payload includes `basket_dump_count`.
+
+---
+
+## 2026-03-05 09:10 CST - Staged: Completed Job Webhook + Docs (No Pi Deploy Yet)
+
+**Prepared By**: jthompson (with AI assistance)  
+**Sites Updated**: Local repository only (no production Pi restart/reboot)  
+**Version**: main branch commit `edacaa3`
+
+**Scope Prepared**:
+- Completed-job summary generation on normal job transition.
+- Durable outbound webhook queue with retry/backoff (`job_completion_outbox`).
+- Lifecycle tracking (`job_lifecycle_state`) and set-weight timestamping (`record_time_set_utc`).
+- Manual override attribution to active normal job windows.
+- Integration docs + payload examples updated.
+
+**Production Safety Constraint**:
+- Pi is currently in production.
+- No reboot/reset performed.
+- Deployment to Pi and service restart deferred to approved maintenance window.
+
+**Planned Window Actions**:
+1. Deploy updated Python files to Pi.
+2. Restart `loadcell-transmitter` service once.
+3. Verify schema migration to v6 and outbound webhook flow.
+4. Apply timezone update to `America/Chicago` during same window if approved.
+
+---
+
 ## 2026-02-27 11:20 EST - v3.4 Webhook Contract Cutover + HDMI Job Target + Tailscale Funnel
 
 **Deployed By**: jthompson (with AI assistance)  

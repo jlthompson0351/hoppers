@@ -115,6 +115,7 @@ class _Cfg:
     job_control_enabled: bool
     job_control_mode: str
     job_control_trigger_mode: str
+    job_control_legacy_floor_signal_value: Optional[float]
     job_control_trigger_signal_value: float
     job_control_low_signal_value: float
     job_control_pretrigger_lb: float
@@ -258,6 +259,12 @@ class AcquisitionService:
             start_utc=lifecycle_state.active_job_started_record_time_set_utc,
             end_utc=closed_at_record_time_set_utc,
         )
+        counted_summary = self.repo.get_job_window_counted_event_summary(
+            line_id=lifecycle_state.line_id,
+            machine_id=lifecycle_state.machine_id,
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
         set_weight_summary = self.repo.get_job_window_set_weight_summary(
             line_id=lifecycle_state.line_id,
             machine_id=lifecycle_state.machine_id,
@@ -292,6 +299,7 @@ class AcquisitionService:
             ),
             "avg_weight_lbs": float(throughput_summary.get("avg_weight_lbs", 0.0) or 0.0),
             "avg_cycle_time_ms": int(round(avg_cycle_time_ms)),
+            "basket_dump_count": int(counted_summary.get("basket_dump", 0) or 0),
             "override_seen": override_count > 0,
             "override_count": override_count,
             "final_set_weight_lbs": (
@@ -822,6 +830,38 @@ class AcquisitionService:
             return max(4.0, min(20.0, float(value)))
         return max(0.0, min(10.0, float(value)))
 
+    @staticmethod
+    def _fallback_output_value_for_weight(weight_lb: float, output_mode: str) -> float:
+        # Mirror OutputWriter's legacy linear fallback so floor auto-mode matches
+        # the existing legacy mapping when no PLC profile points are trained.
+        span = 250.0
+        pct = (float(weight_lb) - 0.0) / span
+        if output_mode == "4_20mA":
+            return 4.0 + pct * 16.0
+        return pct * 10.0
+
+    def _resolve_legacy_floor_signal_value(
+        self,
+        cfg: _Cfg,
+        plc_curve: Optional[PlcProfileCurve],
+    ) -> float:
+        configured_value = cfg.job_control_legacy_floor_signal_value
+        if configured_value is not None:
+            return self._clamp_output_value(configured_value, cfg.output_mode)
+        mapped_value: float
+        if plc_curve is not None:
+            try:
+                mapped_value = float(plc_curve.analog_from_weight(cfg.zero_target_lb))
+            except Exception:
+                mapped_value = self._fallback_output_value_for_weight(
+                    cfg.zero_target_lb, cfg.output_mode
+                )
+        else:
+            mapped_value = self._fallback_output_value_for_weight(
+                cfg.zero_target_lb, cfg.output_mode
+            )
+        return self._clamp_output_value(mapped_value, cfg.output_mode)
+
     # ── Config ────────────────────────────────────────────────────
 
     def _is_auto_zero_armed(self, cfg: _Cfg) -> bool:
@@ -908,6 +948,7 @@ class AcquisitionService:
         low_signal_default = 4.0 if output_mode == "4_20mA" else 0.0
         raw_trigger_signal_value = job_control.get("trigger_signal_value", trigger_signal_default)
         raw_low_signal_value = job_control.get("low_signal_value", low_signal_default)
+        raw_legacy_floor_signal_value = job_control.get("legacy_floor_signal_value")
         job_trigger_signal_value = (
             trigger_signal_default
             if raw_trigger_signal_value is None
@@ -917,9 +958,19 @@ class AcquisitionService:
             low_signal_default if raw_low_signal_value is None else float(raw_low_signal_value)
         )
         if output_mode == "4_20mA":
+            legacy_floor_signal_value = (
+                None
+                if raw_legacy_floor_signal_value in (None, "")
+                else max(4.0, min(20.0, float(raw_legacy_floor_signal_value)))
+            )
             job_trigger_signal_value = max(4.0, min(20.0, job_trigger_signal_value))
             job_low_signal_value = max(4.0, min(20.0, job_low_signal_value))
         else:
+            legacy_floor_signal_value = (
+                None
+                if raw_legacy_floor_signal_value in (None, "")
+                else max(0.0, min(10.0, float(raw_legacy_floor_signal_value)))
+            )
             job_trigger_signal_value = max(0.0, min(10.0, job_trigger_signal_value))
             job_low_signal_value = max(0.0, min(10.0, job_low_signal_value))
         completed_job_webhook_url = (
@@ -1076,6 +1127,7 @@ class AcquisitionService:
             job_control_enabled=job_control_enabled,
             job_control_mode=job_control_mode,
             job_control_trigger_mode=job_control_trigger_mode,
+            job_control_legacy_floor_signal_value=legacy_floor_signal_value,
             job_control_trigger_signal_value=job_trigger_signal_value,
             job_control_low_signal_value=job_low_signal_value,
             job_control_pretrigger_lb=max(
@@ -1850,21 +1902,27 @@ class AcquisitionService:
                         self._writer.prime_output(out_cmd.value, units)
                         output_mapping_mode = "target_signal"
                     else:
-                        out_cmd = self._writer.compute(
-                            weight_lb=net_lbs,
-                            output_mode=cfg.output_mode,
-                            plc_profile=plc_curve,
-                            fault=False,
-                            armed=True,
-                            safe_v=cfg.safe_v,
-                            safe_ma=cfg.safe_ma,
-                            deadband_lb=cfg.deadband_lb,
-                            deadband_enabled=cfg.deadband_enabled,
-                            ramp_enabled=cfg.ramp_enabled,
-                            ramp_rate_v=cfg.ramp_rate_v,
-                            ramp_rate_ma=cfg.ramp_rate_ma,
-                            dt_s=dt,
-                        )
+                        if net_lbs <= cfg.zero_target_lb:
+                            floor_signal = self._resolve_legacy_floor_signal_value(cfg, plc_curve)
+                            out_cmd = OutputCommand(value=floor_signal, units=units)
+                            self._writer.prime_output(out_cmd.value, units)
+                            output_mapping_mode = "legacy_floor_signal"
+                        else:
+                            out_cmd = self._writer.compute(
+                                weight_lb=net_lbs,
+                                output_mode=cfg.output_mode,
+                                plc_profile=plc_curve,
+                                fault=False,
+                                armed=True,
+                                safe_v=cfg.safe_v,
+                                safe_ma=cfg.safe_ma,
+                                deadband_lb=cfg.deadband_lb,
+                                deadband_enabled=cfg.deadband_enabled,
+                                ramp_enabled=cfg.ramp_enabled,
+                                ramp_rate_v=cfg.ramp_rate_v,
+                                ramp_rate_ma=cfg.ramp_rate_ma,
+                                dt_s=dt,
+                            )
 
                 job_status = self.get_job_control_status()
 
@@ -2076,13 +2134,21 @@ class AcquisitionService:
                 # Rising edge
                 if is_pressed and not was_pressed:
                     action = cfg.opto_actions.get(ch, "none").lower()
-                    self._handle_button(action, raw_mv, gross_lbs, cfg)
+                    self._handle_button(action, raw_mv, gross_lbs, cfg, channel=ch)
 
                 self._opto_last[ch] = is_pressed
         except Exception:
             pass
 
-    def _handle_button(self, action: str, raw_mv: float, gross_lbs: float, cfg: _Cfg) -> None:
+    def _handle_button(
+        self,
+        action: str,
+        raw_mv: float,
+        gross_lbs: float,
+        cfg: _Cfg,
+        *,
+        channel: Optional[int] = None,
+    ) -> None:
         if action == "tare":
             if not cfg.allow_opto_tare:
                 now = time.monotonic()
@@ -2163,3 +2229,25 @@ class AcquisitionService:
                 details={"net": net, "gross": gross_lbs, "signal": raw_mv},
             )
             log.info("Button PRINT: %.2f lb", net)
+
+        elif action == "basket_dump":
+            line_id, machine_id = self._normalize_scope_ids(None, None)
+            event_id = self.repo.record_counted_event(
+                event_type="basket_dump",
+                source="opto_input",
+                source_channel=channel,
+                line_id=line_id,
+                machine_id=machine_id,
+            )
+            self.repo.log_event(
+                level="INFO",
+                code="BUTTON_BASKET_DUMP_COUNTED",
+                message="Opto basket dump count recorded.",
+                details={
+                    "event_id": event_id,
+                    "channel": channel,
+                    "line_id": line_id,
+                    "machine_id": machine_id,
+                },
+            )
+            log.info("Button BASKET_DUMP counted on channel=%s event_id=%s", channel, event_id)

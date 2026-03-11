@@ -1,7 +1,7 @@
 # Current UI Reference
 
-**Document Version:** 2.4  
-**Date:** March 2, 2026  
+**Document Version:** 2.6  
+**Date:** March 6, 2026  
 **Purpose:** Document current UI state after redesign and stability fixes
 
 ---
@@ -364,8 +364,9 @@ The Settings page consolidates the previously hidden settings concepts into a si
 
 | Tab | Contents |
 |-----|----------|
-| Quick Setup | PLC output mode/channel, excitation monitoring (enable + channel + thresholds). PLC mapping configured via Calibration Hub. |
-| Job Target Mode | Configure webhook trigger logic (exact vs early), trigger signal value (dropdown populated from PLC profile points), low signal value, and webhook token. If no PLC profile points exist, a message directs operator to Calibration Hub. |
+| Quick Setup | PLC output mode/channel, floor threshold (`scale.zero_target_lb`), max cycle weight, and other essential startup controls. PLC mapping is still configured via Calibration Hub. |
+| Buttons | Map the 4 MegaIND opto inputs to actions: None, **Basket Dump Count**, TARE, ZERO, or PRINT. Basket Dump Count records rising-edge pulses into the job summary; completed-job webhook includes `basket_dump_count`. |
+| Job Target Mode | Configure webhook trigger logic (exact vs early), legacy floor signal handling, trigger signal value (dropdown populated from PLC profile points), low signal value, webhook token, and optional completed-job webhook URL. If no PLC profile points exist, a message directs operator to Calibration Hub. |
 | Signal Tuning | Kalman/IIR filter, stability detection, **weight display precision** |
 | Zero & Scale | Zero tracking and power-up behavior |
 | Output Control | Dead band, ramping, auto-arm |
@@ -467,6 +468,11 @@ Displays recent system events (unchanged).
 | `/api/job/clear` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Reset target state back to zero/idle |
 | `/api/job/mode` | POST | None | Toggle between Legacy and Target Mode |
 | `/api/job/trigger/from-nudge` | POST | API token (`X-API-Key`, `Authorization`, or legacy `X-Scale-Token`) | Capture current nudge value as trigger signal |
+
+**Completed-job outbound webhook (no inbound route):**
+- Generated internally when a new normal `job_id` closes the previous job window.
+- Destination is configured in Settings (`job_control.completed_job_webhook_url`).
+- Delivery uses durable outbox retry logic (DB-backed queue).
 
 **Webhook request example:**
 ```json
@@ -584,4 +590,4 @@ Compatibility note: legacy keys (`machineKey`, `loadSize`) are still accepted.
 ---
 
 **Document Created:** December 18, 2025  
-**Last Updated:** February 12, 2026 (v2.3 - HDMI operator page documentation update)
+**Last Updated:** March 5, 2026 (v2.5 - completed-job webhook settings/outbound behavior update)

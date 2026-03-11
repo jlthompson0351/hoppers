@@ -8,20 +8,22 @@ Open in any browser to view live load cell readings.
 
 ---
 
-## ✅ System Status (February 15, 2026)
+## ✅ System Status (March 6, 2026)
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Version** | ✅ v3.1 | Canonical mV Zeroing Fix - Production Stable |
-| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 |
+| **Version** | ✅ main (staged) | Basket dump opto + floor threshold + schema v7 staged |
+| **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 \| Tailscale: hoppers.tail840434.ts.net |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
-| **Zero System** | ✅ Fixed | Manual ZERO + auto-tracking working correctly |
+| **Zero System** | ✅ Stable | Manual ZERO + tracking flow; floor configurable via `zero_target_lb` |
+| **Completed Job Webhook** | 🟡 Staged | Lifecycle/outbox + `basket_dump_count`; restart required to activate |
+| **Basket Dump Opto** | 🟡 Staged | Settings → Buttons; `counted_events` table (schema v7) |
 
-**Pi:** `Hoppers` at `172.16.190.25` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
-**User Feedback:** "Working like a champ" (Post-v3.1 deployment)
+**Pi:** `Hoppers` at `172.16.190.25` / `hoppers.tail840434.ts.net` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
+**Note:** Production Pi is active; restart deferred until approved window.
 
 ---
 
@@ -80,6 +82,8 @@ Open in any browser to view live load cell readings.
 - **`HDMI_KIOSK_RUNBOOK.md`** — Setup and operation of the HDMI operator interface
 - **`PLC_OUTPUT_VERIFICATION.md`** — PLC output testing and verification procedures
 - **`DEPLOYMENT_LOG.md`** — Deployment history and change log
+- **`SET_WEIGHT_PERSISTENCE_RUNBOOK.md`** — Durable set-weight persistence + migration checks
+- **`JOB_COMPLETION_WEBHOOK_RUNBOOK.md`** — Completed-job webhook contract, examples, and retry outbox behavior
 
 ### Risk & Planning
 - **`RiskRegister.md`** — Project risk register
@@ -178,7 +182,10 @@ docs/
     ├── CalibrationProcedure.md
     ├── TestPlan.md
     ├── MaintenanceAndTroubleshooting.md
-    └── HDMI_KIOSK_RUNBOOK.md         ← Setup and operation of HDMI UI
+    ├── HDMI_KIOSK_RUNBOOK.md         ← Setup and operation of HDMI UI
+    ├── SET_WEIGHT_PERSISTENCE_RUNBOOK.md
+    ├── JOB_COMPLETION_WEBHOOK_RUNBOOK.md
+    └── TODO_BACKLOG.md
 ```
 
 ---
@@ -203,12 +210,21 @@ docs/
 
 ---
 
-**Last Updated**: February 15, 2026  
-**Current Version**: v3.1 (Canonical mV Zeroing Fix)  
-**Status**: ✅ Production - System stable and operational  
-**Deployment**: Pi `172.16.190.25` running v3.1, user confirms "working like a champ"  
+**Last Updated**: March 6, 2026  
+**Current Version**: main branch with basket dump opto + floor threshold staging  
+**Status**: Production in use; basket dump + floor threshold staged for next maintenance restart  
+**Deployment**: Pi `172.16.190.25` / `hoppers.tail840434.ts.net` currently active; avoid reboot/reset during production  
 
 **Recent Milestones:**
+- **Basket Dump Opto (Mar 6, 2026):**
+  - Added `basket_dump` opto action; rising-edge pulses stored in `counted_events` table.
+  - Completed-job payload includes `basket_dump_count`. Schema v7 migration.
+- **Configurable Floor (Mar 6, 2026):**
+  - `scale.zero_target_lb` and `job_control.legacy_floor_signal_value` for operator-editable floor.
+- **Completed Job Webhook (Mar 5, 2026):**
+  - Added completed-job lifecycle tracking + durable outbox retry delivery.
+  - Added schema v6 migration (`record_time_set_utc`, lifecycle/outbox tables).
+  - Added manual override attribution to active job windows.
 - **v3.1** (Feb 15, 2026): Critical zeroing architecture fix - zero_offset_mv now canonical, manual ZERO works instantly
 - **Hardware Verified** (Feb 15, 2026): Both boards (24b8vin @ 0x31, MegaIND @ 0x52) online and working
 - **Auto-Armed Outputs** (Feb 12, 2026): PLC outputs default to ARMED on startup

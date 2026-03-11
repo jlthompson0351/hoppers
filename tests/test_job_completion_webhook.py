@@ -112,6 +112,30 @@ class JobCompletionWebhookTests(unittest.TestCase):
             confidence=0.8,
             dump_type="empty",
         )
+        repo.record_counted_event(
+            timestamp_utc="2026-03-05T12:01:30+00:00",
+            event_type="basket_dump",
+            source="opto_input",
+            source_channel=1,
+            line_id=line_id,
+            machine_id=machine_id,
+        )
+        repo.record_counted_event(
+            timestamp_utc="2026-03-05T12:02:30+00:00",
+            event_type="basket_dump",
+            source="opto_input",
+            source_channel=1,
+            line_id=line_id,
+            machine_id=machine_id,
+        )
+        repo.record_counted_event(
+            timestamp_utc="2026-03-05T12:11:00+00:00",
+            event_type="basket_dump",
+            source="opto_input",
+            source_channel=1,
+            line_id=line_id,
+            machine_id="machine-other",
+        )
 
         svc.ingest_job_webhook(
             job_id="JOB-2",
@@ -138,6 +162,7 @@ class JobCompletionWebhookTests(unittest.TestCase):
         self.assertAlmostEqual(float(payload["total_processed_lbs"]), 150.0, places=6)
         self.assertAlmostEqual(float(payload["avg_weight_lbs"]), 75.0, places=6)
         self.assertEqual(int(payload["avg_cycle_time_ms"]), 5000)
+        self.assertEqual(int(payload["basket_dump_count"]), 2)
         self.assertTrue(bool(payload["override_seen"]))
         self.assertEqual(int(payload["override_count"]), 1)
         self.assertAlmostEqual(float(payload["final_set_weight_lbs"]), 130.0, places=6)

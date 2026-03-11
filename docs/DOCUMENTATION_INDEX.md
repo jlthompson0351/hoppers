@@ -33,6 +33,8 @@ This index organizes the project documentation by category. Use this to find rel
 *   [FLEET_INVENTORY.md](FLEET_INVENTORY.md) - List of deployed devices and their details.
 *   [HDMI_KIOSK_RUNBOOK.md](HDMI_KIOSK_RUNBOOK.md) - Setup guide for the touchscreen kiosk mode.
 *   [MaintenanceAndTroubleshooting.md](MaintenanceAndTroubleshooting.md) - Common issues and fixes.
+*   [SET_WEIGHT_PERSISTENCE_RUNBOOK.md](SET_WEIGHT_PERSISTENCE_RUNBOOK.md) - Durable set-weight schema, migrations, and rollout checks.
+*   [JOB_COMPLETION_WEBHOOK_RUNBOOK.md](JOB_COMPLETION_WEBHOOK_RUNBOOK.md) - Completed-job webhook payloads, outbox retry behavior, and test procedure.
 *   [SD_CARD_DISASTER_RECOVERY_RUNBOOK.md](SD_CARD_DISASTER_RECOVERY_RUNBOOK.md) - Procedures for recovering from SD card failure.
 
 ## 🧪 Testing & Verification
@@ -52,3 +54,4 @@ This index organizes the project documentation by category. Use this to find rel
 
 ## 📝 Meta
 *   [README_DOCS.md](README_DOCS.md) - Guide to this documentation folder.
+*   [TODO_BACKLOG.md](TODO_BACKLOG.md) - Active implementation backlog and rollout follow-ups.

@@ -3,6 +3,7 @@
 {# Set default values for all config sections to avoid KeyError on missing keys #}
 {% set filter = cfg.get('filter', {}) %}
 {% set range_cfg = cfg.get('range', {}) %}
+{% set scale_cfg = cfg.get('scale', {}) %}
 {% set output = cfg.get('output', {}) %}
 {% set job_control = cfg.get('job_control', {}) %}
 {% set zero_tracking = cfg.get('zero_tracking', {}) %}
@@ -195,6 +196,19 @@
 
       <div class="setting-row">
         <div>
+          <div class="setting-label">Floor Threshold</div>
+          <div class="setting-help">
+            Empty-floor target used by ZERO and floor handling. Set this to <strong>0 lb</strong> in Job Target Signal mode if you do not want a floor.
+          </div>
+        </div>
+        <div class="setting-control">
+          <input type="number" name="zero_target_lb" min="0" step="0.1" value="{{ scale_cfg.get('zero_target_lb', 0.0) }}">
+          <div class="setting-unit">lb</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
           <div class="setting-label">Scale Output Strategy</div>
           <div class="setting-help">
             <strong>Legacy:</strong> continuous weight-to-analog mapping (current behavior).<br>
@@ -274,6 +288,41 @@
 
     <div class="section">
       <div class="section-title">Signal Output</div>
+      {% set units = 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' %}
+
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Legacy Floor Signal Value</div>
+          <div class="setting-help">
+            In <strong>Legacy Weight Mapping</strong>, hold this PLC output whenever live weight is at or below the configured floor threshold.
+            Leave on <strong>Auto</strong> to keep following the PLC profile's floor-mapped value.
+          </div>
+        </div>
+        <div class="setting-control">
+          {% set current_legacy_floor = job_control.get('legacy_floor_signal_value') %}
+          {% if plc_points|length > 0 %}
+          <select name="legacy_floor_signal_value" id="legacy_floor_signal_value_input">
+            <option value="" {% if current_legacy_floor in (none, '') %}selected{% endif %}>Auto (use profile at floor)</option>
+            {% for pt in plc_points %}
+            <option value="{{ pt.analog_value }}"
+              {% if current_legacy_floor is not none and (pt.analog_value - (current_legacy_floor|float))|abs < 0.01 %}selected{% endif %}>
+              {{ "%.2f"|format(pt.analog_value) }} {{ units }} &mdash; PLC reads {{ "%.1f"|format(pt.plc_displayed_lbs) }} lbs
+            </option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <input
+            type="number"
+            name="legacy_floor_signal_value"
+            min="0"
+            max="20"
+            step="0.01"
+            value="{{ '' if current_legacy_floor in (none, '') else current_legacy_floor }}"
+            placeholder="Auto"
+          >
+          {% endif %}
+        </div>
+      </div>
 
       <div class="setting-row">
         <div>
@@ -283,7 +332,6 @@
           </div>
         </div>
         <div class="setting-control">
-          {% set units = 'V' if output.get('mode', '0_10V') == '0_10V' else 'mA' %}
           {% set current_trigger = job_control.get('trigger_signal_value', 1.0)|float %}
           {% if plc_points|length > 0 %}
           <select name="job_trigger_signal_value" id="job_trigger_signal_value_input">
@@ -1923,6 +1971,7 @@
         <div class="setting-control">
           <select name="opto_action_{{ i }}">
             <option value="none" {% if actions.get(i|string, 'none') == 'none' %}selected{% endif %}>None (Disabled)</option>
+            <option value="basket_dump" {% if actions.get(i|string, 'none') == 'basket_dump' %}selected{% endif %}>Basket Dump Count</option>
             <option value="tare" {% if actions.get(i|string, 'none') == 'tare' %}selected{% endif %}>TARE (Net = 0)</option>
             <option value="zero" {% if actions.get(i|string, 'none') == 'zero' %}selected{% endif %}>ZERO (Gross = 0)</option>
             <option value="print" {% if actions.get(i|string, 'none') == 'print' %}selected{% endif %}>PRINT / LOG</option>
