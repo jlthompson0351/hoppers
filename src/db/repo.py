@@ -1095,6 +1095,7 @@ class AppRepository:
                 # Safety gate: hardware DI noise can look like button presses.
                 "allow_opto_tare": False,
                 "zero_target_lb": 0.0,
+                "rezero_warning_threshold_lb": 20.0,
             },
             # Automatic near-zero drift compensation
             "zero_tracking": {

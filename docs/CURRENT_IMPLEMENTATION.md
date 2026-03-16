@@ -1,8 +1,8 @@
 # Current Implementation Documentation
 
-**Document Version:** 2.4  
-**Date:** February 25, 2026  
-**Purpose:** Document current implementation after UI redesign, stability fixes, and weight-side “bulletproofing” (Settings wired to runtime + safer outputs + DB housekeeping)
+**Document Version:** 2.7  
+**Date:** March 16, 2026  
+**Purpose:** Document current implementation after job-control, webhook, floor-threshold, and between-jobs re-zero warning updates.
 
 Status note (Feb 2026):
 - This document contains historical implementation notes and current system state.
@@ -29,6 +29,13 @@ Status note (Feb 2026):
 **Recent Update (Mar 6, 2026):**
 - **Basket Dump Opto Counting:** New opto action `basket_dump` records rising-edge pulses into `counted_events` table. Completed-job payload now includes `basket_dump_count`. Schema v7 migration adds `counted_events` table.
 - **Configurable Floor Threshold:** Replaced implicit 3 lb floor with operator-editable `scale.zero_target_lb`. Job Target Signal mode can use 0.0 lb floor. Legacy mode holds `job_control.legacy_floor_signal_value` when `net_lbs <= zero_target_lb`.
+
+**Recent Update (Mar 16, 2026):**
+- **Between-Jobs Re-Zero Warning:** Added a non-blocking warning that latches after a completed dump/cycle when the scale settles stable and remains outside the configured zero tolerance.
+- **Configurable Warning Threshold:** Added `scale.rezero_warning_threshold_lb` with a default of `20.0 lb`.
+- **Operator Warning Surfaces:** `/hdmi` and `/` dashboard now render a persistent `Press ZERO before next job` banner when the warning is active.
+- **Snapshot Contract:** `/api/snapshot` now exposes `rezero_warning_active`, `rezero_warning_reason`, `rezero_warning_weight_lbs`, `rezero_warning_threshold_lbs`, and `rezero_warning_since_utc`.
+- **Completed-Job Webhook Diagnostics:** The completed-job payload now carries the latest re-zero warning status and post-dump re-zero outcome at job close time.
 
 ---
 

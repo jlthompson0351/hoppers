@@ -63,7 +63,18 @@ Service restart is still required to load new code/migrations.
 1. Set `job_control.completed_job_webhook_url` in Settings.
 2. Send two different normal job IDs sequentially on the same machine scope.
 3. Verify one row appears in `job_completion_outbox`.
-4. Verify outbound status transitions:
+4. Verify payload includes expected summary fields:
+   - `line_id`, `machine_id`, `cycle_count`, `dump_count`, `basket_dump_count`
+   - `override_seen`, `override_count`
+   - `final_set_weight_lbs`, `final_set_weight_unit`
+5. Verify re-zero diagnostic fields are present when applicable:
+   - `rezero_warning_seen`
+   - `rezero_warning_reason`
+   - `rezero_warning_weight_lbs`
+   - `rezero_warning_threshold_lbs`
+   - `post_dump_rezero_applied`
+   - `post_dump_rezero_last_apply_utc`
+6. Verify outbound status transitions:
    - success: `status='sent'`
    - endpoint unavailable: `attempt_count` increments, `next_retry_at_utc` advances, `last_error` populated
 

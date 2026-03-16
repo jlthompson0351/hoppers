@@ -377,6 +377,10 @@ def _reset_zero_offset(repo: AppRepository, state: Optional[LiveState], reason: 
             zero_offset_mv=0.0,
             zero_offset_signal=0.0,
             zero_offset_updated_utc=updated_utc,
+            rezero_warning_active=False,
+            rezero_warning_reason="idle",
+            rezero_warning_weight_lbs=0.0,
+            rezero_warning_since_utc=None,
         )
 
     repo.log_event(
@@ -869,6 +873,13 @@ def settings_post() -> Response:
     cfg["scale"]["zero_target_lb"] = max(
         0.0,
         parse_float("zero_target_lb", float(cfg["scale"].get("zero_target_lb", 0.0) or 0.0)),
+    )
+    cfg["scale"]["rezero_warning_threshold_lb"] = max(
+        0.0,
+        parse_float(
+            "rezero_warning_threshold_lb",
+            float(cfg["scale"].get("rezero_warning_threshold_lb", 20.0) or 20.0),
+        ),
     )
 
     # === Job Target Mode (webhook-driven threshold signal) ===
@@ -1613,6 +1624,10 @@ def api_zero() -> Response:
         zero_offset_mv=new_offset_mv,
         zero_offset_signal=new_offset_mv,
         zero_offset_updated_utc=updated_utc,
+        rezero_warning_active=False,
+        rezero_warning_reason="idle",
+        rezero_warning_weight_lbs=0.0,
+        rezero_warning_since_utc=None,
     )
     svc = current_app.config.get("ACQ_SERVICE")
     if svc is not None and hasattr(svc, "mark_manual_zero_seen"):
@@ -2686,6 +2701,13 @@ def api_snapshot() -> Response:
         zero_offset_mv * lbs_per_mv if abs(lbs_per_mv) > 1e-9 else legacy_zero_offset_lbs
     )
     zero_offset_updated_utc = snap.get("zero_offset_updated_utc") or scale_cfg.get("zero_offset_updated_utc")
+    rezero_warning_threshold_lbs = float(
+        snap.get(
+            "rezero_warning_threshold_lbs",
+            scale_cfg.get("rezero_warning_threshold_lb", 20.0),
+        )
+        or 0.0
+    )
 
     zero_tracking_enabled = bool(
         snap.get("zero_tracking_enabled", zero_tracking_cfg.get("enabled", False))
@@ -2754,6 +2776,11 @@ def api_snapshot() -> Response:
             "zero_tracking_locked": zero_tracking_locked,
             "zero_tracking_reason": str(zero_tracking_reason),
             "zero_tracking_hold_elapsed_s": float(snap.get("zero_tracking_hold_elapsed_s") or 0.0),
+            "rezero_warning_active": bool(snap.get("rezero_warning_active", False)),
+            "rezero_warning_reason": str(snap.get("rezero_warning_reason") or "idle"),
+            "rezero_warning_weight_lbs": float(snap.get("rezero_warning_weight_lbs") or 0.0),
+            "rezero_warning_threshold_lbs": rezero_warning_threshold_lbs,
+            "rezero_warning_since_utc": snap.get("rezero_warning_since_utc"),
             "post_dump_rezero_enabled": bool(
                 snap.get("post_dump_rezero_enabled", zero_tracking_cfg.get("post_dump_enabled", False))
             ),

@@ -290,6 +290,24 @@
     .feedback.ok { color: var(--ok); }
     .feedback.err { color: var(--bad); }
 
+    .rezero-warning {
+      display: none;
+      margin-bottom: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 204, 102, 0.45);
+      background: rgba(255, 204, 102, 0.14);
+      color: #ffd27a;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .rezero-warning.visible {
+      display: block;
+    }
+
     .button-grid {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -435,6 +453,8 @@
         <span class="status-pill" id="fault-pill">{{ "FAULT" if snap.fault else "OK" }}</span>
       </div>
     </header>
+
+    <div id="rezero-warning" class="rezero-warning"></div>
 
     <section class="main-content">
       <section class="weight-panel">
@@ -601,6 +621,12 @@
         return String(stateRaw || "idle").replace(/_/g, " ");
       }
 
+      function formatSignedWeight(value) {
+        const num = Number(value || 0);
+        const sign = num > 0 ? "+" : (num < 0 ? "-" : "");
+        return sign + Math.abs(num).toFixed(1) + " lb";
+      }
+
       function updateUi(data) {
         if (!data || !data.weight || !data.system) return;
 
@@ -617,6 +643,20 @@
         const faultPill = document.getElementById("fault-pill");
         faultPill.textContent = fault ? "FAULT" : "OK";
         faultPill.className = "status-pill " + (fault ? "bad" : "ok");
+
+        const rezeroWarning = document.getElementById("rezero-warning");
+        if (data.weight.rezero_warning_active) {
+          const warningWeight = Number(data.weight.rezero_warning_weight_lbs || 0);
+          const warningThreshold = Number(data.weight.rezero_warning_threshold_lbs || 0);
+          rezeroWarning.textContent =
+            "Scale zero may be off by " + formatSignedWeight(warningWeight) +
+            ". Press ZERO before next job." +
+            (warningThreshold > 0 ? " Warning threshold: " + warningThreshold.toFixed(1) + " lb." : "");
+          rezeroWarning.classList.add("visible");
+        } else {
+          rezeroWarning.classList.remove("visible");
+          rezeroWarning.textContent = "";
+        }
 
         const tareOffset = Number(data.weight.tare_offset_lbs || 0);
         const tareMeta = document.getElementById("tare-meta");

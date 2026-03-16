@@ -142,6 +142,18 @@
     display: none;
   }
   .fault-banner.visible { display: block; }
+  .warning-banner {
+    background: rgba(255, 204, 102, 0.14);
+    border: 1px solid rgba(255, 204, 102, 0.45);
+    color: #ffd27a;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    text-align: center;
+    font-weight: 600;
+    display: none;
+  }
+  .warning-banner.visible { display: block; }
 
   /* Mode toggle strip */
   .mode-strip {
@@ -230,6 +242,10 @@
 
 <div id="fault-banner" class="fault-banner">
   <span id="fault-text"></span>
+</div>
+
+<div id="rezero-warning-banner" class="warning-banner">
+  <span id="rezero-warning-text"></span>
 </div>
 
 <div id="feedback" class="feedback-msg"></div>
@@ -393,6 +409,12 @@
     return String(stateRaw || 'idle').replace(/_/g, ' ');
   }
 
+  function formatSignedWeight(value) {
+    const num = Number(value || 0);
+    const sign = num > 0 ? '+' : (num < 0 ? '-' : '');
+    return sign + Math.abs(num).toFixed(1) + ' lb';
+  }
+
   function updateDashboard(data) {
     // Weight display
     const weight = data.weight.total_lbs;
@@ -418,6 +440,19 @@
       faultBanner.classList.add('visible');
     } else {
       faultBanner.classList.remove('visible');
+    }
+
+    const rezeroWarningBanner = document.getElementById('rezero-warning-banner');
+    if (data.weight.rezero_warning_active) {
+      const warningWeight = Number(data.weight.rezero_warning_weight_lbs || 0);
+      const warningThreshold = Number(data.weight.rezero_warning_threshold_lbs || 0);
+      document.getElementById('rezero-warning-text').textContent =
+        'Scale zero may be off by ' + formatSignedWeight(warningWeight) +
+        '. Press ZERO before next job.' +
+        (warningThreshold > 0 ? ' Warning threshold: ' + warningThreshold.toFixed(1) + ' lb.' : '');
+      rezeroWarningBanner.classList.add('visible');
+    } else {
+      rezeroWarningBanner.classList.remove('visible');
     }
 
     // Enable/disable buttons based on stability

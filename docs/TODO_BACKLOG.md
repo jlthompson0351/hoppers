@@ -1,5 +1,33 @@
 # TODO Backlog
 
+## 2026-03-16 - Between-jobs re-zero warning rollout
+
+- [x] Implement non-blocking re-zero warning locally and stage it for later activation.
+  - Goal: warn the operator to press `ZERO` between jobs only when the scale settles stable and remains outside the configured zero tolerance.
+  - Added `scale.rezero_warning_threshold_lb` to Settings with a default of `20.0 lb`.
+  - Acquisition now latches a between-jobs re-zero warning after a completed dump/cycle when the scale settles stable and stays outside tolerance.
+  - Warning state is exposed in `/api/snapshot` and rendered on both `dashboard.html` and `hdmi.html`.
+  - Completed-job webhook payload now includes `rezero_warning_seen`, `rezero_warning_reason`, `rezero_warning_weight_lbs`, `rezero_warning_threshold_lbs`, `post_dump_rezero_applied`, and `post_dump_rezero_last_apply_utc`.
+  - No DB migration required for this change.
+
+- [ ] Activate staged re-zero warning during an approved restart window.
+  - Runtime pieces can be copied to the production Pi while it is in use, but they will remain inactive until `loadcell-transmitter` is manually restarted.
+  - Runtime files to stage on Pi:
+    - `src/services/acquisition.py`
+    - `src/app/routes.py`
+    - `src/db/repo.py`
+    - `src/app/templates/dashboard.html`
+    - `src/app/templates/hdmi.html`
+    - `src/app/templates/settings.html`
+  - Local validation completed:
+    - `python -m pytest tests/test_rezero_warning.py tests/test_job_completion_webhook.py tests/test_snapshot_job_control.py tests/test_api_zero.py`
+    - Result: `20 passed`
+    - Lint check on touched files: clean
+  - After restart, verify:
+    - warning only appears between jobs when stable zero-relative weight exceeds the configured threshold
+    - warning clears after a successful manual `ZERO`
+    - completed-job webhook includes the new re-zero warning diagnostic fields
+
 ## 2026-03-06 - Configurable floor threshold handoff
 
 - [x] Implement configurable floor threshold locally and stage it for later push.

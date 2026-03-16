@@ -4,6 +4,45 @@ This document records all deployments to production Pi systems.
 
 ---
 
+## 2026-03-16 - Staged: Between-Jobs Re-Zero Warning + Webhook Diagnostics (No Restart)
+
+**Prepared By**: jthompson (with AI assistance)  
+**Sites Updated**: Pi `hoppers.tail840434.ts.net` (Tailscale node `100.114.238.54`) — runtime files staged to `/opt/loadcell-transmitter`  
+**Version**: main branch working tree (re-zero warning rollout)
+
+**Scope Staged**:
+- **Between-Jobs Re-Zero Warning**: Added a non-blocking warning that latches after a completed dump/cycle when the scale settles stable and remains outside the configured zero tolerance.
+- **Operator UI Warning Surface**: Added persistent warning banners to both `/hdmi` and `/` dashboard so the operator sees `Press ZERO before next job` when the scale is off.
+- **Settings Support**: Added `scale.rezero_warning_threshold_lb` with a default of `20.0 lb`.
+- **Webhook Diagnostics**: Completed-job payload now includes `rezero_warning_seen`, `rezero_warning_reason`, `rezero_warning_weight_lbs`, `rezero_warning_threshold_lbs`, `post_dump_rezero_applied`, and `post_dump_rezero_last_apply_utc`.
+
+**Production Safety Constraint**:
+- Service **not** restarted; Pi is still running the previous in-memory code.
+- No reboot, reset, or service bounce performed while the line is in use.
+- Files were copied to `/home/pi/rezero-stage` first, then installed into `/opt/loadcell-transmitter` with `sudo install` because runtime files are root-owned.
+
+**Files Staged**:
+- `src/services/acquisition.py`
+- `src/app/routes.py`
+- `src/db/repo.py`
+- `src/app/templates/dashboard.html`
+- `src/app/templates/hdmi.html`
+- `src/app/templates/settings.html`
+
+**Local Validation**:
+- `python -m pytest tests/test_rezero_warning.py tests/test_job_completion_webhook.py tests/test_snapshot_job_control.py tests/test_api_zero.py`
+- Result: `20 passed`
+- Lint check on touched files: clean
+
+**Post-Restart Verification (approved window only)**:
+1. Restart `loadcell-transmitter` once.
+2. Run a job and let the scale settle empty before the next job.
+3. Verify warning appears only when stable zero-relative weight exceeds the configured threshold.
+4. Press `ZERO` and verify the warning clears.
+5. Confirm the next completed-job webhook includes the new re-zero diagnostic fields.
+
+---
+
 ## 2026-03-06 - Staged: Basket Dump Opto + Floor Threshold + Full Sync (No Restart)
 
 **Prepared By**: jthompson (with AI assistance)  

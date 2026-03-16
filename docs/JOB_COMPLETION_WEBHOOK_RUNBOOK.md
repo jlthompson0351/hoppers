@@ -21,22 +21,34 @@ Rules:
 
 ## Payload Contract (Current Integration Shape)
 
-Use this exact JSON shape for both `lb` and `ea` modes:
+Use this JSON shape for both `lb` and `ea` modes:
 
 ```json
 {
   "schema_version": 1,
   "job_id": "1704405",
+  "line_id": "line-1",
   "machine_id": "PLP6",
+  "job_start_record_time_set_utc": "2026-03-05T12:00:00+00:00",
+  "job_end_record_time_set_utc": "2026-03-05T12:10:00+00:00",
+  "first_erp_timestamp_utc": "2026-03-05T12:00:00+00:00",
+  "last_erp_timestamp_utc": "2026-03-05T12:05:00+00:00",
+  "cycle_count": 12,
   "dump_count": 12,
   "basket_dump_count": 12,
   "total_processed_lbs": 1286.6247075265994,
   "avg_weight_lbs": 107.21872562721661,
   "avg_cycle_time_ms": 109884,
   "override_seen": false,
-  "override_weight_lbs": null,
+  "override_count": 0,
   "final_set_weight_lbs": 115.0,
   "final_set_weight_unit": "lb",
+  "rezero_warning_seen": true,
+  "rezero_warning_reason": "outside_tolerance",
+  "rezero_warning_weight_lbs": 21.5,
+  "rezero_warning_threshold_lbs": 20.0,
+  "post_dump_rezero_applied": true,
+  "post_dump_rezero_last_apply_utc": "2026-03-05T12:06:00+00:00",
   "completed_at_utc": "2026-03-05T14:40:40+00:00"
 }
 ```
@@ -45,21 +57,34 @@ Notes:
 - key names stay the same in both modes
 - in `ea` mode, keep `final_set_weight_lbs` populated from ERP set weight and set `final_set_weight_unit` to `ea`
 - in `ea` mode, `total_processed_lbs` and `avg_weight_lbs` carry converted eaches values (key names intentionally unchanged for compatibility)
+- re-zero warning fields are close-time diagnostics from the Pi runtime and indicate whether the operator warning logic was seen for the completed job before the next normal job arrived
 
 ## Field Definitions
 
 - `schema_version`: payload schema version
 - `job_id`: completed job identifier
+- `line_id`: line scope key for the completed job window
 - `machine_id`: machine scope key
+- `job_start_record_time_set_utc`: first persisted set-weight timestamp for the active job window
+- `job_end_record_time_set_utc`: timestamp used to close the completed job window
+- `first_erp_timestamp_utc`: first ERP timestamp seen for the active job
+- `last_erp_timestamp_utc`: last ERP timestamp seen for the active job before close
+- `cycle_count`: count of throughput cycle records included in the job window
 - `dump_count`: count of included dump events
 - `basket_dump_count`: count of opto-mapped basket dump pulses in the job window (from `counted_events` table)
 - `total_processed_lbs`: total processed amount (lb mode or converted eaches mode)
 - `avg_weight_lbs`: average per dump (lb mode or converted eaches mode)
 - `avg_cycle_time_ms`: average cycle duration in milliseconds
 - `override_seen`: true if an override occurred in the job window
-- `override_weight_lbs`: override set weight value (null if none)
+- `override_count`: number of manual overrides attributed to the completed job window
 - `final_set_weight_lbs`: ERP set weight reference for the completed job
 - `final_set_weight_unit`: `lb` or `ea`
+- `rezero_warning_seen`: true if the between-jobs re-zero warning latched for the completed job before the next normal job arrived
+- `rezero_warning_reason`: Pi-side reason string for the warning latch, usually `outside_tolerance` or a post-dump diagnostic reason
+- `rezero_warning_weight_lbs`: signed zero-relative weight that triggered the warning
+- `rezero_warning_threshold_lbs`: warning threshold configured on the Pi at the time of the warning
+- `post_dump_rezero_applied`: true when one-shot post-dump re-zero was successfully applied during the completed job lifecycle
+- `post_dump_rezero_last_apply_utc`: UTC timestamp of the latest successful post-dump re-zero apply for the completed job window
 - `completed_at_utc`: webhook creation timestamp in UTC
 
 ## Real Examples (Pi Database)
@@ -147,16 +172,28 @@ $uri = "https://yvpkeqfqwxuacncvzhwc.supabase.co/functions/v1/receive-scale-webh
 $payload = @{
   schema_version = 1
   job_id = "1704405"
+  line_id = "line-1"
   machine_id = "PLP6"
+  job_start_record_time_set_utc = "2026-03-05T12:00:00+00:00"
+  job_end_record_time_set_utc = "2026-03-05T12:10:00+00:00"
+  first_erp_timestamp_utc = "2026-03-05T12:00:00+00:00"
+  last_erp_timestamp_utc = "2026-03-05T12:05:00+00:00"
+  cycle_count = 12
   dump_count = 12
   basket_dump_count = 12
   total_processed_lbs = 1286.6247075265994
   avg_weight_lbs = 107.21872562721661
   avg_cycle_time_ms = 109884
   override_seen = $false
-  override_weight_lbs = $null
+  override_count = 0
   final_set_weight_lbs = 115.0
   final_set_weight_unit = "lb"
+  rezero_warning_seen = $true
+  rezero_warning_reason = "outside_tolerance"
+  rezero_warning_weight_lbs = 21.5
+  rezero_warning_threshold_lbs = 20.0
+  post_dump_rezero_applied = $true
+  post_dump_rezero_last_apply_utc = "2026-03-05T12:06:00+00:00"
   completed_at_utc = "2026-03-05T14:40:40+00:00"
 }
 Invoke-WebRequest -Method Post -Uri $uri -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress)

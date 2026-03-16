@@ -56,6 +56,7 @@ class _Cfg:
     zero_offset_updated_utc: Optional[str]
     tare_offset_lbs: float
     zero_target_lb: float
+    rezero_warning_threshold_lb: float
     zero_tracking_enabled: bool
     zero_tracking_range_lb: float
     zero_tracking_deadband_lb: float
@@ -167,6 +168,13 @@ class AcquisitionService:
         self._zero_tracking_reason = "disabled"
         self._zero_tracking_hold_elapsed_s = 0.0
         self._zero_tracking_spike_slope_lbs = 0.0
+        self._rezero_warning_active = False
+        self._rezero_warning_reason = "idle"
+        self._rezero_warning_weight_lbs = 0.0
+        self._rezero_warning_threshold_lbs = 0.0
+        self._rezero_warning_since_utc: Optional[str] = None
+        self._rezero_warning_cycle_armed = False
+        self._rezero_warning_cycle_started_s: Optional[float] = None
         self._post_dump_rezero_active = False
         self._post_dump_rezero_state = "idle"
         self._post_dump_rezero_reason = "idle"
@@ -175,6 +183,12 @@ class AcquisitionService:
         self._post_dump_rezero_time_to_empty_s: Optional[float] = None
         self._post_dump_rezero_time_to_fill_resume_s: Optional[float] = None
         self._post_dump_rezero_last_apply_utc: Optional[str] = None
+        self._job_rezero_warning_seen = False
+        self._job_rezero_warning_reason: Optional[str] = None
+        self._job_rezero_warning_weight_lbs: Optional[float] = None
+        self._job_rezero_warning_threshold_lbs: Optional[float] = None
+        self._job_post_dump_rezero_applied = False
+        self._job_post_dump_rezero_last_apply_utc: Optional[str] = None
         self._last_zero_tracking_reason: Optional[str] = None
         self._startup_zero_done = False  # One-shot auto-zero at end of startup
         self._cal_was_valid = False       # Track calibration validity for Kalman reset
@@ -249,6 +263,100 @@ class AcquisitionService:
     def _is_manual_override_job_id(job_id: Optional[str]) -> bool:
         return str(job_id or "").strip().upper() == "MANUAL_OVERRIDE"
 
+    def _reset_job_rezero_diagnostics(self) -> None:
+        self._job_rezero_warning_seen = False
+        self._job_rezero_warning_reason = None
+        self._job_rezero_warning_weight_lbs = None
+        self._job_rezero_warning_threshold_lbs = None
+        self._job_post_dump_rezero_applied = False
+        self._job_post_dump_rezero_last_apply_utc = None
+
+    def _arm_rezero_warning_cycle(self, *, now_s: float) -> None:
+        self._rezero_warning_cycle_armed = True
+        self._rezero_warning_cycle_started_s = float(now_s)
+
+    def _set_rezero_warning(
+        self,
+        *,
+        reason: str,
+        weight_lbs: float,
+        threshold_lbs: float,
+        now_utc: str,
+    ) -> None:
+        if not self._rezero_warning_active:
+            self._rezero_warning_since_utc = now_utc
+        self._rezero_warning_active = True
+        self._rezero_warning_reason = str(reason or "outside_tolerance")
+        self._rezero_warning_weight_lbs = float(weight_lbs)
+        self._rezero_warning_threshold_lbs = float(threshold_lbs)
+        self._job_rezero_warning_seen = True
+        self._job_rezero_warning_reason = self._rezero_warning_reason
+        self._job_rezero_warning_weight_lbs = self._rezero_warning_weight_lbs
+        self._job_rezero_warning_threshold_lbs = self._rezero_warning_threshold_lbs
+
+    def _clear_rezero_warning(self) -> None:
+        self._rezero_warning_active = False
+        self._rezero_warning_reason = "idle"
+        self._rezero_warning_weight_lbs = 0.0
+        self._rezero_warning_threshold_lbs = 0.0
+        self._rezero_warning_since_utc = None
+
+    def _update_rezero_warning_state(
+        self,
+        *,
+        now_s: float,
+        now_utc: str,
+        target_relative_lbs: float,
+        is_stable: bool,
+        cfg: _Cfg,
+    ) -> None:
+        threshold_lbs = max(0.0, float(cfg.rezero_warning_threshold_lb))
+        abs_relative_lbs = abs(float(target_relative_lbs))
+        tare_active = abs(float(cfg.tare_offset_lbs)) > 1e-6
+        clear_band_lbs = (
+            min(threshold_lbs, max(0.5, float(cfg.post_dump_rezero_empty_threshold_lb)))
+            if threshold_lbs > 0.0
+            else 0.0
+        )
+
+        if threshold_lbs <= 0.0:
+            self._rezero_warning_cycle_armed = False
+            self._rezero_warning_cycle_started_s = None
+            self._clear_rezero_warning()
+            return
+
+        if self._rezero_warning_active and is_stable and (not tare_active) and abs_relative_lbs < threshold_lbs:
+            self._clear_rezero_warning()
+
+        if not self._rezero_warning_cycle_armed:
+            return
+
+        cycle_started_s = self._rezero_warning_cycle_started_s
+        if cycle_started_s is None:
+            cycle_started_s = float(now_s)
+            self._rezero_warning_cycle_started_s = cycle_started_s
+        cycle_age_s = max(0.0, float(now_s) - float(cycle_started_s))
+        if cycle_age_s < max(0.0, float(cfg.post_dump_rezero_min_delay_s)):
+            return
+
+        if is_stable and (not tare_active) and abs_relative_lbs >= threshold_lbs:
+            reason = str(self._post_dump_rezero_reason or "outside_tolerance")
+            if reason in {"idle", "rezero"}:
+                reason = "outside_tolerance"
+            self._set_rezero_warning(
+                reason=reason,
+                weight_lbs=float(target_relative_lbs),
+                threshold_lbs=threshold_lbs,
+                now_utc=now_utc,
+            )
+            self._rezero_warning_cycle_armed = False
+            self._rezero_warning_cycle_started_s = None
+            return
+
+        if is_stable and (not tare_active) and abs_relative_lbs <= clear_band_lbs:
+            self._rezero_warning_cycle_armed = False
+            self._rezero_warning_cycle_started_s = None
+
     def _build_completed_job_payload(
         self,
         *,
@@ -308,6 +416,20 @@ class AcquisitionService:
             "final_set_weight_unit": (
                 None if final_set_weight_unit in (None, "") else str(final_set_weight_unit)
             ),
+            "rezero_warning_seen": bool(self._job_rezero_warning_seen),
+            "rezero_warning_reason": (
+                None if self._job_rezero_warning_reason in (None, "") else str(self._job_rezero_warning_reason)
+            ),
+            "rezero_warning_weight_lbs": (
+                None if self._job_rezero_warning_weight_lbs is None else float(self._job_rezero_warning_weight_lbs)
+            ),
+            "rezero_warning_threshold_lbs": (
+                None
+                if self._job_rezero_warning_threshold_lbs is None
+                else float(self._job_rezero_warning_threshold_lbs)
+            ),
+            "post_dump_rezero_applied": bool(self._job_post_dump_rezero_applied),
+            "post_dump_rezero_last_apply_utc": self._job_post_dump_rezero_last_apply_utc,
             "completed_at_utc": _utc_now(),
         }
 
@@ -355,6 +477,7 @@ class AcquisitionService:
             return
 
         if lifecycle_state is None:
+            self._reset_job_rezero_diagnostics()
             self.repo.set_job_lifecycle_state(
                 line_id=line_id_clean,
                 machine_id=machine_id_clean,
@@ -371,6 +494,7 @@ class AcquisitionService:
             return
 
         if self._is_manual_override_job_id(lifecycle_state.active_job_id):
+            self._reset_job_rezero_diagnostics()
             self.repo.set_job_lifecycle_state(
                 line_id=line_id_clean,
                 machine_id=machine_id_clean,
@@ -444,6 +568,7 @@ class AcquisitionService:
             last_set_weight_unit=set_weight_unit,
             last_source_event_id=source_event_id_clean,
         )
+        self._reset_job_rezero_diagnostics()
 
     def _dispatch_job_completion_outbox(self, *, cfg: _Cfg, now_s: float) -> None:
         dispatch_interval_s = max(1.0, float(cfg.completed_job_webhook_dispatch_interval_s))
@@ -1012,6 +1137,9 @@ class AcquisitionService:
             zero_offset_updated_utc=scale.get("zero_offset_updated_utc"),
             tare_offset_lbs=float(scale.get("tare_offset_lbs", 0.0) or 0.0),
             zero_target_lb=float(scale.get("zero_target_lb", 0.0) or 0.0),
+            rezero_warning_threshold_lb=max(
+                0.0, float(scale.get("rezero_warning_threshold_lb", 20.0) or 20.0)
+            ),
             zero_tracking_enabled=bool(zero_tracking.get("enabled", False)),
             zero_tracking_range_lb=max(0.0, float(zero_tracking.get("range_lb", 0.5) or 0.5)),
             zero_tracking_deadband_lb=max(0.0, float(zero_tracking.get("deadband_lb", 0.1) or 0.1)),
@@ -1462,6 +1590,7 @@ class AcquisitionService:
                         # This is the industrial-style “one-shot” correction layer.
                         if cfg.zero_tracking_enabled and cfg.post_dump_rezero_enabled:
                             self._post_dump_rezero.trigger(now_s=t)
+                        self._arm_rezero_warning_cycle(now_s=t)
                         event_ts = _utc_now()
                         try:
                             self._persist_throughput_cycle_event(
@@ -1545,6 +1674,8 @@ class AcquisitionService:
                         cfg.zero_offset_lbs = float(post_dump_step.new_zero_offset_lbs)
                         cfg.zero_offset_updated_utc = updated_utc
                         self._post_dump_rezero_last_apply_utc = updated_utc
+                        self._job_post_dump_rezero_applied = True
+                        self._job_post_dump_rezero_last_apply_utc = updated_utc
 
                         # Clear any pending AZT deltas so stale adjustments can never be
                         # re-applied after a one-shot re-zero capture.
@@ -1722,6 +1853,13 @@ class AcquisitionService:
                 # Industrial two-layer design uses:
                 #   - micro-range AZT (continuous), and
                 #   - post-dump re-zero (event-driven, gated).
+                self._update_rezero_warning_state(
+                    now_s=t,
+                    now_utc=_utc_now(),
+                    target_relative_lbs=target_relative_lbs,
+                    is_stable=is_stable,
+                    cfg=cfg,
+                )
 
                 # 7. OUTPUT
                 is_ma_mode = (cfg.output_mode == "4_20mA")
@@ -2000,6 +2138,11 @@ class AcquisitionService:
                     zero_tracking_reason=self._zero_tracking_reason,
                     zero_tracking_hold_elapsed_s=self._zero_tracking_hold_elapsed_s,
                     zero_tracking_spike_slope_lbs=self._zero_tracking_spike_slope_lbs,
+                    rezero_warning_active=self._rezero_warning_active,
+                    rezero_warning_reason=self._rezero_warning_reason,
+                    rezero_warning_weight_lbs=self._rezero_warning_weight_lbs,
+                    rezero_warning_threshold_lbs=self._rezero_warning_threshold_lbs,
+                    rezero_warning_since_utc=self._rezero_warning_since_utc,
                     post_dump_rezero_enabled=bool(cfg.post_dump_rezero_enabled),
                     post_dump_rezero_active=self._post_dump_rezero_active,
                     post_dump_rezero_state=self._post_dump_rezero_state,

@@ -137,6 +137,13 @@ class JobCompletionWebhookTests(unittest.TestCase):
             machine_id="machine-other",
         )
 
+        svc._job_rezero_warning_seen = True
+        svc._job_rezero_warning_reason = "outside_tolerance"
+        svc._job_rezero_warning_weight_lbs = 21.5
+        svc._job_rezero_warning_threshold_lbs = 20.0
+        svc._job_post_dump_rezero_applied = True
+        svc._job_post_dump_rezero_last_apply_utc = "2026-03-05T12:06:00+00:00"
+
         svc.ingest_job_webhook(
             job_id="JOB-2",
             target_weight_lb=140.0,
@@ -166,6 +173,12 @@ class JobCompletionWebhookTests(unittest.TestCase):
         self.assertTrue(bool(payload["override_seen"]))
         self.assertEqual(int(payload["override_count"]), 1)
         self.assertAlmostEqual(float(payload["final_set_weight_lbs"]), 130.0, places=6)
+        self.assertTrue(bool(payload["rezero_warning_seen"]))
+        self.assertEqual(payload["rezero_warning_reason"], "outside_tolerance")
+        self.assertAlmostEqual(float(payload["rezero_warning_weight_lbs"]), 21.5, places=6)
+        self.assertAlmostEqual(float(payload["rezero_warning_threshold_lbs"]), 20.0, places=6)
+        self.assertTrue(bool(payload["post_dump_rezero_applied"]))
+        self.assertEqual(payload["post_dump_rezero_last_apply_utc"], "2026-03-05T12:06:00+00:00")
 
         lifecycle_state = repo.get_job_lifecycle_state(line_id=line_id, machine_id=machine_id)
         self.assertIsNotNone(lifecycle_state)

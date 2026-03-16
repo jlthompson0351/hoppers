@@ -1,8 +1,8 @@
 # Current UI Reference
 
-**Document Version:** 2.6  
-**Date:** March 6, 2026  
-**Purpose:** Document current UI state after redesign and stability fixes
+**Document Version:** 2.7  
+**Date:** March 16, 2026  
+**Purpose:** Document current UI state after job-target, webhook, and between-jobs re-zero warning updates.
 
 ---
 
@@ -78,6 +78,7 @@
 7. **Raw Data Panel** - Signal for calibration, raw mV, loop Hz
 8. **System Status Bar** - Board online status, excitation status
 9. **Mode Toggle Strip** - Switches between Legacy Weight Mapping and Job Target Mode. When Job Target Mode is active, a dedicated status bar appears showing Set Weight, Scale Weight, and Trigger Status.
+10. **Re-Zero Warning Banner** - A persistent non-blocking warning appears between jobs when the scale settles stable and remains outside the configured zero tolerance.
 
 ### Stability Indicator Behavior
 
@@ -105,6 +106,13 @@
 | Tare | `/api/tare` | POST |
 | Clear Tare | `/api/tare/clear` | POST |
 | Snapshot | `/api/snapshot` | GET |
+
+### Between-Jobs Warning Behavior
+
+- The warning is non-blocking and does not stop the next job from running.
+- It is driven by local acquisition logic, not by the completed-job webhook trigger.
+- It latches after a completed dump/cycle only when the scale settles stable and remains outside the configured warning threshold.
+- It clears after a successful `ZERO` or when the scale returns inside tolerance.
 
 ---
 
@@ -144,7 +152,8 @@
 4. **Processed Totals Panel** - Shows shift/day totals, load count, and average load
 5. **Shift Clear Action** - `CLEAR SHIFT` calls `/api/production/shift/clear` to reset shift window
 6. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `CLEAR ZERO`, `SETTINGS`
-7. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
+7. **Between-Jobs Warning Banner** - A persistent banner appears above the main content when the scale is off outside the configured tolerance and the operator should press `ZERO` before the next job.
+8. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
 
 ### Snapshot Fields Used by HDMI
 
@@ -156,6 +165,11 @@
 - `weight.zero_tracking_active`
 - `weight.zero_tracking_locked`
 - `weight.zero_tracking_reason`
+- `weight.rezero_warning_active`
+- `weight.rezero_warning_reason`
+- `weight.rezero_warning_weight_lbs`
+- `weight.rezero_warning_threshold_lbs`
+- `weight.rezero_warning_since_utc`
 - `weight.zero_offset_updated_utc`
 - `jobControl.enabled`
 - `jobControl.mode`

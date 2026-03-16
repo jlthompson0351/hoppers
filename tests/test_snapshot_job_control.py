@@ -46,6 +46,11 @@ class SnapshotJobControlTests(unittest.TestCase):
             job_control_pretrigger_lb=0.0,
             job_set_weight=100.0,
             job_active=True,
+            rezero_warning_active=True,
+            rezero_warning_reason="outside_tolerance",
+            rezero_warning_weight_lbs=21.5,
+            rezero_warning_threshold_lbs=20.0,
+            rezero_warning_since_utc="2026-03-16T17:00:00+00:00",
             job_meta={
                 "job_id": "JOB-9",
                 "step_id": "STEP-3",
@@ -65,6 +70,12 @@ class SnapshotJobControlTests(unittest.TestCase):
         self.assertEqual(job["mode"], "target_signal_mode")
         self.assertTrue(job["active"])
         self.assertAlmostEqual(float(job["set_weight"]), 100.0)
+        weight = body["weight"]
+        self.assertTrue(bool(weight["rezero_warning_active"]))
+        self.assertEqual(weight["rezero_warning_reason"], "outside_tolerance")
+        self.assertAlmostEqual(float(weight["rezero_warning_weight_lbs"]), 21.5)
+        self.assertAlmostEqual(float(weight["rezero_warning_threshold_lbs"]), 20.0)
+        self.assertEqual(weight["rezero_warning_since_utc"], "2026-03-16T17:00:00+00:00")
 
     def test_snapshot_job_control_defaults_when_no_state(self) -> None:
         app, _repo, _state = self._make_app()
