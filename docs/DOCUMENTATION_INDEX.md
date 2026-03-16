@@ -53,5 +53,5 @@ This index organizes the project documentation by category. Use this to find rel
 *   `DOCUMENTATION_UPDATE_SUMMARY.md` - Meta-doc about updates.
 
 ## 📝 Meta
-*   [README_DOCS.md](README_DOCS.md) - Guide to this documentation folder.
+*   [OVERVIEW.md](OVERVIEW.md) - Guide to this documentation folder.
 *   [TODO_BACKLOG.md](TODO_BACKLOG.md) - Active implementation backlog and rollout follow-ups.

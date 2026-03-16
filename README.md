@@ -1,48 +1,171 @@
-# Load Cell Scale Transmitter (Raspberry Pi 4B)
+# Hoppers Load Cell Scale System
 
-**Current Version**: v3.4.0 (Job Target Signal Mode - February 26, 2026)  
-**Status**: ✅ Production - Operational on 172.16.190.25
+Single startup document for this repo. If a human, Cursor, or OpenClaw session starts cold, begin here.
 
-Industrial load-cell scale transmitter using a Raspberry Pi 4B with Sequent Microsystems stackable HATs:
-- **24b8vin-rpi**: 8x 24-bit differential analog inputs for load-cell mV signals (supports 1-8 active channels, typically 2-4)
-- **megaind-rpi**: 14-bit analog output to PLC (0–10V or 4–20mA), digital inputs (operator buttons), and one analog input for excitation monitoring
+**Production Pi:** `172.16.190.25` (`hoppers.tail840434.ts.net`)  
+**Dashboard:** `http://172.16.190.25:8080`  
+**Service:** `loadcell-transmitter`  
+**Runtime Path:** `/opt/loadcell-transmitter`
 
-This is an industrial-grade system designed for robust behavior and automatic recovery. The system **always uses real hardware** - there is no simulated mode. If hardware is unavailable, the UI stays up and the system retries automatically.
+Industrial hopper-scale system for Raspberry Pi + Sequent hardware. The product work in this repo covers live weighing, PLC analog output, job-target webhook flow, HDMI operator UI, dump/count tracking, and production rollouts on the Pi.
 
-### Recent Changes (v3.4.0)
-- **Job Target Signal Mode:** Added webhook-driven PLC output mode (`POST /api/job/webhook`). When active, output holds low until scale weight hits target, then fires a fixed trigger signal.
-- **Target-Aware Auto-Zero:** Zero tracking now tracks `error = weight - zero_target_lb` (3.0 lb), allowing auto-zero to work with a non-zero floor.
-- **Post-Dump Re-Zero:** Implemented one-shot correction after dump cycle completion.
+---
 
-## Hardware Stack & Wiring (CRITICAL)
+## Start Here
 
-### Stack Order (Bottom to Top)
-1.  **Raspberry Pi 4B** (Bottom)
-2.  **DAQ HAT (24b8vin)** (Stack 0, Address 0x31)
-    *   **Function:** Reads load cell mV signals.
-    *   **Connection:** Sits directly on the Pi.
-3.  **MegaIND HAT** (Stack 2, Address 0x52)
-    *   **Function:** PLC Output (0-10V / 4-20mA) + Opto Inputs.
-    *   **Connection:** Sits on top of the DAQ.
+This repo now uses a **git-first, repo-docs-first** workflow.
 
-**Note:** MegaIND uses base I2C address `0x50` and the runtime address is `0x50 + stack_level`. Current production uses stack level **2** (`0x52`).
+### One README policy
+- `README.md` at repo root is the only README intended as a startup hub.
+- Folder-specific orientation docs should use names like `OVERVIEW.md` or `GUIDE.md` instead of more README files.
+- If you tell a fresh agent "read the README," this is the file they should read.
 
-**Optional (UPS):** If a Super Watchdog HAT is installed (I2C `0x30`), place it directly on the Pi and follow the power-isolation guidance in `docs/WiringAndCommissioning.md`.
+### Read these files next, in order
+1. `TODO.md`
+2. `STATUS.md`
+3. `DECISIONS.md`
+4. `RUNBOOK.md`
+5. `DEPLOY.md`
+6. `HANDOFF.md`
+7. `OPENCLAW.md` if OpenClaw-specific guidance or cross-project setup guidance is needed
 
-### Power Wiring (if using Super Watchdog HAT)
-1.  **24V DC Source** -> Connect to **Watchdog** Green Connector.
-2.  **Daisy Chain** -> Jumper wires from Watchdog 24V -> **MegaIND** 24V Green Connector.
-    *   *Note: Watchdog powers the Pi. MegaIND powers itself and the DAQ.*
-3.  **USB-C Power:** Connect a USB-C cable from the **Watchdog's USB-C OUT** to the **Raspberry Pi's USB-C Power Port**.
-    *   *This is the primary power path for the Pi.*
+### Working rules
+- **Git is the source of truth for implementation**
+- **Repo docs are the source of truth for shared project state**
+- **Live Pi/runtime state is the source of truth for what is actually deployed**
+- Chat context alone is not proof that something is in git or live
+- `local` is not the same as `pushed`
+- `pushed` is not the same as `staged on Pi`
+- `staged on Pi` is not the same as `running live`
+- `running live` is not the same as `validated live`
+- This line can be in production use; do not restart/reboot/reset the Pi without an approved window
 
-### DIP Switch Settings
-*   **Watchdog:** No switches (Address 0x30 fixed) (if present).
-*   **MegaIND:** Stack Level **2** -> Address **0x52** (base 0x50 + 2).
-*   **DAQ:** All Switches **OFF** (Stack Level 0 -> Address 0x31).
+### Fresh-session prompt
+Use this when opening a new work area with any agent:
 
-## Quick start (Raspberry Pi)
+> Read `README.md`, then `TODO.md`, `STATUS.md`, `DECISIONS.md`, `RUNBOOK.md`, `DEPLOY.md`, and `HANDOFF.md`. Report the current branch, current focus, blockers, deploy status, and next recommended step before changing code.
 
+### Recommended work loop
+1. Check the current branch and git status
+2. Pull the intended branch with a fast-forward-only update
+3. Read the coordination docs above
+4. Read the specific detailed docs you need under `docs/`
+5. Do the work in repo files
+6. Update repo docs as state changes
+7. Deploy/apply and validate separately
+8. Commit and push when allowed
+
+---
+
+## Shared Project Files
+
+| File | Purpose |
+|------|---------|
+| `README.md` | single startup hub and repo orientation |
+| `TODO.md` | current tasks, next actions, follow-up work |
+| `STATUS.md` | current repo/deploy state, blockers, next steps |
+| `DECISIONS.md` | durable architectural and workflow decisions |
+| `RUNBOOK.md` | how to work in this repo without drifting from reality |
+| `DEPLOY.md` | coded vs pushed vs staged vs live vs validated |
+| `HANDOFF.md` | concise next-agent handoff |
+| `OPENCLAW.md` | OpenClaw operating standard and future-project setup template |
+
+These files should stay current so humans, Cursor, and OpenClaw can all pull the same project state from git.
+
+---
+
+## Project Structure
+
+```text
+repo-root/
+├── README.md
+├── OPENCLAW.md
+├── TODO.md
+├── STATUS.md
+├── DECISIONS.md
+├── RUNBOOK.md
+├── DEPLOY.md
+├── HANDOFF.md
+├── docs/                    # detailed product, rollout, hardware, and troubleshooting docs
+├── src/                     # application code
+├── tests/                   # regression coverage
+├── scripts/                 # helper scripts
+├── deploy_to_pi/            # file-copy deployment helpers
+├── systemd/                 # service unit example
+└── .vendor/                 # vendored hardware libraries
+```
+
+### Common work areas
+- `src/` — Flask app, acquisition loop, hardware, repo layer, output logic
+- `tests/` — targeted regression tests for runtime behavior
+- `docs/` — detailed runbooks, implementation notes, rollout history, hardware references
+- `deploy_to_pi/` — deployment helper copies/scripts for Pi rollout
+
+---
+
+## Detailed Documentation Reference
+
+Start with:
+- `docs/OVERVIEW.md` — guide to the documentation set
+- `docs/CURRENT_IMPLEMENTATION.md` — detailed implementation/reference snapshot
+- `docs/CURRENT_UI_REFERENCE.md` — UI/API surface reference
+- `docs/DEPLOYMENT_LOG.md` — rollout history and staged/live notes
+- `docs/TODO_BACKLOG.md` — longer backlog and rollout follow-ups
+
+Use these for deeper topic work:
+- `docs/JOB_COMPLETION_WEBHOOK_RUNBOOK.md`
+- `docs/SET_WEIGHT_PERSISTENCE_RUNBOOK.md`
+- `docs/HDMI_KIOSK_RUNBOOK.md`
+- `docs/PLC_OUTPUT_VERIFICATION.md`
+- `docs/CalibrationProcedure.md`
+- `docs/CALIBRATION_CURRENT_STATE.md`
+- `docs/WiringAndCommissioning.md`
+- `docs/MaintenanceAndTroubleshooting.md`
+
+---
+
+## Backend / Runtime Reality Rules
+
+### Keep these states separate
+- **In git locally**
+- **Pushed to remote**
+- **Staged on the Pi**
+- **Running live on the Pi**
+- **Validated live**
+
+They are not the same.
+
+### Source of truth order
+1. Live system behavior on the Pi
+2. Deployment state recorded in `DEPLOY.md` and `docs/DEPLOYMENT_LOG.md`
+3. Implementation in git
+4. Detailed docs in `docs/`
+
+### Runtime change rule
+If acquisition logic, hardware behavior, job-control behavior, or deployment state changes:
+1. Update code/docs
+2. Record whether the change is only local, pushed, staged, or live
+3. Restart/apply only in an approved production window
+4. Validate on the real line
+5. Update `STATUS.md`, `DEPLOY.md`, and `HANDOFF.md`
+
+---
+
+## Development Quick Start
+
+### Inspect repo state
+```bash
+git status --short --branch
+git branch --show-current
+git pull --ff-only origin main
+```
+
+### Run local tests
+```bash
+python -m pytest tests/test_rezero_warning.py tests/test_job_completion_webhook.py tests/test_snapshot_job_control.py
+```
+
+### Run app locally
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -50,279 +173,7 @@ pip install -r requirements.txt
 python -m src.app
 ```
 
-The system will:
-- Attempt to initialize DAQ and MegaIND boards
-- Show **I/O LIVE** in Settings when hardware is connected
-- Show **I/O OFFLINE** and retry every 5 seconds if hardware is unavailable
-- Keep outputs at safe values until hardware comes online
+---
 
-## Quick start (Windows / dev PC)
-
-For development without hardware, you can still run the app - it will show I/O OFFLINE and continuously retry:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python -m src.app
-```
-
-Then open `http://127.0.0.1:8080`. The UI will be functional but show hardware as offline.
-
-## SSH Access to Pi
-
-**Pi IP:** `172.16.190.25`  
-**Username:** `pi`  
-**Password:** `depor`
-
-### Using plink (Windows):
-```powershell
-plink -pw depor pi@172.16.190.25
-```
-
-### Using standard SSH:
-```bash
-ssh pi@172.16.190.25
-# Enter password: depor
-```
-
-### Deploy files using pscp (Windows):
-```powershell
-# Copy a single file
-pscp -pw depor local_file.py pi@172.16.190.25:/opt/loadcell-transmitter/path/to/file.py
-
-# Restart service after deploying
-plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
-```
-
-**Note:** The application runs from `/opt/loadcell-transmitter/` on the Pi (not `/home/pi/hoppers/`).
-
-## HDMI Operator Interface (Kiosk Mode)
-
-The system includes a dedicated, touch-optimized operator interface for HDMI-connected displays (e.g., Elecrow 5" 800x480).
-
-- **HDMI Page**: Accessible at `/hdmi`. The layout is tuned for 800x480 with a left-side live-weight card including Job Target data, and a right-side panel for Zero/Tare metadata (`Zero Offset`, `Zero Tracking`, `Zero Updated`) and Processed Weight totals.
-- **Shift Total Control**: Includes `CLEAR SHIFT` button wired to `/api/production/shift/clear` to reset shift start time and begin a new shift total window.
-- **Auto-Launch**: The Pi can be configured to auto-launch this interface in full-screen (kiosk) mode at boot.
-- **Remote Control**: The main Dashboard includes buttons to `LAUNCH HDMI ON PI` and an emergency `FORCE RELAUNCH HDMI` to recover from stuck browser processes.
-- **Desktop Launcher**: A "Scale HDMI" shortcut is created on the Pi desktop for manual one-click launch.
-
-**Detailed docs:** `docs/HDMI_KIOSK_RUNBOOK.md`
-
-## Zero vs Tare (Drift Compensation)
-
-Understanding the difference between ZERO and TARE is critical for accurate weighing:
-
-| Button | What it does | When to use | Fixes drift? |
-|--------|--------------|-------------|--------------|
-| **ZERO** | Adjusts signal offset to compensate for drift | Scale shows weight when empty | ✅ Yes |
-| **TARE** | Subtracts weight offset after calibration | Container on scale | ❌ No |
-
-### How ZERO Works
-1. Reads current signal (e.g., 5.85 mV)
-2. Looks up calibration zero point (e.g., 5.61 mV = 0 lbs)
-3. Calculates drift: `5.85 - 5.61 = 0.24 mV`
-4. Stores offset, subtracts it from all future readings
-5. Result: `5.85 - 0.24 = 5.61 mV → 0 lbs` ✓
-
-### Zero Tracking (Automatic Drift Compensation)
-Enable **Zero Tracking** in Settings to automatically compensate for drift:
-- Monitors weight when near zero (±0.5 lbs)
-- Slowly adjusts zero offset (0.1 lb/s rate)
-- No manual intervention needed!
-
-**Detailed docs:** `docs/ZERO_VS_TARE_FIX.md`, `docs/DRIFT_COMPENSATION_DIAGRAM.md`
-
-## Runtime notes
-- The Flask web server runs alongside a background acquisition loop thread.
-- All configuration/calibration is stored in **SQLite** (default: `var/data/app.sqlite3`).
-- **I/O Status**:
-  - **I/O LIVE**: Both DAQ and MegaIND boards are connected and operational.
-  - **I/O OFFLINE**: Hardware unavailable - system retries every 5 seconds, outputs held at safe values.
-  - Check **Settings → System** tab for detailed board status and last communication timestamps.
-- **Dashboard Polling**: The dashboard polls `/api/snapshot` every 500ms for live updates (no page refresh needed).
-- **Kalman Filter**: Zero-lag filtering for instant response to weight changes. Configurable via Settings > Signal Tuning.
-- **Stability Detection**: STABLE/UNSTABLE indicator - only affects Zero/Tare buttons, NOT weight reading or PLC output.
-- **Output Stability**: 14-bit DAC provides 0.00061V resolution (0.015 lb at 100 lb/volt). Deadband filtering prevents output jitter to PLC.
-
-## Directory layout
-- `src/app/`: Flask UI (server-rendered templates + API endpoints)
-- `src/core/`: filtering, stability detection, zeroing helpers, and zero-tracking logic
-- `src/hw/`: hardware interfaces + simulated hardware + Sequent stubs
-- `src/db/`: SQLite schema/migrations/repositories
-- `src/services/`: acquisition loop, output writer, shared state
-- `docs/`: engineering documents
-- `scripts/`: run/export helpers
-- `systemd/`: service unit example
-
-## Commissioning & calibration
-
-### Quick Start (Fresh Pi → Production)
-**For complete hardware test and deployment:**
-- **`docs/TODAY_SUMMARY.md`** — Executive summary and checklist
-- **`docs/HardwareTestReadiness_TODAY.md`** — Complete step-by-step runbook (~2.5-3.5 hours)
-- **`docs/QUICK_START_HARDWARE_TEST.md`** — One-page quick reference
-
-**Automated test scripts** (in `scripts/`):
-- `test_hardware_basic.sh` — I2C scan + board detection
-- `test_24b8vin_channels.sh` — Read all DAQ channels
-- `test_megaind_output.sh` — Voltage sweep test
-- `verify_calibration.py` — Interactive calibration verification
-- `analog_output_test_log.py` — Output test with pass/fail report
-
-### Detailed Procedures
-- `docs/WiringAndCommissioning.md` — Hardware wiring and I2C setup
-- `docs/CalibrationProcedure.md` — Operator calibration procedure (current runtime behavior)
-- `docs/CALIBRATION_CURRENT_STATE.md` — Code-backed calibration behavior and hardening direction
-- `docs/TestPlan.md` — Comprehensive test plan
-
-## Calibration Hub & Hand-in-Hand Mapping
-The system features a unified **Calibration Hub** for both weight and PLC output:
-- **Weight Calibration (current runtime)**: Single-point or two-point linear conversion from signal mV to lb.
-- **Hand-in-Hand PLC Mapping**: Interactive "Live Match" nudge slider to link weight directly to V/mA.
-- **Visual Monitor**: Real-time scale capacity bar (0-100%).
-- **Multi-Load Cell Support**: Automatic signal summing from multiple load cells (typically 2-4 per hopper).
-
-### Load Cell Channel Configuration
-Configure which DAQ channels have load cells in **Settings → DAQ Channels**:
-- Enable only channels with actual load cells connected
-- Unused channels may show "ghost signals" due to floating inputs - this is normal for high-impedance ADCs
-- Disable unused channels to prevent ghost signals from affecting weight readings
-- System automatically sums signals from all enabled load cell channels
-
-## Settings & Maintenance
-The **Settings** page provides centralized control for:
-- Hardware port mapping (AO1-4, Mode selection).
-- Conflict detection (Red warnings for pin double-booking).
-- Advanced tools (Ramping/Smoothing, Safe Fallback Values).
-- Internal board calibration (2-point precision CLI tool).
-
-## I2C requirement (commissioning + runtime)
-### Commissioning check (first boot)
-Run on the Raspberry Pi:
-
-```bash
-i2cdetect -y 1
-```
-
-Confirm **three Sequent boards** (MegaIND, 24b8vin, Watchdog) appear on the I2C bus.
-
-**New:** The application now performs automatic **Board Discovery**:
-- Visit **Scale Settings** > **I2C Hardware Discovery** to see detected boards and addresses.
-- The **Dashboard** "System Status" card shows "Boards Online: X/Y".
-
-### Hardware Config
-- **Stack IDs**: Record the selected jumper/DIP settings for MegaIND and 24b8vin.
-- **Power**: Ensure 24V feeds both the MegaIND and Super Watchdog, but **only the Watchdog** powers the Pi (5V).
-- **CLI Tools**:
-  - `24b8vin` (DAQ)
-  - `megaind` (Industrial IO)
-  - `wdt` (Watchdog)
-
-### Software behavior requirement
-When running on real hardware, the software must perform an **I2C presence check at startup** and surface a clear **FAULT** in the UI if a board is missing or an address conflict is detected.
-
-## Application Modes
-
-### Static Weighing (default)
-For stable hoppers where weight doesn't change rapidly.
-- Kalman Process Noise (Q): 1.0
-- Kalman Measurement Noise (R): 50
-- Stability Window: 25 samples
-
-### Dynamic Filling (conveyor dropping parts into hopper)
-For hoppers where weight changes continuously.
-- Kalman Process Noise (Q): 10.0
-- Kalman Measurement Noise (R): 25
-- Stability Window: 25 samples
-
-**Important:** During dynamic filling, the scale will show UNSTABLE - this is NORMAL and does NOT affect:
-- Weight reading (always updates at ~17Hz)
-- PLC output (always sent)
-
-UNSTABLE only blocks Zero/Tare operations.
-
-### Job Target Signal Mode (v3.4)
-Webhook-driven output mode where the scale tells the PLC when to stop filling instead of the PLC deciding based on proportional voltage.
-
-**How it works:**
-1. External system sends a job update to `POST /api/job/webhook` with payload:
-   `{"event":"job.load_size_updated","jobId":"...","machineKey":"...","loadSize":100.0,"idempotencyKey":"...","timestamp":"..."}`
-2. Scale stores `loadSize` as the active set weight (`set_weight`) and uses `idempotencyKey` for dedupe.
-3. Scale outputs 0V while weight is below target (PLC keeps filling).
-4. When weight reaches target (minus optional pretrigger offset), scale outputs a fixed trigger voltage.
-5. PLC sees the trigger voltage and stops the upfeed.
-6. After dump, weight drops, output returns to 0V, ready for next cycle.
-
-**Setup:**
-1. Toggle to "JOB TARGET MODE" on the Dashboard
-2. Go to Settings > Job Target Mode tab
-3. Pick your trigger signal from the PLC profile dropdown (shows voltage + what PLC reads)
-4. Set a webhook token for API security
-5. Optional: set trigger timing to "Early" with a pretrigger offset for falling-weight compensation
-
-**Webhook auth headers (token must match configured webhook token):**
-- `X-API-Key: <token>` (recommended)
-- `Authorization: Bearer <token>`
-- `Authorization: Basic <base64creds>`
-- `X-Scale-Token: <token>` (legacy compatibility)
-
-**Key details:**
-- All measurement settings (calibration, filtering, zero/tare, stability) remain unchanged
-- Target weight persists until a new webhook changes it or `/api/job/clear` is called
-- Target is persisted and restored across server/Pi restarts (until replaced or cleared)
-- Toggle between modes at any time from the Dashboard
-- If mode is `legacy_weight_mapping`, `/api/job/webhook` returns `409` by design (safety gate)
-
-## PLC Output Verification
-
-For verifying PLC analog output, see **`docs/PLC_OUTPUT_VERIFICATION.md`** which covers:
-- Quick UI test mode procedure
-- Full weight-to-output system test
-- Automated test scripts
-- Manual CLI commands for low-level testing
-- PLC profile correction workflow
-
-### PLC Signal Quality & Stability
-The MegaIND board provides industrial-grade analog output suitable for Allen-Bradley and other PLCs:
-
-**Hardware Specifications:**
-- **14-bit DAC**: 0.00061V resolution per step (0-10V range)
-- **Precision**: ±0.015 lb at 100 lb/volt scaling
-- **Update rate**: ~20 Hz (synchronized with weight acquisition loop)
-
-**Signal Conditioning:**
-- **Deadband filter**: Prevents output changes smaller than configured threshold (default 0.5 lb)
-- **Kalman filtering**: Zero-lag smoothing eliminates noise without delay
-- **Ramp limiting** (optional): Slew rate control for gradual output changes
-
-**Bench Testing Before Field Deployment:**
-Before connecting to your PLC, verify signal stability:
-1. Configure proper load cell channels in Settings → DAQ Channels
-2. Enable output in Settings → Output Control (ARM OUTPUTS)
-3. Monitor voltage with multimeter on MegaIND analog output terminals
-4. Expected stability: <0.001V variation under stable load
-5. Weight changes >0.5 lb will update output immediately
-
-**PLC Output Configuration:**
-PLC output mapping is configured via **Calibration Hub** by training weight/voltage pairs. The system calculates volts-per-pound from your saved profile points. This allows precise matching to your PLC's expected scaling, regardless of the range.
-
-When no profile points are trained, the system uses an internal linear fallback (0-250 lb = 0-10V) as a safe default.
-
-
-
-## 🤖 AI Agent Workflow
-This project is equipped with a **Multi-Agent Swarm** powered by Cursor.
-
-### How to Start
-To activate the swarm, simply tell the AI:
-> "Read `.cursor/AGENTS.md` and start the Orchestrator workflow."
-
-### The Team
--   **Agent-1 (Opus):** Senior Architect (Planning & Hard Problems).
--   **Agent-2 (Sonnet):** Lead Developer (Coding & Execution).
--   **Agent-3 (Sonnet):** Developer (Parallel Work).
--   **Agent-4 (Gemini):** Context Specialist (Large Refactors).
-
-### The Knowledge Base
-Skills are stored in `.cursor/skills-store/`. The Orchestrator will automatically "equip" agents with the right skills (React, Node, Supabase, etc.) for the job.
+**Last Updated:** 2026-03-16  
+**Workflow Version:** Git-first repo handoff model

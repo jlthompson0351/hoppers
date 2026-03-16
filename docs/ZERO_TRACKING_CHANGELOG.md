@@ -409,7 +409,7 @@ new_offset = old_offset + correction_signal
 - ✅ `docs/Architecture.md` (added core modules + signal flow)
 - ✅ `docs/ZERO_TRACKING_OPERATOR_GUIDE.md` (new, complete operator reference)
 - ✅ `docs/MaintenanceAndTroubleshooting.md` (added zero tracking troubleshooting)
-- ✅ `docs/README_DOCS.md` (added new guide to index)
+- ✅ `docs/OVERVIEW.md` (added new guide to index)
 
 ### Deployment
 - ✅ `deploy_to_pi/deploy.ps1` (added core files, changed default IP to .25)

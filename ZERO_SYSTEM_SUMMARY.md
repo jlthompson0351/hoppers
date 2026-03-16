@@ -157,7 +157,7 @@ scale:
 - ✅ `docs/CURRENT_IMPLEMENTATION.md` - Config table + architecture
 - ✅ `docs/Architecture.md` - Signal flow + core modules
 - ✅ `docs/MaintenanceAndTroubleshooting.md` - Added section 3.6
-- ✅ `docs/README_DOCS.md` - Added guide to index
+- ✅ `docs/OVERVIEW.md` - Added guide to index
 
 ---
 
