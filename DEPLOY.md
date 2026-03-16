@@ -32,7 +32,7 @@ A copied file is not live until the service is restarted. A restarted service is
 | Configurable floor threshold / legacy floor signal | Yes | Yes | Yes | No | No | Staged on Pi Mar 6; restart pending |
 | Basket-dump counted events | Yes | Yes | Yes | No | No | Staged on Pi Mar 6; restart pending |
 | Between-jobs re-zero warning + webhook diagnostics | Yes | Yes | Yes | No | No | Staged on Pi Mar 16; restart pending |
-| Root repo handoff standardization docs | Yes | No | N/A | N/A | N/A | Local repo-doc changes from current session; commit/push if desired |
+| Repo cleanup + image-prep readiness docs | Yes | No | N/A | N/A | N/A | Current cleanup pass; push later only with explicit approval |
 
 ---
 
@@ -49,6 +49,11 @@ The following have been copied to the production runtime path but are still inac
 - configurable floor threshold + legacy floor signal behavior
 - basket-dump counted-event support
 - between-jobs re-zero warning + completed-job diagnostic additions
+
+### Current cleanup rule
+- Documentation cleanup must not erase or flatten the staged hopper rollout history.
+- If repo docs are updated before the next approved restart, they should continue to show those hopper changes as **staged, not live**.
+- GitHub push for the cleanup/docs work is intentionally deferred until explicitly approved.
 
 ---
 

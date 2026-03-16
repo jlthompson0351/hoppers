@@ -11,7 +11,7 @@ globs: ["deploy_*.ps1", "scripts/*.sh", "scripts/*.ps1"]
 |----------|-------|
 | **Pi IP** | 172.16.190.25 |
 | **Username** | pi |
-| **Password** | depor |
+| **Password** | Provided separately |
 | **Install Path** | `/opt/loadcell-transmitter/` |
 | **Data Path** | `/var/lib/loadcell-transmitter/` |
 | **Service** | `loadcell-transmitter.service` |
@@ -29,22 +29,25 @@ Before deploying ANY code to Pi:
 
 ## Deployment Commands
 
+### Agent-first rule
+If an AI agent is performing the deployment, use Desktop Commander to launch `plink` / `pscp` style commands instead of raw shell SSH commands.
+
 ### Windows (pscp/plink)
 ```powershell
 # Copy single file
-pscp -pw depor local_file.py pi@172.16.190.25:/opt/loadcell-transmitter/path/to/file.py
+pscp -pw <password> local_file.py pi@172.16.190.25:/opt/loadcell-transmitter/path/to/file.py
 
 # Copy directory
-pscp -r -pw depor src pi@172.16.190.25:/opt/loadcell-transmitter/
+pscp -r -pw <password> src pi@172.16.190.25:/opt/loadcell-transmitter/
 
 # Restart service
-plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
+plink -pw <password> pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
 
 # Check status
-plink -pw depor pi@172.16.190.25 "sudo systemctl status loadcell-transmitter --no-pager"
+plink -pw <password> pi@172.16.190.25 "sudo systemctl status loadcell-transmitter --no-pager"
 
 # View logs
-plink -pw depor pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 50"
+plink -pw <password> pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 50"
 ```
 
 ## Post-Deployment Verification
@@ -63,13 +66,13 @@ After EVERY deployment:
 If deployment fails:
 ```powershell
 # Restore previous version from git
-plink -pw depor pi@172.16.190.25 "cd /opt/loadcell-transmitter && git checkout [previous-commit]"
+plink -pw <password> pi@172.16.190.25 "cd /opt/loadcell-transmitter && git checkout [previous-commit]"
 
 # Or restore from backup
-plink -pw depor pi@172.16.190.25 "cp /var/lib/loadcell-transmitter/app.sqlite3.backup /var/lib/loadcell-transmitter/app.sqlite3"
+plink -pw <password> pi@172.16.190.25 "cp /var/lib/loadcell-transmitter/app.sqlite3.backup /var/lib/loadcell-transmitter/app.sqlite3"
 
 # Restart
-plink -pw depor pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
+plink -pw <password> pi@172.16.190.25 "sudo systemctl restart loadcell-transmitter"
 ```
 
 ## Safety Rules

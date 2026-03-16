@@ -1,6 +1,11 @@
 QUICK DEPLOYMENT GUIDE - Copy to Pi
 ===================================
 
+NOTE:
+- This is a legacy human/manual copy guide.
+- For Cursor/OpenClaw agent work, prefer Desktop Commander-launched remote commands instead of raw shell SSH/SCP.
+- Copying files only stages them on the Pi; the update is not live until the service is restarted in an approved window and validated.
+
 This folder contains deploy scripts.
 Copy the **live source files** from `src/` (not the legacy duplicates in this folder).
 

@@ -2,6 +2,12 @@
 
 Mission objective: recover from a dead SD card with a repeatable process that captures everything, restores everything, and proves recovery time.
 
+If your goal is to build **another** scale from the current one, also read:
+
+- `docs/SCALE_IMAGE_PREPARATION_RUNBOOK.md`
+
+This disaster-recovery runbook focuses on structured baseline pull + restore. It is related to clone prep, but it is not the full clone-preparation workflow by itself.
+
 ## Scope
 
 This runbook uses two PowerShell scripts in `scripts/`:

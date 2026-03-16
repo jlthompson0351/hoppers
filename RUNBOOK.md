@@ -14,9 +14,9 @@ Use this file to work in this repo without drifting away from git reality or liv
    git branch --show-current
    ```
 2. Pull the intended branch with a fast-forward-only update.
-   - In this repo, that is usually:
+   - Use the branch you are actually working on:
      ```bash
-     git pull --ff-only origin main
+     git pull --ff-only origin <current-branch>
      ```
 3. Read the root coordination docs in this order:
    - `README.md`
@@ -53,6 +53,8 @@ If the task changes repo state, blockers, rollout state, or next steps, update:
 - `DEPLOY.md`
 - `HANDOFF.md`
 - `DECISIONS.md` if a durable choice changed
+
+When cleaning docs, preserve the existing staged rollout history instead of flattening it into "live" or "done".
 
 ---
 

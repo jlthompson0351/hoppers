@@ -1,6 +1,6 @@
 # Fleet Inventory
 
-**Last Updated**: 2026-02-18
+**Last Updated**: 2026-03-16
 
 This document tracks all deployed Pi systems running the Load Cell Scale Transmitter software.
 
@@ -8,7 +8,7 @@ This document tracks all deployed Pi systems running the Load Cell Scale Transmi
 
 | Site Name | Pi IP | Hostname | Version | Hopper Type | Capacity | Installed | Last Update | Status |
 |-----------|-------|----------|---------|-------------|----------|-----------|-------------|--------|
-| Site A - Line 1 | 172.16.190.25 | Hoppers | v3.3.2 | 4-leg | 300 lb | 2025-01-15 | 2026-02-24 | ✅ Operational |
+| Site A - Line 1 | 172.16.190.25 | Hoppers | Feb 27 live baseline + Mar 5/6/16 staged runtime updates pending restart | 4-leg | 300 lb | 2025-01-15 | 2026-03-16 | ✅ Operational |
 
 ## Planned Sites
 
@@ -43,7 +43,7 @@ This document tracks all deployed Pi systems running the Load Cell Scale Transmi
 **Network:**
 - Network: Magni-Guest
 - SSH: Enabled, port 22
-- Credentials: pi / depor
+- Credentials: stored separately; do not hardcode in new docs or agent instructions
 
 **I2C Configuration:**
 - 24b8vin DAQ: 0x31 (Stack 0)
@@ -73,16 +73,17 @@ This document tracks all deployed Pi systems running the Load Cell Scale Transmi
 | 2026-02-15 | **Canonical mV Zeroing Patch** | **v3.1 deployed**. Fixed catastrophic bug: zero_offset_mv now stores mV (not lbs). Manual ZERO works instantly. Zero tracking converges reliably. System stable. User confirms: "Working like a champ." |
 | 2026-02-20 | Hardware Upgrade | Added 4th load cell, full recalibration (9-point), new PLC profile (17-point), zero floor (3lb) |
 | 2026-02-24 | System Snapshot | **v3.3.2**. Verified live settings: Zero Offset 32.68 lb, PLC 0-10V linear 10-400lb. System healthy. |
+| 2026-02-27 | Job-target webhook live rollout | Public webhook path + HDMI target UI became the known live baseline. |
+| 2026-03-05 to 2026-03-16 | Staged runtime updates | Completed-job webhook, floor threshold, basket dump, and re-zero warning are staged on Pi and still require approved restart/validation. |
 
 **Backup Status:**
-| Backup | Date | Includes Rotation Config | Location |
-|--------|------|--------------------------|----------|
-| Full image | 2026-02-12 | No | `backups/scale-project-backup-20260212.img` |
-| Baseline pull | Pre-rotation | No | `backups/pi-baseline-pull/` |
+| Backup | Date | Includes Rotation Config | Location | Status |
+|--------|------|--------------------------|----------|--------|
+| Full image | 2026-02-12 | No | `backups/scale-project-backup-20260212.img` | Historical only; stale for cloning current production state |
+| Baseline bundle | 2026-02-15 | Yes | `backups/pi-baseline-172.16.190.25-20260215-140649/` | Latest documented structured baseline pull |
+| Fresh full image | Pending | TBD | TBD | Still needs to be captured after repo/runtime truth is confirmed |
 
-> **Action needed:** Re-pull baseline image after production burn-in (~Feb 16-17) to capture display rotation and touchscreen calibration changes. If restoring from the 02-12 image, re-apply these two files manually:
-> 1. Append `video=HDMI-A-1:800x480@60,rotate=180` to `/boot/firmware/cmdline.txt`
-> 2. Create `/etc/udev/rules.d/98-touchscreen-rotate.rules` with: `ATTRS{idVendor}=="0484", ATTRS{idProduct}=="5750", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"`
+> **Current backup note:** the Feb 15 baseline bundle is the best documented recovery snapshot in the repo today, but it is not the same thing as a fresh cloneable full image. A new full image backup is still needed before building another scale from this system.
 
 ---
 
@@ -121,9 +122,10 @@ ping 172.16.190.25
 # Add more IPs as fleet grows
 ```
 
-### SSH to Site
+### SSH / agent access to Site
 ```powershell
-plink -pw depor pi@172.16.190.25
+# For humans, use your approved SSH method and credentials provided separately.
+# For Cursor/OpenClaw agent work, prefer Desktop Commander + plink workflows.
 ```
 
 ### View Dashboard

@@ -33,6 +33,12 @@
 - Job-target webhook cutover and HDMI target UI are already part of the known live baseline.
 - Later changes from Mar 6 and Mar 16 are staged on disk and require a restart before they count as live.
 - Repo docs must record that difference clearly so nobody overclaims rollout status.
+- Documentation cleanup must preserve that staged history instead of rewriting it as if it were already live.
+
+### Disaster recovery and clone-image prep are related but not identical
+- A baseline pull is the preferred app/data/config capture for recovery confidence and state scraping.
+- A full image backup is the preferred artifact for building another scale from the same working system.
+- Future runbooks should document both layers and the identity cleanup required after cloning to new hardware.
 
 ## Product / Runtime
 

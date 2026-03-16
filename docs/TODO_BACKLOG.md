@@ -154,5 +154,7 @@
   - Added regression coverage for transient full spikes, post-dump fill-resume telemetry, and target-set-weight persistence.
 
 - [ ] Create a new complete OS image backup with latest add-ons.
-  - Run a full post-change image backup (current production stack + job-target persistence updates).
+  - First confirm the repo/docs truth and later validate whether the Mar 5/6/16 staged runtime updates have been activated on the Pi.
+  - Run a full post-change image backup from the actual desired production state.
+  - Pair it with a fresh structured baseline pull so app/data/config recovery artifacts exist alongside the full image.
   - Label backup with date/version and store checksum + location for restore verification.

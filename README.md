@@ -52,8 +52,9 @@ Use this when opening a new work area with any agent:
 4. Read the specific detailed docs you need under `docs/`
 5. Do the work in repo files
 6. Update repo docs as state changes
-7. Deploy/apply and validate separately
-8. Commit and push when allowed
+7. Preserve staged-vs-live rollout truth; do not let cleanup work erase staged hopper updates
+8. Deploy/apply and validate separately
+9. Commit and push when allowed
 
 ---
 
@@ -115,6 +116,7 @@ Start with:
 Use these for deeper topic work:
 - `docs/JOB_COMPLETION_WEBHOOK_RUNBOOK.md`
 - `docs/SET_WEIGHT_PERSISTENCE_RUNBOOK.md`
+- `docs/SCALE_IMAGE_PREPARATION_RUNBOOK.md`
 - `docs/HDMI_KIOSK_RUNBOOK.md`
 - `docs/PLC_OUTPUT_VERIFICATION.md`
 - `docs/CalibrationProcedure.md`
@@ -157,7 +159,7 @@ If acquisition logic, hardware behavior, job-control behavior, or deployment sta
 ```bash
 git status --short --branch
 git branch --show-current
-git pull --ff-only origin main
+git pull --ff-only origin <current-branch>
 ```
 
 ### Run local tests

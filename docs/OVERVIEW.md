@@ -8,11 +8,11 @@ Open in any browser to view live load cell readings.
 
 ---
 
-## ✅ System Status (March 6, 2026)
+## ✅ System Status (March 16, 2026)
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Version** | ✅ main (staged) | Basket dump opto + floor threshold + schema v7 staged |
+| **Version** | ✅ tracked repo state | Feb 27 baseline is live; Mar 5/6/16 runtime updates are staged pending approved restart |
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 \| Tailscale: hoppers.tail840434.ts.net |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
@@ -21,6 +21,7 @@ Open in any browser to view live load cell readings.
 | **Zero System** | ✅ Stable | Manual ZERO + tracking flow; floor configurable via `zero_target_lb` |
 | **Completed Job Webhook** | 🟡 Staged | Lifecycle/outbox + `basket_dump_count`; restart required to activate |
 | **Basket Dump Opto** | 🟡 Staged | Settings → Buttons; `counted_events` table (schema v7) |
+| **Between-Jobs Re-Zero Warning** | 🟡 Staged | Operator warning + webhook diagnostics; restart required to activate |
 
 **Pi:** `Hoppers` at `172.16.190.25` / `hoppers.tail840434.ts.net` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
 **Note:** Production Pi is active; restart deferred until approved window.
@@ -84,6 +85,7 @@ Open in any browser to view live load cell readings.
 - **`DEPLOYMENT_LOG.md`** — Deployment history and change log
 - **`SET_WEIGHT_PERSISTENCE_RUNBOOK.md`** — Durable set-weight persistence + migration checks
 - **`JOB_COMPLETION_WEBHOOK_RUNBOOK.md`** — Completed-job webhook contract, examples, and retry outbox behavior
+- **`SCALE_IMAGE_PREPARATION_RUNBOOK.md`** — How to scrape current Pi state, capture a fresh baseline, and create a cloneable image safely
 
 ### Risk & Planning
 - **`RiskRegister.md`** — Project risk register
@@ -117,6 +119,10 @@ Open in any browser to view live load cell readings.
 ### For Troubleshooting
 → `MaintenanceAndTroubleshooting.md`  
 → `HardwareTestReadiness_TODAY.md` (Troubleshooting section)
+
+### For Backup / Clone Preparation
+→ `SD_CARD_DISASTER_RECOVERY_RUNBOOK.md`
+→ `SCALE_IMAGE_PREPARATION_RUNBOOK.md`
 
 ### For HDMI / Kiosk Operation
 → `HDMI_KIOSK_RUNBOOK.md` — Setup, boot behavior, emergency relaunch, and current 800x480 layout details (centered weight card + zero diagnostics + daily/shift placeholder)
@@ -185,6 +191,7 @@ docs/
     ├── HDMI_KIOSK_RUNBOOK.md         ← Setup and operation of HDMI UI
     ├── SET_WEIGHT_PERSISTENCE_RUNBOOK.md
     ├── JOB_COMPLETION_WEBHOOK_RUNBOOK.md
+    ├── SCALE_IMAGE_PREPARATION_RUNBOOK.md
     └── TODO_BACKLOG.md
 ```
 
@@ -210,9 +217,9 @@ docs/
 
 ---
 
-**Last Updated**: March 6, 2026  
-**Current Version**: main branch with basket dump opto + floor threshold staging  
-**Status**: Production in use; basket dump + floor threshold staged for next maintenance restart  
+**Last Updated**: March 16, 2026  
+**Current Version**: live Feb 27 baseline plus Mar 5/6/16 staged runtime updates  
+**Status**: Production in use; completed-job webhook, basket dump, floor threshold, and re-zero warning remain staged until next approved restart  
 **Deployment**: Pi `172.16.190.25` / `hoppers.tail840434.ts.net` currently active; avoid reboot/reset during production  
 
 **Recent Milestones:**
@@ -225,6 +232,9 @@ docs/
   - Added completed-job lifecycle tracking + durable outbox retry delivery.
   - Added schema v6 migration (`record_time_set_utc`, lifecycle/outbox tables).
   - Added manual override attribution to active job windows.
+- **Between-Jobs Re-Zero Warning (Mar 16, 2026):**
+  - Added operator warning banner + completed-job re-zero diagnostics.
+  - Staged on Pi; still requires approved restart to become live.
 - **v3.1** (Feb 15, 2026): Critical zeroing architecture fix - zero_offset_mv now canonical, manual ZERO works instantly
 - **Hardware Verified** (Feb 15, 2026): Both boards (24b8vin @ 0x31, MegaIND @ 0x52) online and working
 - **Auto-Armed Outputs** (Feb 12, 2026): PLC outputs default to ARMED on startup

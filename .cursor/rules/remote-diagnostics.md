@@ -70,36 +70,39 @@ Every Pi should expose `/api/health` with:
 
 ## Remote Diagnostic Commands
 
+### Agent-first rule
+If an AI agent is running these diagnostics, use Desktop Commander to launch the remote command instead of raw shell SSH.
+
 ### Quick Health Check
 ```powershell
 # Check if Pi is reachable and service running
-plink -pw depor pi@172.16.190.25 "systemctl is-active loadcell-transmitter"
+plink -pw <password> pi@172.16.190.25 "systemctl is-active loadcell-transmitter"
 ```
 
 ### View Recent Logs
 ```powershell
 # Last 50 log lines
-plink -pw depor pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 50"
+plink -pw <password> pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 50"
 
 # Only errors
-plink -pw depor pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 100 | grep -i error"
+plink -pw <password> pi@172.16.190.25 "sudo journalctl -u loadcell-transmitter -n 100 | grep -i error"
 ```
 
 ### Check Hardware Status
 ```powershell
 # I2C device scan
-plink -pw depor pi@172.16.190.25 "sudo i2cdetect -y 1"
+plink -pw <password> pi@172.16.190.25 "sudo i2cdetect -y 1"
 ```
 
 ### Check Database Health
 ```powershell
 # SQLite integrity check
-plink -pw depor pi@172.16.190.25 "sqlite3 /var/lib/loadcell-transmitter/app.sqlite3 'PRAGMA integrity_check;'"
+plink -pw <password> pi@172.16.190.25 "sqlite3 /var/lib/loadcell-transmitter/app.sqlite3 'PRAGMA integrity_check;'"
 ```
 
 ### Check Disk Space
 ```powershell
-plink -pw depor pi@172.16.190.25 "df -h /"
+plink -pw <password> pi@172.16.190.25 "df -h /"
 ```
 
 ## Common Remote Troubleshooting Workflows

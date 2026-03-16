@@ -1,0 +1,2 @@
+- 2026-03-16: Root handoff docs can drift away from the actual checked-out branch, so branch claims should be verified from git state instead of copied forward in documentation.
+- 2026-03-16: For this project, the most important documentation distinction is between changes that are staged on the Pi and changes that are actually live after an approved restart and validation.

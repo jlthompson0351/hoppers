@@ -1,6 +1,11 @@
 App Deployment to Pi
 ====================
 
+NOTE:
+- This is a legacy human/manual deployment note.
+- For Cursor/OpenClaw agent work, prefer Desktop Commander-driven `plink` / `pscp` workflows and keep staged-vs-live rollout status explicit.
+- Do not restart the production service outside an approved window.
+
 TARGET:
 - Host: `172.16.190.25` (override with `PI_HOST` env var)
 - App path: `/opt/loadcell-transmitter`

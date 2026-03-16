@@ -1,8 +1,8 @@
 # Raspberry Pi Connection Guide
 **Target System:** Hoppers (Load Cell Scale Transmitter)
 
-**Document Version:** 1.2  
-**Date:** February 13, 2026  
+**Document Version:** 1.3  
+**Date:** March 16, 2026  
 **Purpose:** How to connect to the Raspberry Pi for development and maintenance
 
 ---
@@ -33,7 +33,7 @@ Open this URL in any browser on your network to view live load cell readings.
 | **IP Address** | `172.16.190.25` |
 | **Dashboard URL** | http://172.16.190.25:8080 |
 | **Username** | `pi` |
-| **Password** | *(provided separately)* |
+| **Password** | *(provided separately; do not hardcode into new docs or agent prompts)* |
 | **SSH Port** | 22 (default) |
 | **Network** | `Magni-Guest` |
 | **OS** | Debian GNU/Linux, Kernel 6.12.47+rpt-rpi-v8 (aarch64) |
@@ -41,6 +41,12 @@ Open this URL in any browser on your network to view live load cell readings.
 ---
 
 ## Connection Methods
+
+### Recommended split
+
+- **For humans:** use PuTTY, OpenSSH, WinSCP, or another approved SSH/SCP tool.
+- **For Cursor/OpenClaw agents:** use Desktop Commander to launch `plink` commands instead of raw shell/SSH calls.
+- **For production changes:** remember that copying files is only **staging** until the service is restarted in an approved window.
 
 ### Method 1: Windows — PuTTY/Plink (Recommended for Automation)
 
@@ -99,9 +105,9 @@ ssh pi@172.16.190.25 "hostname && uptime"
 
 ---
 
-### Method 4: Desktop Commander MCP (Cursor IDE)
+### Method 4: Desktop Commander MCP (Preferred for agents in Cursor/OpenClaw)
 
-For use within Cursor IDE with the Desktop Commander MCP extension:
+For agent-driven work in Cursor IDE with the Desktop Commander MCP extension:
 
 ```javascript
 // Start SSH process
@@ -116,7 +122,7 @@ start_process({ command: "plink -ssh pi@172.16.190.25 -pw YOUR_PASSWORD \"megain
 
 ---
 
-### Method 5: SCP — File Transfer
+### Method 5: SCP — File Transfer (human/manual workflow)
 
 #### Copy file TO Pi:
 ```powershell
