@@ -83,6 +83,7 @@ Open in any browser to view live load cell readings.
 - **`HDMI_KIOSK_RUNBOOK.md`** — Setup and operation of the HDMI operator interface
 - **`PLC_OUTPUT_VERIFICATION.md`** — PLC output testing and verification procedures
 - **`DEPLOYMENT_LOG.md`** — Deployment history and change log
+- **`APPROVED_WINDOW_CHECKLIST.md`** — Single restart-window activation and live-validation checklist
 - **`SET_WEIGHT_PERSISTENCE_RUNBOOK.md`** — Durable set-weight persistence + migration checks
 - **`JOB_COMPLETION_WEBHOOK_RUNBOOK.md`** — Completed-job webhook contract, examples, and retry outbox behavior
 - **`SCALE_IMAGE_PREPARATION_RUNBOOK.md`** — How to scrape current Pi state, capture a fresh baseline, and create a cloneable image safely
@@ -119,6 +120,7 @@ Open in any browser to view live load cell readings.
 ### For Troubleshooting
 → `MaintenanceAndTroubleshooting.md`  
 → `HardwareTestReadiness_TODAY.md` (Troubleshooting section)
+→ `APPROVED_WINDOW_CHECKLIST.md` for the next approved service restart
 
 ### For Backup / Clone Preparation
 → `SD_CARD_DISASTER_RECOVERY_RUNBOOK.md`

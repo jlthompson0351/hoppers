@@ -43,6 +43,11 @@ A copied file is not live until the service is restarted. A restarted service is
 - HDMI job-target UI is live
 - Production line is active enough that restart/reboot must be treated carefully
 
+### While the line is in use
+- Safe work is limited to no-restart prep: docs, backend alignment, and approved-window checklist preparation.
+- Do not treat staged runtime files as live behavior until `loadcell-transmitter` is restarted and validated on the real line.
+- Use `docs/APPROVED_WINDOW_CHECKLIST.md` as the single restart-window checklist once maintenance begins.
+
 ### Known staged-but-not-active work
 The following have been copied to the production runtime path but are still inactive until `loadcell-transmitter` is restarted in an approved window:
 - completed-job webhook lifecycle/outbox changes
@@ -58,6 +63,8 @@ The following have been copied to the production runtime path but are still inac
 ---
 
 ## Next approved-window checklist
+
+Primary checklist: `docs/APPROVED_WINDOW_CHECKLIST.md`
 
 1. Restart `loadcell-transmitter`
 2. Confirm service is healthy after restart

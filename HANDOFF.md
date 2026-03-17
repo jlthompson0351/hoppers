@@ -42,7 +42,7 @@
   - final set weight unit
   - average cycle time
   - basket dump count
-  - weight drift warning / severity / drift amount
+  - explicit re-zero warning and post-dump re-zero diagnostics
 - Supabase mirrors the relevant fields into `completed_jobs`, and the frontend will consume them from there.
 - Keep this contract visible in repo docs so future agents do not treat Hopper as an isolated scale app.
 
@@ -56,6 +56,6 @@
 ### Next Recommended Step
 1. Finish the repo cleanup and image-prep runbook consolidation.
 2. Push cleanup changes only when explicitly approved.
-3. During an approved production window, restart `loadcell-transmitter`.
-4. Validate the staged runtime features on the real line.
+3. While the line is in use, limit work to no-restart prep and backend/doc alignment.
+4. During an approved production window, use `docs/APPROVED_WINDOW_CHECKLIST.md`, restart `loadcell-transmitter`, and validate the staged runtime features on the real line.
 5. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.

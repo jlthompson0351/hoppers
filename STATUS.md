@@ -47,6 +47,7 @@ Business direction is increasingly job-centric:
   - basket-dump counted events
   - completed-job webhook diagnostics on real job transitions
 - Current cleanup work is documentation/process work; it should not be treated as live Pi activation.
+- Current no-restart prep now includes a single approved-window checklist at `docs/APPROVED_WINDOW_CHECKLIST.md`.
 
 ## Current Blockers
 - Need an approved restart window because the line may be in active use
@@ -56,8 +57,8 @@ Business direction is increasingly job-centric:
 
 ## Next Steps
 1. Finish the repo cleanup without disturbing the staged hopper rollout history.
-2. During a later approved window, restart `loadcell-transmitter`.
-3. Validate the staged runtime features on the real line.
+2. Keep backend and docs aligned while the line remains in use.
+3. During a later approved window, use `docs/APPROVED_WINDOW_CHECKLIST.md`, restart `loadcell-transmitter`, and validate the staged runtime features on the real line.
 4. After validation, update `DEPLOY.md`, `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`.
 5. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.
 

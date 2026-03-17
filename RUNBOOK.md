@@ -66,6 +66,7 @@ Use these depending on the task:
 - `docs/CURRENT_IMPLEMENTATION.md` — detailed implementation behavior
 - `docs/CURRENT_UI_REFERENCE.md` — UI/API reference
 - `docs/DEPLOYMENT_LOG.md` — historical rollout record
+- `docs/APPROVED_WINDOW_CHECKLIST.md` — approved restart-window activation + validation steps
 - `docs/TODO_BACKLOG.md` — long-form backlog and staged rollout notes
 - `docs/JOB_COMPLETION_WEBHOOK_RUNBOOK.md` — completed-job webhook flow
 - `docs/SET_WEIGHT_PERSISTENCE_RUNBOOK.md` — set-weight persistence / lifecycle storage
@@ -101,11 +102,12 @@ python -m pytest tests/test_target_signal_mode.py tests/test_throughput_guard.py
 - If files are copied while production continues, record them as staged only.
 
 ### After an approved rollout
-1. Restart service once
-2. Verify service health
-3. Verify the changed UI/runtime behavior on the real line
-4. Verify any webhook/outbox behavior with real payloads if relevant
-5. Update `DEPLOY.md`, `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`
+1. Use `docs/APPROVED_WINDOW_CHECKLIST.md`
+2. Restart service once
+3. Verify service health
+4. Verify the changed UI/runtime behavior on the real line
+5. Verify any webhook/outbox behavior with real payloads if relevant
+6. Update `DEPLOY.md`, `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`
 
 ---
 

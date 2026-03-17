@@ -12,6 +12,7 @@
 
 - [ ] Activate staged re-zero warning during an approved restart window.
   - Runtime pieces can be copied to the production Pi while it is in use, but they will remain inactive until `loadcell-transmitter` is manually restarted.
+  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` during the approved window so activation and validation follow one checklist.
   - Runtime files to stage on Pi:
     - `src/services/acquisition.py`
     - `src/app/routes.py`
@@ -40,6 +41,7 @@
 
 - [ ] Activate staged floor-threshold change during an approved restart window.
   - Runtime pieces of the floor-threshold work are now copied to the production Pi, but they are still inactive until `loadcell-transmitter` is manually restarted.
+  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` during the approved window so floor-threshold, basket-dump, webhook, and re-zero validation stay in one flow.
   - GitHub push is still optional and blocked unless explicitly approved.
   - Floor-threshold runtime files staged on Pi:
     - `src/app/routes.py`
@@ -72,6 +74,7 @@
   - Runtime files for completed-job webhook support and basket dump opto counting have been copied to `/opt/loadcell-transmitter` on production Pi.
   - The running `loadcell-transmitter` process has NOT been restarted yet, so it is still using the old in-memory code.
   - The backend only shows prior manual test payloads because automatic completed-job generation will not begin until the updated service is restarted.
+  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` as the single restart-window checklist.
   - If deployment uses GitHub pull on the Pi, required steps are: commit changes, push to GitHub, pull/deploy on Pi, then restart service.
   - If deployment uses direct file copy from the local machine, GitHub push is optional, but Pi file sync and service restart are still required.
   - Runtime files already staged on Pi:
@@ -102,6 +105,7 @@
 
 - [ ] Enable live production counting after manual restart.
   - Restart `loadcell-transmitter` during approved production window.
+  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` for the live counting and completed-job payload verification steps.
   - In Settings > Buttons, map the desired MegaIND opto input to `Basket Dump Count`.
   - Pulse the PLC signal and verify it counts once per rising edge.
   - Close a job transition and verify the completed-job webhook contains `basket_dump_count`.

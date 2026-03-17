@@ -87,6 +87,65 @@ Notes:
 - `post_dump_rezero_last_apply_utc`: UTC timestamp of the latest successful post-dump re-zero apply for the completed job window
 - `completed_at_utc`: webhook creation timestamp in UTC
 
+## Backend Integration Decisions
+
+- Treat this payload as the current canonical contract for `schema_version = 1`.
+- Keep backend parsing backward-tolerant during rollout; old payloads may still exist until the staged Pi runtime is activated by restart.
+- Treat these as required fields and reject/log payloads if any are missing:
+  - `schema_version`
+  - `job_id`
+  - `line_id`
+  - `machine_id`
+  - `job_start_record_time_set_utc`
+  - `job_end_record_time_set_utc`
+  - `completed_at_utc`
+- Treat this tuple as the permanent idempotency key for completed-job rows:
+  - `line_id`
+  - `machine_id`
+  - `job_id`
+  - `job_start_record_time_set_utc`
+  - `job_end_record_time_set_utc`
+- If the same completed-job tuple arrives again, ignore the duplicate but return success.
+- Preserve numeric precision as received.
+- Use `job_end_record_time_set_utc` as the true completion timestamp for analytics.
+- Use `completed_at_utc` as webhook creation / receipt-tracking time.
+- Use `final_set_weight_unit` to interpret whether `final_set_weight_lbs`, `total_processed_lbs`, and `avg_weight_lbs` are operating in `lb` or `ea` mode.
+- Treat the warning fields as explicit source-of-truth fields. If downstream compatibility still needs generic warning columns, derive them from the explicit fields instead of storing only the legacy names.
+
+## Nullable-But-Valid Fields
+
+- `first_erp_timestamp_utc`
+- `last_erp_timestamp_utc`
+- `final_set_weight_lbs`
+- `final_set_weight_unit`
+- `rezero_warning_reason`
+- `rezero_warning_weight_lbs`
+- `rezero_warning_threshold_lbs`
+- `post_dump_rezero_last_apply_utc`
+
+These should be accepted as valid when `null`. In normal production flow, `final_set_weight_lbs` and `final_set_weight_unit` are usually present, but backend storage should still accept the payload without special fallback behavior when they are not.
+
+## Reporting Guidance
+
+Completed-job fields most likely to be consumed directly by backend/UI reporting:
+
+- `basket_dump_count`
+- `override_seen`
+- `override_count`
+- `final_set_weight_lbs`
+- `final_set_weight_unit`
+- `rezero_warning_seen`
+- `rezero_warning_reason`
+- `post_dump_rezero_applied`
+
+Fields that are still worth storing at the raw completed-job level even if they are not immediately surfaced:
+
+- `rezero_warning_weight_lbs`
+- `rezero_warning_threshold_lbs`
+- `post_dump_rezero_last_apply_utc`
+- `first_erp_timestamp_utc`
+- `last_erp_timestamp_utc`
+
 ## Real Examples (Pi Database)
 
 These examples were generated from real data on Pi `172.16.190.25` (`/var/lib/loadcell-transmitter/data/app.sqlite3`).
@@ -104,7 +163,7 @@ These examples were generated from real data on Pi `172.16.190.25` (`/var/lib/lo
   "avg_weight_lbs": 107.21872562721661,
   "avg_cycle_time_ms": 109884,
   "override_seen": false,
-  "override_weight_lbs": null,
+  "override_count": 0,
   "final_set_weight_lbs": 115.0,
   "final_set_weight_unit": "lb",
   "completed_at_utc": "2026-03-05T14:40:40+00:00"
@@ -124,7 +183,7 @@ These examples were generated from real data on Pi `172.16.190.25` (`/var/lib/lo
   "avg_weight_lbs": 0.9323367445844923,
   "avg_cycle_time_ms": 109884,
   "override_seen": false,
-  "override_weight_lbs": null,
+  "override_count": 0,
   "final_set_weight_lbs": 115.0,
   "final_set_weight_unit": "ea",
   "completed_at_utc": "2026-03-05T14:40:40+00:00"
@@ -144,7 +203,7 @@ These examples were generated from real data on Pi `172.16.190.25` (`/var/lib/lo
   "avg_weight_lbs": 0.0,
   "avg_cycle_time_ms": 0,
   "override_seen": false,
-  "override_weight_lbs": null,
+  "override_count": 0,
   "final_set_weight_lbs": 115.0,
   "final_set_weight_unit": "lb",
   "completed_at_utc": "2026-03-05T14:40:40+00:00"
