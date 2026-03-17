@@ -53,6 +53,15 @@
 - Webhook-driven set-weight behavior must be treated as persisted, auditable runtime state.
 - Changes to mode behavior, floor logic, or completed-job reporting should be documented in both rollout docs and repo handoff docs.
 
+### Hopper is the scale/runtime repo in the linked manufacturing system
+- Treat Hopper as the source/runtime layer for machine set-weight behavior, basket counting, and completed-job scale metrics.
+- Supabase is the broader backend/storage layer; Frontend is the user-facing visualization layer.
+- Repo docs should make that cross-project role explicit so future work can be coordinated across all three repos.
+
+### Completed-job webhook metrics are now a cross-project contract
+- Hopper-emitted completed-job metrics such as average basket weight, final set weight, average cycle time, basket dump count, and warning/drift fields feed downstream manufacturing visibility.
+- Those fields should be considered part of a cross-project contract because the frontend kiosk and future job-performance views depend on them indirectly through Supabase.
+
 ### Detailed implementation belongs under `docs/`
 - The root README should stay focused on startup and handoff.
 - Detailed hardware, calibration, UI, and deployment history belong in `docs/`.

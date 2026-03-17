@@ -31,6 +31,20 @@
 - whether completed-job webhook delivery works on a real job transition after restart
 - whether basket-dump counts, floor-threshold behavior, and re-zero warning all behave correctly on the live line
 - whether the latest documented backup/baseline state matches what should be used for the next clone-image capture
+- whether Hopper's current completed-job payload shape fully matches the next frontend machine-kiosk metrics brief
+
+### Cross-Project Frontend Brief
+- The next planned frontend change is on the public per-machine kiosk page.
+- Frontend wants to preserve the pinned active job card and add compact recent-completed-job cards below it.
+- Hopper's role is to remain the upstream source/runtime for machine/job completion metrics such as:
+  - average basket weight
+  - final set weight
+  - final set weight unit
+  - average cycle time
+  - basket dump count
+  - weight drift warning / severity / drift amount
+- Supabase mirrors the relevant fields into `completed_jobs`, and the frontend will consume them from there.
+- Keep this contract visible in repo docs so future agents do not treat Hopper as an isolated scale app.
 
 ### Current Shared Workflow
 - Start with `README.md`, then read the coordination docs it points to

@@ -10,6 +10,19 @@
 1. Clean up repo/docs so the written project state matches reality.
 2. Preserve the staged-but-not-yet-live hopper updates and keep them clearly separated from live runtime state.
 3. Prepare the repo for a later agent-assisted Pi sync/settings scrape and image-preparation pass.
+4. Record Hopper's role in the next cross-project public machine-kiosk enhancement so Cursor/OpenClaw do not have to rediscover the data flow.
+
+## Cross-Project Product Context
+Hopper is the scale/runtime side of a three-project manufacturing system:
+1. Hopper (scale runtime / job-target / completed-job webhook source)
+2. Supabase backend/data layer
+3. Frontend dashboards / kiosks / LUPE
+
+Business direction is increasingly job-centric:
+- ERP/job data defines the production context
+- downtime overlays onto the run in Supabase
+- Hopper contributes basket/set-weight/cycle/output/warning metrics for machine/job performance visibility
+- the frontend machine kiosk is the next manager-facing surface being extended with those metrics
 
 ## Latest Known Product State
 - The repo already contains the between-jobs re-zero warning rollout docs and tests.
