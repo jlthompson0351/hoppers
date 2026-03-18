@@ -1,14 +1,14 @@
 # STATUS
 
 ## Repo
-- Branch in this workspace: `cursor/scale-image-preparation-021d`
+- Branch in this workspace: `main`
 - Product/runtime rollout truth still comes from the tracked docs and deployment history, not from branch name alone.
 - Workspace path is environment-specific; use the current repo root instead of hardcoded absolute paths.
 - Verify sync state before any future push or deploy.
 
 ## Current Focus
 1. Clean up repo/docs so the written project state matches reality.
-2. Preserve the staged-but-not-yet-live hopper updates and keep them clearly separated from live runtime state.
+2. Preserve the distinction between verified live completed-job webhook behavior and the remaining unvalidated hopper runtime behaviors.
 3. Prepare the repo for a later agent-assisted Pi sync/settings scrape and image-preparation pass.
 4. Record Hopper's role in the next cross-project public machine-kiosk enhancement so Cursor/OpenClaw do not have to rediscover the data flow.
 
@@ -40,26 +40,26 @@ Business direction is increasingly job-centric:
 
 ## Deploy Status
 - Product/runtime work for the hopper updates is already documented in git and in the deployment log.
-- Production Pi still needs an approved restart before the Mar 6 and Mar 16 staged runtime changes become active
-- Live validation is still pending for:
-  - between-jobs re-zero warning
-  - configurable floor threshold / legacy floor signal
-  - basket-dump counted events
-  - completed-job webhook diagnostics on real job transitions
+- Live Pi observation on 2026-03-17 confirmed completed-job webhook/outbox runtime is active for `PLP6`.
+- Live completed-job payload for job `1704584` was marked `sent` and included `basket_dump_count` plus the expanded re-zero diagnostic fields.
+- Remaining live validation is still pending for:
+  - a non-zero `basket_dump_count` case with mapped opto pulses
+  - configurable floor threshold / legacy floor signal runtime behavior
+  - a true between-jobs re-zero warning case where the warning latches and then clears
 - Current cleanup work is documentation/process work; it should not be treated as live Pi activation.
 - Current no-restart prep now includes a single approved-window checklist at `docs/APPROVED_WINDOW_CHECKLIST.md`.
 
 ## Current Blockers
-- Need an approved restart window because the line may be in active use
-- Need live validation on the real line after restart
+- Need to document when the production runtime actually became live; current proof comes from Mar 17 observation rather than a logged restart event.
+- Need remaining live validation for basket-dump pulses, floor-threshold behavior, and a true re-zero warning case.
 - GitHub push is intentionally deferred unless explicitly approved
 - Need a clean, consistent image-preparation runbook before the later clone-image workflow
 
 ## Next Steps
-1. Finish the repo cleanup without disturbing the staged hopper rollout history.
-2. Keep backend and docs aligned while the line remains in use.
-3. During a later approved window, use `docs/APPROVED_WINDOW_CHECKLIST.md`, restart `loadcell-transmitter`, and validate the staged runtime features on the real line.
-4. After validation, update `DEPLOY.md`, `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`.
+1. Keep backend and docs aligned while the line remains in use.
+2. During the next approved window, use `docs/APPROVED_WINDOW_CHECKLIST.md` to validate the remaining floor-threshold, basket-dump, and re-zero-warning behavior on the real line.
+3. After that validation, update `DEPLOY.md`, `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`.
+4. Record the eventual production restart/activation timing if it can be recovered from ops history.
 5. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.
 
 ## Working Rule

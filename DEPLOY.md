@@ -28,11 +28,11 @@ A copied file is not live until the service is restarted. A restarted service is
 | Change | In git locally | Pushed | Staged on Pi | Running live | Validated live | Notes |
 |------|---|---|---|---|---|---|
 | Job-target webhook cutover + HDMI target UI | Yes | Yes | Yes | Yes | Yes | Live baseline from Feb 27 rollout |
-| Completed-job webhook lifecycle/outbox | Yes | Yes | Yes | No | No | Requires approved restart to activate staged runtime |
-| Configurable floor threshold / legacy floor signal | Yes | Yes | Yes | No | No | Staged on Pi Mar 6; restart pending |
-| Basket-dump counted events | Yes | Yes | Yes | No | No | Staged on Pi Mar 6; restart pending |
-| Between-jobs re-zero warning + webhook diagnostics | Yes | Yes | Yes | No | No | Staged on Pi Mar 16; restart pending |
-| Repo cleanup + image-prep readiness docs | Yes | No | N/A | N/A | N/A | Current cleanup pass; push later only with explicit approval |
+| Completed-job webhook lifecycle/outbox | Yes | Yes | Yes | Yes | Yes | Verified live Mar 17 via PLP6 outbox row `60` and backend replay acceptance |
+| Configurable floor threshold / legacy floor signal | Yes | Yes | Yes | Yes | No | Runtime appears live, but floor-threshold behavior still needs explicit line validation |
+| Basket-dump counted events | Yes | Yes | Yes | Yes | No | `basket_dump_count` field observed live; non-zero opto-count validation still pending |
+| Between-jobs re-zero warning + webhook diagnostics | Yes | Yes | Yes | Yes | No | Expanded fields observed live; true warning case still needs validation |
+| Repo cleanup + image-prep readiness docs | Yes | Yes | N/A | N/A | N/A | Current cleanup pass pushed to `main` |
 
 ---
 
@@ -44,21 +44,25 @@ A copied file is not live until the service is restarted. A restarted service is
 - Production line is active enough that restart/reboot must be treated carefully
 
 ### While the line is in use
-- Safe work is limited to no-restart prep: docs, backend alignment, and approved-window checklist preparation.
-- Do not treat staged runtime files as live behavior until `loadcell-transmitter` is restarted and validated on the real line.
+- Safe work can include read-only Pi verification, backend alignment, and documentation updates.
+- Do not treat unverified behavior as complete just because the expanded runtime is now visible live on the Pi.
 - Use `docs/APPROVED_WINDOW_CHECKLIST.md` as the single restart-window checklist once maintenance begins.
 
-### Known staged-but-not-active work
-The following have been copied to the production runtime path but are still inactive until `loadcell-transmitter` is restarted in an approved window:
-- completed-job webhook lifecycle/outbox changes
+### Verified live observation (Mar 17, 2026)
+- `PLP6` completed-job outbox row `60` was created and marked `sent` at `2026-03-17T23:08:27+00:00` for job `1704584`.
+- The stored live payload included `basket_dump_count` plus the expanded re-zero diagnostic fields.
+- Replay of the last 5 real Pi completed-job payloads to the backend webhook returned HTTP `200` for all 5 requests; 4 stored successfully and 1 was correctly treated as a duplicate.
+
+### Known live-but-not-fully-validated work
+The following now appear to be live on production, but still need remaining line validation:
 - configurable floor threshold + legacy floor signal behavior
-- basket-dump counted-event support
-- between-jobs re-zero warning + completed-job diagnostic additions
+- basket-dump counted-event support with non-zero pulse verification
+- between-jobs re-zero warning behavior when a true warning condition occurs
 
 ### Current cleanup rule
 - Documentation cleanup must not erase or flatten the staged hopper rollout history.
-- If repo docs are updated before the next approved restart, they should continue to show those hopper changes as **staged, not live**.
-- GitHub push for the cleanup/docs work is intentionally deferred until explicitly approved.
+- Repo docs should now show the completed-job runtime as live where verified, and keep the remaining unverified behavior clearly marked as pending.
+- The current cleanup/docs pass is now pushed to `main`; future pushes still require explicit approval.
 
 ---
 

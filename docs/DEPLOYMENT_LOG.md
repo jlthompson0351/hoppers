@@ -4,6 +4,40 @@ This document records all deployments to production Pi systems.
 
 ---
 
+## 2026-03-17 - Verified: Live Completed-Job Webhook Runtime on Production
+
+**Verified By**: jthompson (with AI assistance)  
+**Sites Observed**: Pi `hoppers.tail840434.ts.net` / Tailscale node `100.114.238.54`  
+**Type**: Production runtime verification only (no restart or deploy performed in this session)
+
+**What Was Verified**:
+- `job_completion_outbox` row `60` for `PLP6` job `1704584` was created and marked `sent` at `2026-03-17T23:08:27+00:00`.
+- The live payload included:
+  - `basket_dump_count`
+  - `rezero_warning_seen`
+  - `rezero_warning_reason`
+  - `rezero_warning_weight_lbs`
+  - `rezero_warning_threshold_lbs`
+  - `post_dump_rezero_applied`
+  - `post_dump_rezero_last_apply_utc`
+- Pi database confirmed schema version `7` with `job_lifecycle_state`, `job_completion_outbox`, and `counted_events` tables present.
+
+**Backend Verification**:
+- Replayed the last 5 real Pi completed-job payloads to the configured backend webhook:
+  - 4 payloads stored successfully
+  - 1 payload correctly treated as a duplicate
+  - all 5 requests returned HTTP `200`
+
+**Operational Conclusion**:
+- Completed-job webhook lifecycle/outbox support is live on production.
+- Expanded completed-job payload fields are live on production.
+- Remaining runtime behavior still needing direct line validation:
+  - non-zero `basket_dump_count`
+  - floor-threshold / legacy floor signal behavior
+  - a true between-jobs re-zero warning case
+
+---
+
 ## 2026-03-16 - Staged: Between-Jobs Re-Zero Warning + Webhook Diagnostics (No Restart)
 
 **Prepared By**: jthompson (with AI assistance)  

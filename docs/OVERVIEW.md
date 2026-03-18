@@ -8,23 +8,23 @@ Open in any browser to view live load cell readings.
 
 ---
 
-## ✅ System Status (March 16, 2026)
+## ✅ System Status (March 17, 2026)
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Version** | ✅ tracked repo state | Feb 27 baseline is live; Mar 5/6/16 runtime updates are staged pending approved restart |
+| **Version** | ✅ tracked repo state | Completed-job webhook runtime verified live on Mar 17; remaining basket/floor/re-zero behavior still needs direct line validation |
 | **Dashboard** | ✅ LIVE | http://172.16.190.25:8080 \| Tailscale: hoppers.tail840434.ts.net |
 | **Flask Service** | ✅ Running | Auto-starts on boot |
 | **24b8vin** (8x ADC) | ✅ Online | I2C 0x31, Firmware 1.4 |
 | **MegaIND** (Industrial I/O) | ✅ Online | I2C 0x52 (Stack 2), Firmware 4.8 |
 | **Hardware Mode** | ✅ REAL | Live hardware readings |
 | **Zero System** | ✅ Stable | Manual ZERO + tracking flow; floor configurable via `zero_target_lb` |
-| **Completed Job Webhook** | 🟡 Staged | Lifecycle/outbox + `basket_dump_count`; restart required to activate |
-| **Basket Dump Opto** | 🟡 Staged | Settings → Buttons; `counted_events` table (schema v7) |
-| **Between-Jobs Re-Zero Warning** | 🟡 Staged | Operator warning + webhook diagnostics; restart required to activate |
+| **Completed Job Webhook** | ✅ LIVE | Verified on `PLP6`; outbox row `60` sent successfully and backend accepted real-payload replays |
+| **Basket Dump Opto** | 🟡 Partially verified | `basket_dump_count` field is live; non-zero pulse validation still pending |
+| **Between-Jobs Re-Zero Warning** | 🟡 Partially verified | Expanded diagnostic fields are live; true warning-positive case still pending |
 
 **Pi:** `Hoppers` at `172.16.190.25` / `hoppers.tail840434.ts.net` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
-**Note:** Production Pi is active; restart deferred until approved window.
+**Note:** Production Pi is active; completed-job payload runtime is live, but remaining floor/basket/re-zero behavior still needs line validation in an approved window.
 
 ---
 

@@ -4,7 +4,7 @@
 
 ### Repo State
 - Repo path: use the current repo root; do not rely on machine-specific absolute paths
-- Active branch in this workspace: `cursor/scale-image-preparation-021d`
+- Active branch in this workspace: `main`
 - Current work is a cleanup/reconciliation pass over docs, runbooks, and handoff guidance.
 - Treat the deployment docs as the source of truth for staged/live runtime state.
 
@@ -27,11 +27,16 @@
   - what is actually live after restart/validation
 
 ### What Still Needs Reality Check
-- whether the staged Mar 6 + Mar 16 runtime files have been activated with a restart
-- whether completed-job webhook delivery works on a real job transition after restart
+- the exact production restart/activation moment that made the Mar 6 + Mar 16 runtime live
 - whether basket-dump counts, floor-threshold behavior, and re-zero warning all behave correctly on the live line
 - whether the latest documented backup/baseline state matches what should be used for the next clone-image capture
 - whether Hopper's current completed-job payload shape fully matches the next frontend machine-kiosk metrics brief
+
+### What Was Confirmed Live
+- On 2026-03-17, Pi DB inspection over Tailscale confirmed completed-job webhook/outbox runtime is live for `PLP6`.
+- Outbox row `60` for job `1704584` was marked `sent` at `2026-03-17T23:08:27+00:00`.
+- That live payload included `basket_dump_count` plus the expanded re-zero diagnostic fields.
+- Replay of the last 5 real Pi completed-job payloads to the backend webhook returned HTTP `200` for all requests; 4 stored and 1 duplicate was ignored correctly.
 
 ### Cross-Project Frontend Brief
 - The next planned frontend change is on the public per-machine kiosk page.
@@ -54,8 +59,8 @@
 - Treat the repo itself as the shared project brain for handoff and continuity
 
 ### Next Recommended Step
-1. Finish the repo cleanup and image-prep runbook consolidation.
-2. Push cleanup changes only when explicitly approved.
-3. While the line is in use, limit work to no-restart prep and backend/doc alignment.
-4. During an approved production window, use `docs/APPROVED_WINDOW_CHECKLIST.md`, restart `loadcell-transmitter`, and validate the staged runtime features on the real line.
+1. Keep rollout truth current as more live observations come in.
+2. While the line is in use, continue read-only verification and backend/doc alignment as needed.
+3. During an approved production window, use `docs/APPROVED_WINDOW_CHECKLIST.md` to validate the remaining floor-threshold, basket-dump, and re-zero-warning behavior on the real line.
+4. After that validation, update the root coordination docs and deployment log again.
 5. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.

@@ -1,5 +1,17 @@
 # TODO Backlog
 
+## 2026-03-17 - Live verification follow-up
+
+- [x] Confirm completed-job webhook runtime is live on production.
+  - Observed on production Pi over Tailscale: `job_completion_outbox` row `60` for `PLP6` job `1704584` was marked `sent` at `2026-03-17T23:08:27+00:00`.
+  - The live payload included `basket_dump_count` and the expanded re-zero diagnostic fields.
+  - Replay of the last 5 real Pi completed-job payloads to the backend webhook returned HTTP `200` for all requests; 4 stored and 1 duplicate was ignored.
+
+- [ ] Validate remaining live runtime behavior on the real line.
+  - Confirm a non-zero `basket_dump_count` case with mapped opto pulses.
+  - Confirm configurable floor threshold / legacy floor signal behavior live.
+  - Confirm a true between-jobs re-zero warning case where the warning latches and later clears after `ZERO`.
+
 ## 2026-03-16 - Between-jobs re-zero warning rollout
 
 - [x] Implement non-blocking re-zero warning locally and stage it for later activation.
@@ -10,24 +22,15 @@
   - Completed-job webhook payload now includes `rezero_warning_seen`, `rezero_warning_reason`, `rezero_warning_weight_lbs`, `rezero_warning_threshold_lbs`, `post_dump_rezero_applied`, and `post_dump_rezero_last_apply_utc`.
   - No DB migration required for this change.
 
-- [ ] Activate staged re-zero warning during an approved restart window.
-  - Runtime pieces can be copied to the production Pi while it is in use, but they will remain inactive until `loadcell-transmitter` is manually restarted.
-  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` during the approved window so activation and validation follow one checklist.
-  - Runtime files to stage on Pi:
-    - `src/services/acquisition.py`
-    - `src/app/routes.py`
-    - `src/db/repo.py`
-    - `src/app/templates/dashboard.html`
-    - `src/app/templates/hdmi.html`
-    - `src/app/templates/settings.html`
-  - Local validation completed:
-    - `python -m pytest tests/test_rezero_warning.py tests/test_job_completion_webhook.py tests/test_snapshot_job_control.py tests/test_api_zero.py`
-    - Result: `20 passed`
-    - Lint check on touched files: clean
-  - After restart, verify:
-    - warning only appears between jobs when stable zero-relative weight exceeds the configured threshold
-    - warning clears after a successful manual `ZERO`
-    - completed-job webhook includes the new re-zero warning diagnostic fields
+- [x] Confirm expanded re-zero diagnostic fields are present on the live completed-job payload.
+  - Production payload for `PLP6` job `1704584` included:
+    - `rezero_warning_seen`
+    - `rezero_warning_reason`
+    - `rezero_warning_weight_lbs`
+    - `rezero_warning_threshold_lbs`
+    - `post_dump_rezero_applied`
+    - `post_dump_rezero_last_apply_utc`
+  - In that observed case the warning-specific values were `false`/`null`, so a true warning-positive line case is still pending validation.
 
 ## 2026-03-06 - Configurable floor threshold handoff
 
@@ -39,8 +42,8 @@
   - Legacy mode now sends the configured floor signal when `net_lbs <= zero_target_lb`, then resumes normal PLC profile mapping above the floor.
   - No DB migration required for this change.
 
-- [ ] Activate staged floor-threshold change during an approved restart window.
-  - Runtime pieces of the floor-threshold work are now copied to the production Pi, but they are still inactive until `loadcell-transmitter` is manually restarted.
+- [ ] Validate floor-threshold behavior on the live line.
+  - Runtime now appears active on production because the Mar 6 completed-job code path is live, but explicit floor-threshold behavior still needs direct validation.
   - Use `docs/APPROVED_WINDOW_CHECKLIST.md` during the approved window so floor-threshold, basket-dump, webhook, and re-zero validation stay in one flow.
   - GitHub push is still optional and blocked unless explicitly approved.
   - Floor-threshold runtime files staged on Pi:
@@ -70,30 +73,10 @@
 
 ## 2026-03-06 - Production staging status for webhook + basket dump changes
 
-- [ ] Activate staged production changes with approved manual restart.
-  - Runtime files for completed-job webhook support and basket dump opto counting have been copied to `/opt/loadcell-transmitter` on production Pi.
-  - The running `loadcell-transmitter` process has NOT been restarted yet, so it is still using the old in-memory code.
-  - The backend only shows prior manual test payloads because automatic completed-job generation will not begin until the updated service is restarted.
-  - Use `docs/APPROVED_WINDOW_CHECKLIST.md` as the single restart-window checklist.
-  - If deployment uses GitHub pull on the Pi, required steps are: commit changes, push to GitHub, pull/deploy on Pi, then restart service.
-  - If deployment uses direct file copy from the local machine, GitHub push is optional, but Pi file sync and service restart are still required.
-  - Runtime files already staged on Pi:
-    - `src/services/acquisition.py` - job lifecycle tracking, payload build, outbox dispatch
-    - `src/db/repo.py` - lifecycle state persistence, outbox queue methods, summary queries
-  - `src/db/schema.py` - schema v6/v7 tables and indexes
-  - `src/db/migrate.py` - schema v6/v7 migration logic
-  - `src/app/templates/settings.html` - completed-job webhook URL setting and basket dump opto action
-  - Primary docs for handoff:
-    - `docs/JOB_COMPLETION_WEBHOOK_RUNBOOK.md`
-    - `docs/SET_WEIGHT_PERSISTENCE_RUNBOOK.md`
-    - `docs/DEPLOYMENT_LOG.md`
-  - After restart, verify:
-    - schema v6 and v7 migrations applied
-    - `job_lifecycle_state` and `job_completion_outbox` tables exist
-    - `counted_events` table exists
-    - completed-job payload is generated on the next normal job transition
-    - completed-job payload includes `basket_dump_count` when mapped opto pulses occur during the job window
-    - outbound webhook reaches backend successfully
+- [x] Confirm completed-job webhook/outbox runtime is active on production.
+  - Production Pi schema version is `7`; `job_lifecycle_state`, `job_completion_outbox`, and `counted_events` tables exist.
+  - Live row `60` for `PLP6` job `1704584` was created and marked `sent` with `attempt_count = 0` and `last_error = null`.
+  - Backend replay of the last 5 real Pi payloads succeeded with HTTP `200` responses.
 
 ## 2026-03-06 - Basket dump opto counting
 
@@ -103,8 +86,8 @@
   - Completed-job payload builder now includes `basket_dump_count`.
   - Added regression tests: `tests/test_counted_events.py` and updated `tests/test_job_completion_webhook.py`.
 
-- [ ] Enable live production counting after manual restart.
-  - Restart `loadcell-transmitter` during approved production window.
+- [ ] Validate live basket dump counting with mapped pulses.
+  - `basket_dump_count` is present on the live payload now, but observed real jobs still showed `0`.
   - Use `docs/APPROVED_WINDOW_CHECKLIST.md` for the live counting and completed-job payload verification steps.
   - In Settings > Buttons, map the desired MegaIND opto input to `Basket Dump Count`.
   - Pulse the PLC signal and verify it counts once per rising edge.
@@ -118,10 +101,10 @@
   - Added retryable outbox delivery loop (no auth header by default, configurable URL + retry settings).
   - Added tests: `tests/test_job_completion_webhook.py`.
 
-- [ ] Production rollout window for timezone + service restart.
+- [ ] Timezone correction window.
   - Pi currently reports timezone as `America/Kentucky/Louisville` (EST); target is `America/Chicago` (CST/CDT).
-  - Change timezone + restart service only during approved production window.
-  - Verify webhook timestamps and delivery after rollout.
+  - Change timezone during an approved production window if still needed.
+  - Completed-job webhook delivery is already active on production; verify any local operational tooling expectations after the timezone change.
 
 ## 2026-02-27 - Post-live-test follow-ups
 
