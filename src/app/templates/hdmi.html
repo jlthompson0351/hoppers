@@ -37,7 +37,7 @@
       width: 800px;
       height: 480px;
       display: grid;
-      grid-template-rows: 38px minmax(0, 1fr) 18px 54px 18px;
+      grid-template-rows: 36px minmax(0, 1fr) 14px 72px 14px;
       gap: 4px;
       padding: 6px 8px;
     }
@@ -83,7 +83,7 @@
     .main-content {
       display: grid;
       grid-template-columns: 1.3fr 1fr;
-      gap: 6px;
+      gap: 5px;
       min-height: 0;
     }
 
@@ -96,7 +96,7 @@
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       background: var(--card);
-      padding: 6px 10px;
+      padding: 5px 9px;
     }
 
     .main-weight-area {
@@ -108,7 +108,7 @@
     }
 
     .weight-value {
-      font-size: 80px;
+      font-size: 74px;
       font-weight: 800;
       letter-spacing: -1.5px;
       line-height: 0.95;
@@ -146,7 +146,7 @@
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       background: var(--card);
-      padding: 8px 10px;
+      padding: 7px 9px;
       min-height: 0;
     }
 
@@ -181,8 +181,8 @@
     .job-target-section {
       width: 100%;
       border-top: 1px solid rgba(255, 255, 255, 0.12);
-      padding-top: 8px;
-      padding-bottom: 4px;
+      padding-top: 6px;
+      padding-bottom: 2px;
       text-align: left;
     }
 
@@ -192,7 +192,7 @@
       letter-spacing: 0.5px;
       color: var(--muted);
       text-transform: uppercase;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .job-target-row {
@@ -200,17 +200,17 @@
       align-items: baseline;
       justify-content: space-between;
       gap: 6px;
-      padding: 4px 0;
+      padding: 3px 0;
     }
 
     .job-target-label {
-      font-size: 18px;
+      font-size: 17px;
       color: var(--muted);
       font-weight: 600;
     }
 
     .job-target-value {
-      font-size: 36px;
+      font-size: 32px;
       font-weight: 800;
       letter-spacing: -0.5px;
       white-space: nowrap;
@@ -218,17 +218,17 @@
     }
 
     .job-target-value-scale {
-      font-size: 34px;
+      font-size: 30px;
     }
 
     .job-target-value-set {
-      font-size: 38px;
+      font-size: 34px;
     }
 
     .zero-tare-section {
       border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      margin-bottom: 8px;
-      padding-bottom: 8px;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
       text-align: left;
     }
 
@@ -249,7 +249,7 @@
     }
 
     .totals-value {
-      font-size: 24px;
+      font-size: 22px;
       line-height: 1;
       font-weight: 800;
       letter-spacing: -0.6px;
@@ -264,7 +264,7 @@
     }
 
     .btn-shift-clear {
-      min-height: 34px;
+      min-height: 30px;
       border: none;
       border-radius: 8px;
       background: #3f5363;
@@ -281,9 +281,9 @@
     .btn-shift-clear:hover { filter: brightness(1.05); }
 
     .feedback {
-      min-height: 18px;
+      min-height: 14px;
       text-align: center;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
     }
 
@@ -310,16 +310,17 @@
 
     .button-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 6px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
     }
 
     .btn {
-      min-height: 54px;
+      min-height: 64px;
       border: none;
       border-radius: 10px;
       color: white;
-      font-size: 18px;
+      font-size: 19px;
       font-weight: 800;
       letter-spacing: 0.2px;
       cursor: pointer;
@@ -332,8 +333,6 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
     .btn.zero { background: var(--zero); }
-    .btn.tare { background: var(--tare); }
-    .btn.clear { background: var(--clear); }
     .btn.clear-zero { background: var(--clear-zero); }
     .btn.settings { background: var(--settings); }
 
@@ -341,9 +340,9 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .conn-dot {
@@ -486,8 +485,7 @@
       <section class="totals-panel">
         <div>
           <div class="zero-tare-section">
-            <p class="totals-title">Zero / Tare Data</p>
-            <div class="weight-meta" id="tare-meta">Tare: 0.0 lb</div>
+            <p class="totals-title">Zero Data</p>
             <div class="weight-meta" id="zero-info">Zero Offset: 0.000 lb (0.000000 mV)</div>
             <div class="weight-meta" id="zero-tracking-info">Zero Tracking: LOCKED</div>
             <div class="weight-meta" id="post-dump-rezero-info">Post-Dump Re-Zero: IDLE</div>
@@ -522,8 +520,6 @@
 
     <div class="button-grid">
       <button type="button" class="btn zero" id="btn-zero">ZERO</button>
-      <button type="button" class="btn tare" id="btn-tare">TARE</button>
-      <button type="button" class="btn clear" id="btn-clear">CLEAR TARE</button>
       <button type="button" class="btn clear-zero" id="btn-clear-zero">CLEAR ZERO</button>
       <button type="button" class="btn settings" id="btn-override">OVERRIDE</button>
     </div>
@@ -658,16 +654,6 @@
           rezeroWarning.textContent = "";
         }
 
-        const tareOffset = Number(data.weight.tare_offset_lbs || 0);
-        const tareMeta = document.getElementById("tare-meta");
-        if (Math.abs(tareOffset) > 0.01) {
-          tareMeta.textContent = "Tare: -" + tareOffset.toFixed(1) + " lb";
-          tareMeta.className = "weight-meta active";
-        } else {
-          tareMeta.textContent = "Tare: 0.0 lb";
-          tareMeta.className = "weight-meta";
-        }
-
         const zeroOffsetMv = Number(data.weight.zero_offset_mv ?? data.weight.zero_offset_signal ?? 0);
         const zeroOffsetLbs = Number(data.weight.zero_offset_lbs || 0);
         const zeroInfo = document.getElementById("zero-info");
@@ -730,7 +716,6 @@
         }
 
         document.getElementById("btn-zero").disabled = !stable;
-        document.getElementById("btn-tare").disabled = !stable;
 
         const boardsOnline = (data.boards && data.boards.online) || {};
         const daqOnline = Boolean(boardsOnline.daq24b8vin);
@@ -897,18 +882,6 @@
           return;
         }
         postAction("/api/zero", "Zero set");
-      });
-
-      document.getElementById("btn-tare").addEventListener("click", function() {
-        if (!lastStable) {
-          showFeedback("Scale not stable", true);
-          return;
-        }
-        postAction("/api/tare", "Tare set");
-      });
-
-      document.getElementById("btn-clear").addEventListener("click", function() {
-        postAction("/api/tare/clear", "Tare cleared");
       });
 
       document.getElementById("btn-clear-zero").addEventListener("click", function() {

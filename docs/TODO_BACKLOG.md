@@ -1,5 +1,22 @@
 # TODO Backlog
 
+## 2026-03-18 - HDMI tare removal, tare tracing, and touch-target update
+
+- [x] Stage the Mar 18 no-restart hopper bundle on the Pi.
+  - Copied updated runtime files into `/opt/loadcell-transmitter` over Tailscale without restarting `loadcell-transmitter`.
+  - Scope staged:
+    - smaller stable-drift capture for the between-jobs re-zero warning path
+    - HDMI tare removal from the operator UI
+    - tare-source tracing for web/API versus opto-triggered tare
+    - enlarged HDMI bottom controls for `ZERO`, `CLEAR ZERO`, and `OVERRIDE`
+
+- [ ] Restart and validate the Mar 18 staged bundle during the next approved window.
+  - Restart `loadcell-transmitter` once.
+  - Confirm HDMI no longer shows `TARE` / `CLEAR TARE`.
+  - Confirm enlarged HDMI controls fit correctly and are easy to hit on the real 800x480 screen.
+  - Confirm tare-related events now show enough source detail to distinguish web/API calls from opto input.
+  - Re-check between-jobs re-zero warning behavior with the smaller stable-drift capture update active.
+
 ## 2026-03-17 - Live verification follow-up
 
 - [x] Confirm completed-job webhook runtime is live on production.

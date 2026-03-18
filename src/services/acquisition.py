@@ -38,6 +38,7 @@ from src.services.state import LiveState
 log = logging.getLogger(__name__)
 
 HW_RETRY_INTERVAL_S = 5.0
+MIN_REZERO_CAPTURE_LB = 1.0
 
 
 def _utc_now() -> str:
@@ -311,6 +312,9 @@ class AcquisitionService:
         cfg: _Cfg,
     ) -> None:
         threshold_lbs = max(0.0, float(cfg.rezero_warning_threshold_lb))
+        capture_threshold_lbs = (
+            min(threshold_lbs, MIN_REZERO_CAPTURE_LB) if threshold_lbs > 0.0 else 0.0
+        )
         abs_relative_lbs = abs(float(target_relative_lbs))
         tare_active = abs(float(cfg.tare_offset_lbs)) > 1e-6
         clear_band_lbs = (
@@ -339,7 +343,7 @@ class AcquisitionService:
         if cycle_age_s < max(0.0, float(cfg.post_dump_rezero_min_delay_s)):
             return
 
-        if is_stable and (not tare_active) and abs_relative_lbs >= threshold_lbs:
+        if is_stable and (not tare_active) and abs_relative_lbs >= capture_threshold_lbs:
             reason = str(self._post_dump_rezero_reason or "outside_tolerance")
             if reason in {"idle", "rezero"}:
                 reason = "outside_tolerance"
@@ -2301,7 +2305,15 @@ class AcquisitionService:
                         level="WARNING",
                         code="OPTO_TARE_BLOCKED",
                         message="Ignored opto TARE trigger because allow_opto_tare is disabled.",
-                        details={"gross_lbs": float(gross_lbs)},
+                        details={
+                            "trigger_type": "opto_input",
+                            "source_surface": "opto_input",
+                            "opto_channel": int(channel) if channel is not None else None,
+                            "opto_action": str(action),
+                            "gross_lbs": float(gross_lbs),
+                            "raw_signal_mv": float(raw_mv),
+                            "allow_opto_tare": False,
+                        },
                     )
                 return
             updated_utc = _utc_now()
@@ -2319,7 +2331,15 @@ class AcquisitionService:
                 level="INFO",
                 code="BUTTON_TARE_APPLIED",
                 message=f"Opto button TARE applied at {gross_lbs:.2f} lb.",
-                details={"gross_lbs": float(gross_lbs)},
+                details={
+                    "trigger_type": "opto_input",
+                    "source_surface": "opto_input",
+                    "opto_channel": int(channel) if channel is not None else None,
+                    "opto_action": str(action),
+                    "gross_lbs": float(gross_lbs),
+                    "raw_signal_mv": float(raw_mv),
+                    "allow_opto_tare": True,
+                },
             )
             log.info("Button TARE: offset=%.2f lb", gross_lbs)
 

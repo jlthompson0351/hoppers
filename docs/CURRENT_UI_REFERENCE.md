@@ -27,7 +27,7 @@
 | Page | URL | Purpose | Requires Maintenance Mode |
 |------|-----|---------|---------------------------|
 | Dashboard | `/` | Live weight, Zero/Tare, status | No |
-| HDMI Operator | `/hdmi` | 800x480 operator UI with large weight and touch controls | No |
+| HDMI Operator | `/hdmi` | 800x480 operator UI with large weight and zero-focused touch controls | No |
 | Calibration Hub | `/calibration` | Unified Weight and PLC output mapping | No |
 | Settings | `/settings` | All system configuration and advanced tools | No |
 | Config (Raw) | `/config` | Raw JSON config editor (maintenance) | **Yes** |
@@ -128,8 +128,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Scale HDMI                                      [STABLE] [OK]  │
 ├───────────────────────────────────┬─────────────────────────────┤
-│                                   │  Zero / Tare Data           │
-│                                   │  Tare: 0.0 lb               │
+│                                   │  Zero Data                  │
 │            75.1                   │  Zero Offset: -2.064 lb     │
 │             lb                    │  Zero Tracking: ACTIVE      │
 │                                   │  Zero Updated: 13:20:24     │
@@ -138,7 +137,7 @@
 │  Scale Weight      75.1 lb        │  Shift / Today / Loads / Avg│
 │  Set Weight       100.0 lb        │  [ CLEAR SHIFT ]            │
 ├───────────────────────────────────┴─────────────────────────────┤
-│ [ ZERO ] [ TARE ] [ CLEAR TARE ] [ CLEAR ZERO ] [ SETTINGS ]    │
+│ [ ZERO ] [ CLEAR ZERO ] [ OVERRIDE ]                             │
 ├─────────────────────────────────────────────────────────────────┤
 │ DAQ [●]   I/O [●]   Loop: 20.0 Hz   Updated: 13:01:27          │
 └─────────────────────────────────────────────────────────────────┘
@@ -148,17 +147,16 @@
 
 1. **Centered Live Weight Card** - Weight and unit are centered for better readability at distance
 2. **Job Target Panel** - Located in the bottom left, shows live `Scale Weight` (turns green when target reached) and `Set Weight` when target mode is active
-3. **Zero Diagnostics In-Card** - Moved to the top right, shows tare, zero offset, zero tracking state/reason, and last zero update
+3. **Zero Diagnostics In-Card** - Moved to the top right, shows zero offset, zero tracking state/reason, and last zero update
 4. **Processed Totals Panel** - Shows shift/day totals, load count, and average load
 5. **Shift Clear Action** - `CLEAR SHIFT` calls `/api/production/shift/clear` to reset shift window
-6. **Bottom Control Row** - `ZERO`, `TARE`, `CLEAR TARE`, `CLEAR ZERO`, `SETTINGS`
+6. **Bottom Control Row** - `ZERO`, `CLEAR ZERO`, `OVERRIDE`
 7. **Between-Jobs Warning Banner** - A persistent banner appears above the main content when the scale is off outside the configured tolerance and the operator should press `ZERO` before the next job.
 8. **Kiosk Fit** - Sized specifically for fixed 800x480 HDMI touch displays
 
 ### Snapshot Fields Used by HDMI
 
 - `weight.total_lbs`
-- `weight.tare_offset_lbs`
 - `weight.zero_offset_lbs`
 - `weight.zero_offset_mv` (fallback `weight.zero_offset_signal`)
 - `weight.zero_tracking_enabled`
@@ -184,8 +182,6 @@
 | Action | Endpoint | Method |
 |--------|----------|--------|
 | Zero | `/api/zero` | POST |
-| Tare | `/api/tare` | POST |
-| Clear Tare | `/api/tare/clear` | POST |
 | Clear Zero | `/api/zero/clear` | POST |
 | Clear Shift | `/api/production/shift/clear` | POST |
 | Override Job Target | `/api/job/override` | POST (Requires 4-digit PIN) |

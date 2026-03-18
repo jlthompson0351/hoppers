@@ -32,6 +32,9 @@ A copied file is not live until the service is restarted. A restarted service is
 | Configurable floor threshold / legacy floor signal | Yes | Yes | Yes | Yes | No | Runtime appears live, but floor-threshold behavior still needs explicit line validation |
 | Basket-dump counted events | Yes | Yes | Yes | Yes | No | `basket_dump_count` field observed live; non-zero opto-count validation still pending |
 | Between-jobs re-zero warning + webhook diagnostics | Yes | Yes | Yes | Yes | No | Expanded fields observed live; true warning case still needs validation |
+| Smaller stable-drift capture for re-zero warning | Yes | Pending | Yes | No | No | Staged on Pi Mar 18; needs restart before real-line warning behavior can be checked |
+| HDMI tare removal + tare-source tracing | Yes | Pending | Yes | No | No | HDMI tare controls removed and source logging added; requires restart and event validation |
+| HDMI enlarged bottom controls | Yes | Pending | Yes | No | No | Latest `ZERO` / `CLEAR ZERO` / `OVERRIDE` layout copied to Pi Mar 18 |
 | Repo cleanup + image-prep readiness docs | Yes | Yes | N/A | N/A | N/A | Current cleanup pass pushed to `main` |
 
 ---
@@ -59,6 +62,13 @@ The following now appear to be live on production, but still need remaining line
 - basket-dump counted-event support with non-zero pulse verification
 - between-jobs re-zero warning behavior when a true warning condition occurs
 
+### Staged-on-Pi but not yet live (Mar 18, 2026)
+The following have been copied into `/opt/loadcell-transmitter` but still require a service restart before they can run:
+- smaller stable-drift capture for the between-jobs re-zero warning path
+- HDMI tare removal from the operator UI
+- tare event/source tracing to distinguish web/API versus opto-triggered tare
+- enlarged HDMI bottom touch controls for `ZERO`, `CLEAR ZERO`, and `OVERRIDE`
+
 ### Current cleanup rule
 - Documentation cleanup must not erase or flatten the staged hopper rollout history.
 - Repo docs should now show the completed-job runtime as live where verified, and keep the remaining unverified behavior clearly marked as pending.
@@ -72,11 +82,13 @@ Primary checklist: `docs/APPROVED_WINDOW_CHECKLIST.md`
 
 1. Restart `loadcell-transmitter`
 2. Confirm service is healthy after restart
-3. Validate between-jobs re-zero warning behavior
+3. Validate between-jobs re-zero warning behavior, including smaller stable-drift capture expectations
 4. Validate floor threshold + legacy floor signal behavior in Settings/runtime
 5. Validate basket-dump opto counting
-6. Validate completed-job webhook payload and outbox delivery on a real job transition
-7. Update this file plus `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`
+6. Validate that HDMI no longer exposes tare and that the enlarged touch controls fit/behave correctly
+7. Validate completed-job webhook payload and outbox delivery on a real job transition
+8. Review tare-related events to confirm whether any future unexpected tare comes from web/API requests or opto input
+9. Update this file plus `STATUS.md`, `HANDOFF.md`, and `docs/DEPLOYMENT_LOG.md`
 
 ---
 

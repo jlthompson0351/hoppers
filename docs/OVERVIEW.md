@@ -21,10 +21,12 @@ Open in any browser to view live load cell readings.
 | **Zero System** | ✅ Stable | Manual ZERO + tracking flow; floor configurable via `zero_target_lb` |
 | **Completed Job Webhook** | ✅ LIVE | Verified on `PLP6`; outbox row `60` sent successfully and backend accepted real-payload replays |
 | **Basket Dump Opto** | 🟡 Partially verified | `basket_dump_count` field is live; non-zero pulse validation still pending |
-| **Between-Jobs Re-Zero Warning** | 🟡 Partially verified | Expanded diagnostic fields are live; true warning-positive case still pending |
+| **Between-Jobs Re-Zero Warning** | 🟡 Partially verified | Expanded diagnostic fields are live; smaller stable-drift capture update was staged on Mar 18 and still needs restart/live validation |
+| **HDMI Tare Removal** | 🟡 Staged only | HDMI tare controls removed locally and copied to Pi on Mar 18; not live until restart |
+| **HDMI Touch Controls** | 🟡 Staged only | Enlarged `ZERO`, `CLEAR ZERO`, and `OVERRIDE` controls copied to Pi on Mar 18; not live until restart |
 
 **Pi:** `Hoppers` at `172.16.190.25` / `hoppers.tail840434.ts.net` — See `CONNECTION_GUIDE.md` for SSH/dashboard access  
-**Note:** Production Pi is active; completed-job payload runtime is live, but remaining floor/basket/re-zero behavior still needs line validation in an approved window.
+**Note:** Production Pi is active; completed-job payload runtime is live, but remaining floor/basket/re-zero behavior still needs line validation in an approved window. Additional Mar 18 HDMI/tare updates are staged on the Pi but not running live yet.
 
 ---
 
@@ -127,7 +129,7 @@ Open in any browser to view live load cell readings.
 → `SCALE_IMAGE_PREPARATION_RUNBOOK.md`
 
 ### For HDMI / Kiosk Operation
-→ `HDMI_KIOSK_RUNBOOK.md` — Setup, boot behavior, emergency relaunch, and current 800x480 layout details (centered weight card + zero diagnostics + daily/shift placeholder)
+→ `HDMI_KIOSK_RUNBOOK.md` — Setup, boot behavior, emergency relaunch, and current 800x480 layout details (centered weight card + zero diagnostics + large `ZERO` / `CLEAR ZERO` / `OVERRIDE` controls)
 
 ### For Testing
 → `TestPlan.md`  
@@ -219,9 +221,9 @@ docs/
 
 ---
 
-**Last Updated**: March 16, 2026  
-**Current Version**: live Feb 27 baseline plus Mar 5/6/16 staged runtime updates  
-**Status**: Production in use; completed-job webhook, basket dump, floor threshold, and re-zero warning remain staged until next approved restart  
+**Last Updated**: March 18, 2026  
+**Current Version**: live Feb 27 baseline plus Mar 5/6/16 live/staged runtime updates and Mar 18 staged-only HDMI/tare refinements  
+**Status**: Production in use; Mar 18 drift/tare/HDMI UI changes are staged on the Pi and await the next approved restart  
 **Deployment**: Pi `172.16.190.25` / `hoppers.tail840434.ts.net` currently active; avoid reboot/reset during production  
 
 **Recent Milestones:**
@@ -237,6 +239,12 @@ docs/
 - **Between-Jobs Re-Zero Warning (Mar 16, 2026):**
   - Added operator warning banner + completed-job re-zero diagnostics.
   - Staged on Pi; still requires approved restart to become live.
+- **HDMI Tare Removal + Tare Tracing (Mar 18, 2026):**
+  - Removed tare controls from HDMI and added source attribution to tare-related events.
+  - Copied to Pi; still requires approved restart to become live.
+- **HDMI Touch Target Resize (Mar 18, 2026):**
+  - Enlarged bottom-row `ZERO`, `CLEAR ZERO`, and `OVERRIDE` controls for easier operation on the 800x480 screen.
+  - Copied to Pi; still requires approved restart to become live.
 - **v3.1** (Feb 15, 2026): Critical zeroing architecture fix - zero_offset_mv now canonical, manual ZERO works instantly
 - **Hardware Verified** (Feb 15, 2026): Both boards (24b8vin @ 0x31, MegaIND @ 0x52) online and working
 - **Auto-Armed Outputs** (Feb 12, 2026): PLC outputs default to ARMED on startup

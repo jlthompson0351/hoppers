@@ -5,7 +5,7 @@
 ### Repo State
 - Repo path: use the current repo root; do not rely on machine-specific absolute paths
 - Active branch in this workspace: `main`
-- Current work is a cleanup/reconciliation pass over docs, runbooks, and handoff guidance.
+- Current work now includes a Mar 18 staged runtime bundle on top of the cleanup/reconciliation pass over docs, runbooks, and handoff guidance.
 - Treat the deployment docs as the source of truth for staged/live runtime state.
 
 ### What Exists In Git
@@ -14,12 +14,16 @@
 - completed-job webhook lifecycle + outbox support
 - basket-dump counted events support
 - HDMI override and job-target workflow updates
+- smaller stable-drift capture for re-zero warning payload/reporting
+- tare-source tracing plus HDMI tare removal
+- enlarged HDMI bottom controls for `ZERO`, `CLEAR ZERO`, and `OVERRIDE`
 - The deployment history for those changes already exists and should be preserved during cleanup.
 
 ### What This Cleanup Pass Is Doing
 - Reconciling root coordination docs so they match the actual workspace branch and current project reality.
 - Consolidating duplicate/stale documentation entry points.
 - Cleaning up future agent-operating guidance for Pi access, staged rollout tracking, and image preparation.
+- Capturing the latest no-restart Pi staging step so the next operator knows exactly what will become live after restart.
 - Preserving the distinction between:
   - code/docs in git
   - anything pushed later
@@ -29,6 +33,8 @@
 ### What Still Needs Reality Check
 - the exact production restart/activation moment that made the Mar 6 + Mar 16 runtime live
 - whether basket-dump counts, floor-threshold behavior, and re-zero warning all behave correctly on the live line
+- whether the Mar 18 HDMI tare removal and larger touch controls behave as expected after restart
+- whether the new tare event logging clearly identifies the real source of any unexpected tare trigger
 - whether the latest documented backup/baseline state matches what should be used for the next clone-image capture
 - whether Hopper's current completed-job payload shape fully matches the next frontend machine-kiosk metrics brief
 
@@ -57,10 +63,12 @@
 - Keep rollout reality explicit: local vs pushed vs staged vs live vs validated
 - Do not lose or blur the already-staged hopper updates while cleaning docs
 - Treat the repo itself as the shared project brain for handoff and continuity
+- Treat the Mar 18 staged-on-Pi bundle as pending runtime activation until `loadcell-transmitter` is restarted
 
 ### Next Recommended Step
 1. Keep rollout truth current as more live observations come in.
 2. While the line is in use, continue read-only verification and backend/doc alignment as needed.
-3. During an approved production window, use `docs/APPROVED_WINDOW_CHECKLIST.md` to validate the remaining floor-threshold, basket-dump, and re-zero-warning behavior on the real line.
-4. After that validation, update the root coordination docs and deployment log again.
-5. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.
+3. During an approved production window, restart `loadcell-transmitter` once so the Mar 18 staged bundle becomes active.
+4. Use `docs/APPROVED_WINDOW_CHECKLIST.md` to validate floor-threshold, basket-dump, re-zero-warning, HDMI tare removal, and tare-source tracing behavior on the real line.
+5. After that validation, update the root coordination docs and deployment log again.
+6. After rollout truth is confirmed, capture a fresh baseline bundle and a current cloneable image.

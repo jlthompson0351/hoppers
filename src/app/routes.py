@@ -10,6 +10,7 @@ import io
 import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
@@ -47,6 +48,47 @@ DAQ_ROLES = [
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _classify_tare_source_surface(referer: Optional[str]) -> str:
+    raw = str(referer or "").strip()
+    if not raw:
+        return "unknown"
+    try:
+        path = urlparse(raw).path or ""
+    except Exception:
+        return "unknown"
+    normalized = path.rstrip("/") or "/"
+    surface_map = {
+        "/": "dashboard",
+        "/hdmi": "hdmi",
+        "/kiosk": "kiosk",
+        "/scale-settings": "scale_settings",
+        "/settings": "settings",
+    }
+    return surface_map.get(normalized, normalized)
+
+
+def _tare_request_details(
+    *,
+    snap: Dict[str, Any],
+    scale: Dict[str, Any],
+    source_ip: Optional[str],
+    source_user_agent: Optional[str],
+    source_referer: Optional[str],
+) -> Dict[str, Any]:
+    return {
+        "trigger_type": "web_api",
+        "request_path": request.path,
+        "request_method": request.method,
+        "source_surface": _classify_tare_source_surface(source_referer),
+        "source_ip": source_ip,
+        "source_user_agent": source_user_agent,
+        "source_referer": source_referer,
+        "stable": bool(snap.get("stable", False)),
+        "current_weight": float(snap.get("total_weight_lbs", 0.0) or 0.0),
+        "current_tare": float(scale.get("tare_offset_lbs", 0.0) or 0.0),
+    }
 
 
 def _site_timezone(repo: AppRepository) -> tuple[Any, str]:
@@ -1695,16 +1737,22 @@ def api_tare() -> Response:
     source_user_agent = request.headers.get("User-Agent")
     source_referer = request.headers.get("Referer")
 
+    cfg = repo.get_latest_config()
+    scale = cfg.get("scale") or {}
+    tare_details = _tare_request_details(
+        snap=snap,
+        scale=scale,
+        source_ip=source_ip,
+        source_user_agent=source_user_agent,
+        source_referer=source_referer,
+    )
+
     if not snap.get("stable", False):
         repo.log_event(
             level="WARNING",
             code="TARE_REJECTED_UNSTABLE",
             message="Tare rejected: scale not stable.",
-            details={
-                "source_ip": source_ip,
-                "source_user_agent": source_user_agent,
-                "source_referer": source_referer,
-            },
+            details=tare_details,
         )
         return Response(
             json.dumps({"success": False, "error": "Scale not stable"}),
@@ -1712,8 +1760,6 @@ def api_tare() -> Response:
             status=400,
         )
 
-    cfg = repo.get_latest_config()
-    scale = cfg.get("scale") or {}
     current_weight = float(snap.get("total_weight_lbs", 0.0) or 0.0)
     current_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
     cooldown_s = 2.0
@@ -1732,12 +1778,11 @@ def api_tare() -> Response:
                     code="TARE_REJECTED_COOLDOWN",
                     message=f"Tare rejected: cooldown active ({remaining_s:.2f}s remaining).",
                     details={
+                        **tare_details,
+                        "last_tare_utc": last_tare_utc_raw,
                         "cooldown_s": cooldown_s,
                         "elapsed_s": elapsed_s,
                         "remaining_s": remaining_s,
-                        "source_ip": source_ip,
-                        "source_user_agent": source_user_agent,
-                        "source_referer": source_referer,
                     },
                 )
                 return Response(
@@ -1747,7 +1792,7 @@ def api_tare() -> Response:
                 )
         except Exception:
             pass
-    
+
     # Add current displayed weight to tare
     updated_utc = _utc_now()
     persisted_tare: dict[str, float] = {}
@@ -1768,12 +1813,10 @@ def api_tare() -> Response:
         code="SCALE_TARED",
         message=f"Scale tared at {current_weight:.2f} lb.",
         details={
+            **tare_details,
             "weight": current_weight,
             "previous_tare": previous_tare,
             "new_tare": new_tare,
-            "source_ip": source_ip,
-            "source_user_agent": source_user_agent,
-            "source_referer": source_referer,
         },
     )
 
@@ -1787,11 +1830,19 @@ def api_tare() -> Response:
 def api_tare_clear() -> Response:
     """Clear tare offset - show gross weight."""
     repo: AppRepository = current_app.config["REPO"]
+    state: LiveState = current_app.config["LIVE_STATE"]
     source_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
     source_user_agent = request.headers.get("User-Agent")
     source_referer = request.headers.get("Referer")
     cfg = repo.get_latest_config()
     scale = cfg.get("scale") or {}
+    tare_details = _tare_request_details(
+        snap=state.snapshot(),
+        scale=scale,
+        source_ip=source_ip,
+        source_user_agent=source_user_agent,
+        source_referer=source_referer,
+    )
     old_tare = float(scale.get("tare_offset_lbs", 0.0) or 0.0)
     repo.update_config_section(
         "scale",
@@ -1802,10 +1853,8 @@ def api_tare_clear() -> Response:
         code="TARE_CLEARED",
         message=f"Tare cleared (was {old_tare:.2f} lb).",
         details={
+            **tare_details,
             "old_tare": old_tare,
-            "source_ip": source_ip,
-            "source_user_agent": source_user_agent,
-            "source_referer": source_referer,
         },
     )
 

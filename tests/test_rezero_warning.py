@@ -38,6 +38,40 @@ class RezeroWarningTests(unittest.TestCase):
         self.assertTrue(svc._job_rezero_warning_seen)
         self.assertEqual(svc._rezero_warning_reason, "outside_tolerance")
 
+    def test_warning_captures_smaller_stable_drift_for_job_payload(self) -> None:
+        svc = self._make_service()
+        cfg = svc._load_cfg()
+        cfg.post_dump_rezero_min_delay_s = 0.0
+        cfg.post_dump_rezero_empty_threshold_lb = 4.0
+        cfg.rezero_warning_threshold_lb = 20.0
+        svc._arm_rezero_warning_cycle(now_s=10.0)
+        svc._update_rezero_warning_state(
+            now_s=10.0,
+            now_utc="2026-03-16T17:00:00+00:00",
+            target_relative_lbs=5.0,
+            is_stable=True,
+            cfg=cfg,
+        )
+        self.assertTrue(svc._job_rezero_warning_seen)
+        self.assertAlmostEqual(svc._job_rezero_warning_weight_lbs or 0.0, 5.0, places=6)
+        self.assertAlmostEqual(svc._job_rezero_warning_threshold_lbs or 0.0, 20.0, places=6)
+
+    def test_warning_ignores_sub_one_pound_stable_drift(self) -> None:
+        svc = self._make_service()
+        cfg = svc._load_cfg()
+        cfg.post_dump_rezero_min_delay_s = 0.0
+        cfg.post_dump_rezero_empty_threshold_lb = 4.0
+        cfg.rezero_warning_threshold_lb = 20.0
+        svc._arm_rezero_warning_cycle(now_s=10.0)
+        svc._update_rezero_warning_state(
+            now_s=10.0,
+            now_utc="2026-03-16T17:00:00+00:00",
+            target_relative_lbs=0.8,
+            is_stable=True,
+            cfg=cfg,
+        )
+        self.assertFalse(svc._job_rezero_warning_seen)
+
     def test_warning_clears_once_weight_returns_inside_tolerance(self) -> None:
         svc = self._make_service()
         cfg = svc._load_cfg()

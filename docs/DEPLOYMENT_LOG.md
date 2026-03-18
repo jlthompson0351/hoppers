@@ -4,6 +4,48 @@ This document records all deployments to production Pi systems.
 
 ---
 
+## 2026-03-18 - Staged: HDMI Tare Removal + Tare Tracing + HDMI Touch Target Update (No Restart)
+
+**Prepared By**: jthompson (with AI assistance)  
+**Sites Updated**: Pi `hoppers.tail840434.ts.net` (Tailscale node `100.114.238.54`) — runtime files staged to `/opt/loadcell-transmitter`  
+**Version**: main branch working tree (Mar 18 hopper bundle)
+
+**Scope Staged**:
+- **Smaller Stable-Drift Capture**: between-jobs re-zero warning flow now captures smaller stable drift into the warning/job payload path instead of waiting only for large threshold-matching cases.
+- **HDMI Tare Removal**: removed `TARE` and `CLEAR TARE` from the HDMI operator page while keeping tare on the main dashboard.
+- **Tare Source Tracing**: tare-related event logs now capture whether the trigger came from web/API requests or from opto input, plus request surface/channel context.
+- **HDMI Touch Target Update**: enlarged bottom HDMI controls for `ZERO`, `CLEAR ZERO`, and `OVERRIDE`.
+
+**Production Safety Constraint**:
+- Service **not** restarted; Pi is still running the previous in-memory code.
+- No reboot, reset, or service bounce performed while the line is in use.
+- Runtime files were copied over Tailscale to `/tmp`, then installed into `/opt/loadcell-transmitter` with `sudo cp` because runtime files are root-owned.
+
+**Files Staged**:
+- `src/services/acquisition.py`
+- `src/app/routes.py`
+- `src/app/templates/hdmi.html`
+- `tests/test_api_tare.py`
+- `tests/test_rezero_warning.py`
+- `docs/CURRENT_UI_REFERENCE.md`
+- `docs/HDMI_KIOSK_RUNBOOK.md`
+- `docs/CURRENT_IMPLEMENTATION.md`
+
+**Local Validation**:
+- `python -m pytest tests/test_api_tare.py tests/test_api_zero.py tests/test_rezero_warning.py`
+- Result: `18 passed`
+- Lint check on touched files: clean
+- Local HDMI preview confirmed the intended one-row larger-button layout only on a clean preview port; stale preview processes were later terminated.
+
+**Post-Restart Verification (approved window only)**:
+1. Restart `loadcell-transmitter` once.
+2. Confirm HDMI no longer exposes tare controls.
+3. Confirm `ZERO`, `CLEAR ZERO`, and `OVERRIDE` fit correctly and remain easy to tap on the real screen.
+4. Trigger/observe tare-related events and confirm the log details identify the real source (`web_api` surface versus `opto_input`).
+5. Re-check between-jobs re-zero warning behavior with the smaller stable-drift capture update active.
+
+---
+
 ## 2026-03-17 - Verified: Live Completed-Job Webhook Runtime on Production
 
 **Verified By**: jthompson (with AI assistance)  

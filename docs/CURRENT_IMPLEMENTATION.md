@@ -798,11 +798,11 @@ megaind 0 board
 
 ### HDMI Interface Features
 - **Optimized Layout**: Designed for 800x480 industrial touch panels.
-- **Two-Column Operator View**: Left card for centered live weight and Job Target data, right card for Zero/Tare diagnostics and daily/shift totals.
+- **Two-Column Operator View**: Left card for centered live weight and Job Target data, right card for zero diagnostics and daily/shift totals.
 - **Job Target Panel**: Shows live `Scale Weight` and `Set Weight` when target mode is active.
-- **Zero Diagnostics on HDMI**: Shows `Tare`, `Zero Offset`, `Zero Tracking`, and `Zero Updated` in the right panel.
+- **Zero Diagnostics on HDMI**: Shows `Zero Offset`, `Zero Tracking`, and `Zero Updated` in the right panel.
 - **Processed Weight Totals**: Includes shift/day totals, load count, average load, and a `CLEAR SHIFT` button.
-- **Simplified Controls**: Large touch-friendly buttons for ZERO, TARE, CLEAR TARE, CLEAR ZERO, and SETTINGS.
+- **Simplified Controls**: Large touch-friendly buttons for ZERO, CLEAR ZERO, and OVERRIDE.
 - **Auto-Start**: Managed by `kiosk.service` to launch at boot.
 
 ### Calibration Hub Features (Hand-in-Hand)
