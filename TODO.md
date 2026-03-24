@@ -24,3 +24,15 @@
 ## Operational Reminder
 - [ ] Do not blur pushed code with staged-on-Pi or live runtime state.
 - [ ] Preserve current rollout truth while documenting the next frontend-linked feature work.
+
+- [ ] **Feature: Basket Dump Webhook Integration** (Added: 2026-03-24)
+  - Context: We are now counting "basket dumps" via the Pi (IN1 signal). At the end of a job, the scale data sent via webhook needs to use these basket dumps instead of (or alongside) "hopper dumps".
+  - Goal: Correlate the basket dump signal with the scale weight data to confirm which basket dumps were *actual* parts dumps versus noise.
+
+## Next Priority (2026-03-25)
+- [ ] Integrate opto CH1 basket dump signal into the main acquisition loop
+- [ ] Correlate opto dumps with weight-curve dumps — two signals confirming one real basket dump
+- [ ] Update completed-job webhook payload to use opto-based (or opto+weight correlated) basket_dump_count
+- [ ] Debounce logic: two opto transitions within ~30s = one dump event
+- [ ] Consider: opto + weight together = confirmed parts dump vs opto alone = mechanical rotation
+- [ ] Convert opto monitor from nohup script to systemd service (survives reboot)
