@@ -66,3 +66,42 @@
 - The root README should stay focused on startup and handoff.
 - Detailed hardware, calibration, UI, and deployment history belong in `docs/`.
 - `docs/OVERVIEW.md` is the front door to the detailed docs set.
+
+## 2026-03-24: Basket Dump Cycle Understanding (CRITICAL CONTEXT)
+
+### Physical Machine Layout
+Each machine has a **carousel with TWO baskets** and a **hopper** above it.
+
+### Full Production Cycle
+1. Hopper descends → fills Basket A with parts from hopper
+2. Hopper ascends
+3. Carousel rotates → Basket A enters paint booth
+4. Hopper descends → fills Basket B with parts
+5. Hopper ascends, waits
+6. Basket A exits paint booth onto carousel
+7. Carousel spins → Basket A dumps painted parts onto conveyor belt
+   - This is when the **opto signal fires** (two rotations = one dump)
+8. Basket B enters paint booth
+9. Cycle repeats
+
+### Key Facts for Software
+- **Dump happens AFTER paint**, not before — dumped parts were filled one cycle ago
+- **Hopper fill and basket dump are offset by one cycle** — the basket dumping now was filled during the previous cycle
+- **At startup**, baskets dump empty before any parts are loaded (dry dumps — must be ignored)
+- **Two baskets per carousel** — so the rhythm is: fill A, paint A while fill B, dump A while paint B, fill A again...
+- **Opto signal = basket physically rotating to dump** (two HIGH pulses per dump)
+- **Hopper weight drop = parts leaving hopper into basket** (already tracked by scale)
+
+### Correlation Strategy
+To determine "this dump had real parts":
+- Track hopper fills (weight drops from scale data) with timestamps
+- Track opto dumps with timestamps  
+- A dump is "real" (has parts) if there was a corresponding hopper fill approximately one cycle ago
+- First dumps after job start with no prior fill = dry/empty dumps → don't count
+- The hopper fill weight tells us how much went INTO the basket
+- The dump is when those parts come OUT painted
+
+### What This Means for basket_dump_count
+- `basket_dump_count` in the webhook should only count dumps that had parts (correlated with a prior hopper fill)
+- Dry startup dumps should be excluded
+- This gives a TRUE production basket count for efficiency calculations
