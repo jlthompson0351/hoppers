@@ -36,3 +36,11 @@
 - [ ] Debounce logic: two opto transitions within ~30s = one dump event
 - [ ] Consider: opto + weight together = confirmed parts dump vs opto alone = mechanical rotation
 - [ ] Convert opto monitor from nohup script to systemd service (survives reboot)
+  - **Mechanical Constraints to Handle:**
+    1. **Double-Dump Shake**: The basket dumps twice rapidly to shake off stuck painted parts. The code must group these into a single "logical" dump event (debounce).
+    2. **Empty Startup Dumps**: At the start of an order, the system dumps the baskets empty before the hopper drops any parts. We must filter these out.
+    3. **Carousel FIFO Delay**: The system has a 2-basket carousel. Sequence: Hopper fills Basket 1 -> Carousel rotates Basket 1 into paint booth -> Hopper fills Basket 2 -> Basket 1 comes out and dumps onto conveyor. This means there is an offset between a hopper weight drop and the corresponding basket dump. The code needs a queue to track which basket has parts and which is empty.
+    4. **Manual/Maintenance Dumps**: Maintenance may manually trigger a basket dump (empty or full) outside of normal operation. Examples:
+       - Dumping an empty basket during troubleshooting.
+       - Overfilled basket (hopper dropped too many parts, can't paint them) — maintenance manually dumps excess parts before resuming.
+       - These are NOT production dumps and should be flagged or filtered. Possible detection: dump happens outside of the normal hopper-fill → carousel → paint → dump cycle, or the weight doesn't match expected hopper drop.
