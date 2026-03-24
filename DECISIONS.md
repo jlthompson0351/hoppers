@@ -105,3 +105,13 @@ To determine "this dump had real parts":
 - `basket_dump_count` in the webhook should only count dumps that had parts (correlated with a prior hopper fill)
 - Dry startup dumps should be excluded
 - This gives a TRUE production basket count for efficiency calculations
+
+### Edge Cases for Dump Correlation (2026-03-24)
+- **Maintenance dumps:** Maintenance may manually dump baskets with no parts (testing, clearing jams, working on the machine). These will trigger opto signals but have no corresponding hopper fill.
+- **Overfill situations:** Sometimes the hopper overfills a basket — too many parts to paint properly. Operator has to manually dump excess parts before painting. This is a dump with parts but NOT a normal production dump.
+- **Manual hopper open:** Operator opens the hopper gate manually for various reasons — parts may fall into basket outside normal cycle timing.
+- **Implication:** We can't just blindly count opto signals OR blindly correlate fill-to-dump. We need a weight-based sanity check too:
+  - If a dump happens and the basket weight before dump was near zero → empty/maintenance dump → don't count
+  - If a dump happens and the basket weight was abnormally high → possible overfill situation → flag it
+  - Normal production dump = basket had weight consistent with a standard fill, dump followed a paint cycle
+- **Future consideration:** Might want a way for operators to tag a dump as "maintenance" or "manual" via the kiosk UI, but that's later. For now, weight correlation is the automatic filter.
