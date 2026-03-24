@@ -1,0 +1,24 @@
+---
+description: When the user asks to "Push to Git" or commit their work
+globs: *
+---
+
+# Push to Git (OpenClaw Return)
+
+When the user says "Push to Git", "push it", "wrap up", or "commit":
+
+1. **Acknowledge**: Reply: "Ok, let's update all docs and the handoff first, then push to Git."
+2. **Update STATUS.md**: Add a dated entry with what was built/changed this session.
+3. **Update HANDOFF.md**: Write what the next agent/person needs to know — what got done, what's next, any blockers.
+4. **Update TODO.md**: Check off `[x]` completed items. Add `- [ ]` for new tasks discovered.
+5. **Update DECISIONS.md**: If any design/architecture decisions were made, document WHY (not just what).
+6. **Update task files**: If a `docs/tasks/TASK-*.md` was used, append a summary of how it was solved.
+7. **Commit & Push**:
+   ```bash
+   git add .
+   git commit -m "feat/fix/docs: [brief description]"
+   git push origin main
+   ```
+8. **Confirm**: Tell the user the push is complete and docs are updated for the OpenClaw review cycle.
+
+**Golden Rule**: Never push undocumented code. OpenClaw agents (Anton, Ledger, Prism, Talos) pull this repo and rely on these docs to continue work. Clean handoffs save time and money.

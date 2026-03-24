@@ -1,0 +1,21 @@
+---
+description: When the user asks to "Pull from Git" or sync changes from OpenClaw/VPS
+globs: *
+---
+
+# Pull from Git (OpenClaw Intake)
+
+When the user says "Pull from Git", "pull latest", "sync", or starts a new session:
+
+1. **Pull**: Run `git pull origin main`
+2. **Read Handoff Docs (IN THIS ORDER)**:
+   - `HANDOFF.md` — What the last agent/session left for you. Read FIRST.
+   - `STATUS.md` — Current state, latest activity.
+   - `TODO.md` — The backlog. What's checked off, what's pending.
+   - `DECISIONS.md` — Recent architectural/design decisions (if it exists).
+   - `docs/tasks/` — Any formal task specs from OpenClaw agents (if they exist).
+3. **Summarize**: Give the user a concise summary:
+   - "Last session worked on [X]. Status is [Y]. Next step is [Z]. [N] open TODOs."
+4. **Ready**: You now have full context. Don't ask the user to repeat what's in the docs.
+
+**Golden Rule**: Always read the handoff docs before touching code. OpenClaw agents on the VPS push updates to these files. If you skip them, you're missing context.
