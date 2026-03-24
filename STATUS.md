@@ -6,6 +6,12 @@
 - Workspace path is environment-specific; use the current repo root instead of hardcoded absolute paths.
 - Verify sync state before any future push or deploy.
 
+## Latest Activity (2026-03-24)
+- Opto input CH1 wired and verified for basket dump detection on PLP6
+- Monitoring script live, capturing transition timestamps and durations
+- See `docs/OPTO_INPUT_MONITORING.md` for full hardware/software details
+- Two signal pulses per dump cycle confirmed — debounce logic needed before integration
+
 ## Current Focus
 1. Keep the Mar 18 no-restart hopper bundle documented correctly across local, Pi-staged, and live runtime states.
 2. Preserve the distinction between verified live completed-job webhook behavior and the remaining unvalidated hopper runtime behaviors.

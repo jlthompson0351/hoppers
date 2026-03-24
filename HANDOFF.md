@@ -65,6 +65,18 @@
 - Treat the repo itself as the shared project brain for handoff and continuity
 - Treat the Mar 18 staged-on-Pi bundle as pending runtime activation until `loadcell-transmitter` is restarted
 
+### 2026-03-24 — Opto Input Basket Dump Monitoring (LIVE)
+- Wired Sequent MegaInd opto input CH1 to basket rotation dump signal on PLP6
+- **Critical wiring note:** VEX1 = positive (+24V), IN1 = negative — REVERSED from schematic
+- Signal behavior: two HIGH pulses per dump cycle (rotate down → dump → rotate up → rotate down → dump again), each ~10-15s duration
+- Two pulses within a short window = ONE actual basket dump
+- Background monitoring script running on Pi at `/home/pi/monitor_in1.py`, logging to `/home/pi/basket_monitor.log`
+- Argus also deployed an enhanced monitor at `/tmp/opto_monitor.py` with CSV logging
+- Hardware edge detection enabled: `megaind 2 edgewr 1 3` (both rising + falling)
+- Full details: `docs/OPTO_INPUT_MONITORING.md`
+- **NOT YET** integrated into the main acquisition loop — standalone monitoring only
+- **Next:** Analyze captured timing data, build debounce logic (2 transitions within ~30s = 1 dump), then integrate into acquisition service
+
 ### Next Recommended Step
 1. Keep rollout truth current as more live observations come in.
 2. While the line is in use, continue read-only verification and backend/doc alignment as needed.
