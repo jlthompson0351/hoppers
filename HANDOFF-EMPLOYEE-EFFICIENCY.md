@@ -211,9 +211,24 @@ payload = {
 - This machine is the only one with the smart scale and opto input wired
 - Other machines (PLP7, etc.) may be added later but will require different configurations due to legacy equipment differences
 
+## ⚠️ PREREQUISITE: Threshold Calibration
+
+**READ `HANDOFF-THRESHOLD-FIX.md` FIRST.**
+
+The Pi's throughput cycle detector is currently misconfigured and not completing cycles. This must be fixed BEFORE adding efficiency enhancements.
+
+**Verification before proceeding:**
+- [ ] Throughput cycles are completing (check `throughput_events` table has data)
+- [ ] Webhooks are being sent (check `job_completion_outbox` table)
+- [ ] Scale completion data appears in Supabase
+
+**Once verified, proceed with the changes below.**
+
+---
+
 ## Testing Checklist
 
-- [ ] **BEFORE CODING:** Verify Pi service is running and writing data (see Talos forensic report)
+- [ ] **BEFORE CODING:** Verify Pi service is running and writing data (see Talos forensic report and threshold fix)
 - [ ] Verify `repo.query_events()` method exists (or add it)
 - [ ] Confirm `throughput_events` table schema matches expected fields and is populating
 - [ ] Test with a short job (3-5 baskets) first on PLP6
