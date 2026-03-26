@@ -1,9 +1,28 @@
-# CRITICAL: Fix Throughput Cycle Thresholds
+# ~~CRITICAL: Fix Throughput Cycle Thresholds~~ — RESOLVED (2026-03-26)
 
-**Priority:** HIGH — Blocks employee efficiency feature  
+**Priority:** ~~HIGH~~ CLOSED — Not needed  
 **Component:** Hopper Scale Pi (PLP6)  
-**Issue:** Throughput cycle detector is not completing cycles  
-**Root Cause:** Threshold miscalibration  
+**Issue:** ~~Throughput cycle detector is not completing cycles~~ **CONFIRMED WORKING**  
+**Root Cause:** ~~Threshold miscalibration~~ **Thresholds are fine — DB queried live on 2026-03-26 and confirmed healthy**  
+
+## Resolution (2026-03-26)
+
+Live DB inspection via SSH confirmed the throughput cycle detector is fully operational:
+
+- `throughput_events`: **4,725 rows** — cycles completing normally at ~99% confidence
+- `job_completion_outbox`: **143 webhooks sent**, all status = `sent`, delivered within 1-2 seconds
+- Full hopper weight: **240–270 lbs** (target 250 lbs) — well above `full_min_lb: 15.0`
+- Empty hopper weight after dump: **0–2 lbs** — consistent with `empty_threshold_lb: 2.0`
+- Avg cycle time: **~110 seconds** (~1.8 min per fill)
+- Typical job: **12 cycles, ~3,050 lbs total processed**
+
+**Current thresholds are correctly calibrated for real production loads. No changes needed.**
+
+The one real outstanding gap is that `basket_dump_count` is `0` on every webhook — the opto CH1 signal is logging to `basket_monitor.log` but is NOT yet wired into the acquisition loop's `counted_events` table. That is the next work item (see `HANDOFF-EMPLOYEE-EFFICIENCY.md` and `TODO.md`).
+
+---
+
+## Original Problem Description (kept for historical context)
 
 ---
 

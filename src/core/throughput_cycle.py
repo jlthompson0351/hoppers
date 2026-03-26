@@ -23,6 +23,8 @@ class ThroughputCycleEvent:
     empty_lbs: float
     duration_ms: int
     confidence: float
+    fill_time_ms: int = 0
+    dump_time_ms: int = 0
 
 
 class ThroughputCycleDetector:
@@ -36,6 +38,8 @@ class ThroughputCycleDetector:
         self._state_started_s = 0.0
         self._empty_baseline_lbs = 0.0
         self._fill_started_s: Optional[float] = None
+        self._full_stable_started_s: Optional[float] = None
+        self._dumping_started_s: Optional[float] = None
         self._peak_lbs = 0.0
         self._full_lbs: Optional[float] = None
         self._last_stable_full_lbs: Optional[float] = None
@@ -89,6 +93,7 @@ class ThroughputCycleDetector:
                     self._full_candidate_s = now_s
                 elif (now_s - self._full_candidate_s) >= cfg.full_stability_s:
                     self._full_lbs = max(self._peak_lbs, gross_lbs)
+                    self._full_stable_started_s = now_s
                     self._transition("FULL_STABLE", now_s)
             else:
                 self._full_candidate_s = None
@@ -113,6 +118,7 @@ class ThroughputCycleDetector:
                     self._full_lbs = float(self._last_stable_full_lbs)
                 elif self._full_lbs is None:
                     self._full_lbs = ref_full
+                self._dumping_started_s = now_s
                 self._transition("DUMPING", now_s)
             return None
 
@@ -145,6 +151,12 @@ class ThroughputCycleDetector:
                     effective_empty_lbs = max(0.0, empty_lbs)
                     processed_lbs = max(0.0, full_lbs - effective_empty_lbs)
                     duration_ms = int(max(0.0, (now_s - (self._fill_started_s or now_s))) * 1000.0)
+                    fill_time_ms = int(max(0.0, (
+                        (self._full_stable_started_s or now_s) - (self._fill_started_s or now_s)
+                    )) * 1000.0)
+                    dump_time_ms = int(max(0.0, (
+                        now_s - (self._dumping_started_s or now_s)
+                    )) * 1000.0)
                     confidence = self._confidence(
                         processed_lbs=processed_lbs,
                         full_lbs=full_lbs,
@@ -159,6 +171,8 @@ class ThroughputCycleDetector:
                         empty_lbs=empty_lbs,
                         duration_ms=duration_ms,
                         confidence=confidence,
+                        fill_time_ms=fill_time_ms,
+                        dump_time_ms=dump_time_ms,
                     )
             else:
                 self._empty_confirm_started_s = None
@@ -170,6 +184,8 @@ class ThroughputCycleDetector:
             near_empty_trigger = self._empty_baseline_lbs + cfg.rise_trigger_lb
             if gross_lbs >= max(rebound_trigger, near_empty_trigger):
                 self._fill_started_s = now_s
+                self._full_stable_started_s = None
+                self._dumping_started_s = None
                 self._peak_lbs = gross_lbs
                 self._full_lbs = None
                 self._last_stable_full_lbs = None

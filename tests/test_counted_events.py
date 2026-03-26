@@ -102,8 +102,17 @@ class CountedEventTests(unittest.TestCase):
         svc = AcquisitionService(hw=hw, repo=repo, state=LiveState())
         cfg = svc._load_cfg()
 
-        for _ in range(7):
-            svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)
+        # First rising edge fires normally. Reset cooldown between the two edges so
+        # this test validates rising-edge detection independently of the 30s cooldown.
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # False → no action
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # True  → rising edge #1
+        svc._last_basket_dump_s = -1e9                      # reset cooldown
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # True  → sustained, no action
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # True  → sustained, no action
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # False → falling edge
+        svc._last_basket_dump_s = -1e9                      # reset cooldown
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # True  → rising edge #2
+        svc._poll_buttons(cfg, raw_mv=0.0, gross_lbs=0.0)  # True  → sustained, no action
 
         summary = repo.get_job_window_counted_event_summary(
             line_id="default_line",
@@ -113,6 +122,30 @@ class CountedEventTests(unittest.TestCase):
         )
 
         self.assertEqual(summary.get("basket_dump"), 2)
+
+    def test_basket_dump_cooldown_suppresses_second_pulse(self) -> None:
+        repo = self._make_repo()
+        repo.save_config(
+            {
+                **repo.get_latest_config(),
+                "opto_actions": {"1": "basket_dump", "2": "none", "3": "none", "4": "none"},
+            }
+        )
+        svc = AcquisitionService(hw=None, repo=repo, state=LiveState())
+        cfg = svc._load_cfg()
+
+        # Fire two basket_dump edges with no time gap (simulates double-pulse within cooldown).
+        svc._handle_button("basket_dump", raw_mv=0.0, gross_lbs=0.0, cfg=cfg, channel=1)
+        svc._handle_button("basket_dump", raw_mv=0.0, gross_lbs=0.0, cfg=cfg, channel=1)
+
+        summary = repo.get_job_window_counted_event_summary(
+            line_id="default_line",
+            machine_id="default_machine",
+            start_utc="0001-01-01T00:00:00+00:00",
+            end_utc="9999-12-31T23:59:59+00:00",
+        )
+
+        self.assertEqual(summary.get("basket_dump"), 1)
 
 
 if __name__ == "__main__":

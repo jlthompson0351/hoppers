@@ -202,6 +202,7 @@ class AcquisitionService:
         self._opto_last: Dict[int, bool] = {}
         self._opto_count: Dict[int, int] = {}
         self._last_blocked_tare_log_s = -1e9
+        self._last_basket_dump_s: float = -1e9  # cooldown: group double-pulse into one logical dump
 
         # Loop stats
         self._loop_count = 0
@@ -395,8 +396,54 @@ class AcquisitionService:
         if final_set_weight_unit in (None, ""):
             final_set_weight_unit = lifecycle_state.last_set_weight_unit
         avg_cycle_time_ms = float(throughput_summary.get("avg_cycle_time_ms", 0.0) or 0.0)
+
+        # Basket dump metrics from opto counted_events
+        basket_dump_events = self.repo.get_counted_events_in_window(
+            event_type="basket_dump",
+            line_id=lifecycle_state.line_id,
+            machine_id=lifecycle_state.machine_id,
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
+        basket_dump_count_raw = int(counted_summary.get("basket_dump", 0) or 0)
+        basket_cycle_count = basket_dump_count_raw // 2
+        anomaly_detected = (basket_dump_count_raw % 2 != 0)
+
+        first_basket_dump_utc: Optional[str] = None
+        last_basket_dump_utc: Optional[str] = None
+        if basket_dump_events:
+            first_basket_dump_utc = basket_dump_events[0]["timestamp_utc"]
+            last_basket_dump_utc = basket_dump_events[-1]["timestamp_utc"]
+
+        # Idle gap detection: gaps >= 2 hours between consecutive basket dumps
+        idle_gaps: list = []
+        _gap_threshold_s = 2 * 60 * 60
+        for i in range(len(basket_dump_events) - 1):
+            try:
+                t_cur = datetime.fromisoformat(basket_dump_events[i]["timestamp_utc"])
+                t_next = datetime.fromisoformat(basket_dump_events[i + 1]["timestamp_utc"])
+                gap_s = (t_next - t_cur).total_seconds()
+                if gap_s >= _gap_threshold_s:
+                    idle_gaps.append({
+                        "start_utc": basket_dump_events[i]["timestamp_utc"],
+                        "end_utc": basket_dump_events[i + 1]["timestamp_utc"],
+                        "duration_minutes": int(gap_s // 60),
+                    })
+            except (ValueError, TypeError):
+                pass
+
+        # Hopper timing from throughput_events
+        hopper_load_times = self.repo.get_job_window_hopper_load_times(
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
+        avg_hopper_load_time_ms = (
+            int(round(sum(hopper_load_times) / len(hopper_load_times)))
+            if hopper_load_times else 0
+        )
+
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "job_id": lifecycle_state.active_job_id,
             "line_id": lifecycle_state.line_id,
             "machine_id": lifecycle_state.machine_id,
@@ -411,7 +458,15 @@ class AcquisitionService:
             ),
             "avg_weight_lbs": float(throughput_summary.get("avg_weight_lbs", 0.0) or 0.0),
             "avg_cycle_time_ms": int(round(avg_cycle_time_ms)),
-            "basket_dump_count": int(counted_summary.get("basket_dump", 0) or 0),
+            "basket_dump_count_raw": basket_dump_count_raw,
+            "basket_cycle_count": basket_cycle_count,
+            "anomaly_detected": anomaly_detected,
+            "first_basket_dump_utc": first_basket_dump_utc,
+            "last_basket_dump_utc": last_basket_dump_utc,
+            "idle_gaps": idle_gaps,
+            "avg_hopper_load_time_ms": avg_hopper_load_time_ms,
+            "avg_dump_time_ms": int(round(float(throughput_summary.get("avg_dump_time_ms", 0.0) or 0.0))),
+            "hopper_load_times": hopper_load_times,
             "override_seen": override_count > 0,
             "override_count": override_count,
             "final_set_weight_lbs": (
@@ -1367,6 +1422,8 @@ class AcquisitionService:
             hopper_id=cfg.throughput_hopper_id,
             target_set_weight_lbs=target_set_weight_lbs,
             dump_type=dump_type,
+            fill_time_ms=throughput_evt.fill_time_ms if throughput_evt.fill_time_ms > 0 else None,
+            dump_time_ms=throughput_evt.dump_time_ms if throughput_evt.dump_time_ms > 0 else None,
         )
         self.repo.record_dump_and_increment_totals(
             prev_stable_lbs=throughput_full_lbs,
@@ -2394,6 +2451,11 @@ class AcquisitionService:
             log.info("Button PRINT: %.2f lb", net)
 
         elif action == "basket_dump":
+            now = time.monotonic()
+            if now - self._last_basket_dump_s < 30.0:
+                log.debug("basket_dump suppressed (double-pulse cooldown)")
+                return
+            self._last_basket_dump_s = now
             line_id, machine_id = self._normalize_scope_ids(None, None)
             event_id = self.repo.record_counted_event(
                 event_type="basket_dump",

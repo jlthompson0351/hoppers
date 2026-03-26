@@ -21,11 +21,15 @@ Rules:
 
 ## Payload Contract (Current Integration Shape)
 
+Current version: `schema_version: 2` (since 2026-03-26).
+
+**Breaking change from v1:** `basket_dump_count` renamed to `basket_dump_count_raw`. Nine new fields added (see Field Definitions below).
+
 Use this JSON shape for both `lb` and `ea` modes:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "job_id": "1704405",
   "line_id": "line-1",
   "machine_id": "PLP6",
@@ -35,10 +39,18 @@ Use this JSON shape for both `lb` and `ea` modes:
   "last_erp_timestamp_utc": "2026-03-05T12:05:00+00:00",
   "cycle_count": 12,
   "dump_count": 12,
-  "basket_dump_count": 12,
   "total_processed_lbs": 1286.6247075265994,
   "avg_weight_lbs": 107.21872562721661,
   "avg_cycle_time_ms": 109884,
+  "basket_dump_count_raw": 24,
+  "basket_cycle_count": 12,
+  "anomaly_detected": false,
+  "first_basket_dump_utc": "2026-03-05T12:01:00+00:00",
+  "last_basket_dump_utc": "2026-03-05T12:09:30+00:00",
+  "idle_gaps": [],
+  "avg_hopper_load_time_ms": 18500,
+  "avg_dump_time_ms": 11200,
+  "hopper_load_times": [18000, 19200, 17800, 18500],
   "override_seen": false,
   "override_count": 0,
   "final_set_weight_lbs": 115.0,
@@ -70,11 +82,19 @@ Notes:
 - `first_erp_timestamp_utc`: first ERP timestamp seen for the active job
 - `last_erp_timestamp_utc`: last ERP timestamp seen for the active job before close
 - `cycle_count`: count of throughput cycle records included in the job window
-- `dump_count`: count of included dump events
-- `basket_dump_count`: count of opto-mapped basket dump pulses in the job window (from `counted_events` table)
+- `dump_count`: count of included dump events (weight-based hopper cycles)
 - `total_processed_lbs`: total processed amount (lb mode or converted eaches mode)
 - `avg_weight_lbs`: average per dump (lb mode or converted eaches mode)
-- `avg_cycle_time_ms`: average cycle duration in milliseconds
+- `avg_cycle_time_ms`: average total cycle duration in milliseconds (fill start → dump end)
+- `basket_dump_count_raw`: raw opto pulse count for basket dump events in the job window (from `counted_events` table); replaces `basket_dump_count` from schema_version 1
+- `basket_cycle_count`: actual basket cycle count — `basket_dump_count_raw // 2` (each physical dump produces 2 opto pulses)
+- `anomaly_detected`: true if `basket_dump_count_raw` is odd, indicating an incomplete cycle or maintenance test dump
+- `first_basket_dump_utc`: UTC timestamp of the first basket dump opto event in the job window; null if no dumps recorded
+- `last_basket_dump_utc`: UTC timestamp of the last basket dump opto event in the job window; null if no dumps recorded
+- `idle_gaps`: array of time gaps ≥ 2 hours between consecutive basket dump events; each entry has `start_utc`, `end_utc`, and `duration_minutes`; Supabase cross-references against downtime events to determine legitimacy
+- `avg_hopper_load_time_ms`: average hopper fill duration in milliseconds per cycle (from weight rise detection to full-stable confirmation); 0 if no timing data
+- `avg_dump_time_ms`: average dump duration in milliseconds per cycle (from full-stable to empty confirmed); 0 if no timing data
+- `hopper_load_times`: array of individual fill durations in milliseconds, one per qualifying cycle in the job window; ordered by timestamp ascending
 - `override_seen`: true if an override occurred in the job window
 - `override_count`: number of manual overrides attributed to the completed job window
 - `final_set_weight_lbs`: ERP set weight reference for the completed job
@@ -89,7 +109,8 @@ Notes:
 
 ## Backend Integration Decisions
 
-- Treat this payload as the current canonical contract for `schema_version = 1`.
+- Treat this payload as the current canonical contract for `schema_version = 2`.
+- `schema_version = 1` payloads used `basket_dump_count`; `schema_version = 2` renames it to `basket_dump_count_raw` and adds nine new fields. Backend should check `schema_version` and handle both gracefully during the rollout window.
 - Keep backend parsing backward-tolerant during rollout; old payloads may still exist until the staged Pi runtime is activated by restart.
 - Treat these as required fields and reject/log payloads if any are missing:
   - `schema_version`
@@ -129,7 +150,15 @@ These should be accepted as valid when `null`. In normal production flow, `final
 
 Completed-job fields most likely to be consumed directly by backend/UI reporting:
 
-- `basket_dump_count`
+- `basket_dump_count_raw`
+- `basket_cycle_count`
+- `anomaly_detected`
+- `first_basket_dump_utc`
+- `last_basket_dump_utc`
+- `idle_gaps`
+- `avg_hopper_load_time_ms`
+- `avg_dump_time_ms`
+- `hopper_load_times`
 - `override_seen`
 - `override_count`
 - `final_set_weight_lbs`

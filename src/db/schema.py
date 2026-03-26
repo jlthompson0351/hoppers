@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 DDL_V1 = """
@@ -257,6 +257,14 @@ CREATE INDEX IF NOT EXISTS idx_job_completion_outbox_job
 ON job_completion_outbox(job_id, created_at_utc DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_job_completion_outbox_dedupe
 ON job_completion_outbox(line_id, machine_id, job_id, job_start_record_time_set_utc, job_end_record_time_set_utc);
+"""
+
+
+DDL_V8 = """
+CREATE INDEX IF NOT EXISTS idx_throughput_events_fill_time
+ON throughput_events(fill_time_ms);
+CREATE INDEX IF NOT EXISTS idx_throughput_events_dump_time
+ON throughput_events(dump_time_ms);
 """
 
 

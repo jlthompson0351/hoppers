@@ -770,7 +770,9 @@ class AppRepository:
                 "SUM(CASE WHEN dump_type IN ('full','end_of_lot') THEN 1 ELSE 0 END) AS dump_count, "
                 "COALESCE(SUM(CASE WHEN dump_type IN ('full','end_of_lot') THEN processed_lbs ELSE 0.0 END), 0.0) AS total_processed_lbs, "
                 "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN processed_lbs END), 0.0) AS avg_weight_lbs, "
-                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN duration_ms END), 0.0) AS avg_cycle_time_ms "
+                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN duration_ms END), 0.0) AS avg_cycle_time_ms, "
+                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN fill_time_ms END), 0.0) AS avg_fill_time_ms, "
+                "COALESCE(AVG(CASE WHEN dump_type IN ('full','end_of_lot') THEN dump_time_ms END), 0.0) AS avg_dump_time_ms "
                 "FROM throughput_events WHERE timestamp_utc >= ? AND timestamp_utc < ?;",
                 (start_clean, end_clean),
             )
@@ -782,6 +784,8 @@ class AppRepository:
                 "total_processed_lbs": 0.0,
                 "avg_weight_lbs": 0.0,
                 "avg_cycle_time_ms": 0.0,
+                "avg_fill_time_ms": 0.0,
+                "avg_dump_time_ms": 0.0,
             }
         return {
             "cycle_count": int(row["total_cycle_count"] or 0),
@@ -789,7 +793,58 @@ class AppRepository:
             "total_processed_lbs": float(row["total_processed_lbs"] or 0.0),
             "avg_weight_lbs": float(row["avg_weight_lbs"] or 0.0),
             "avg_cycle_time_ms": float(row["avg_cycle_time_ms"] or 0.0),
+            "avg_fill_time_ms": float(row["avg_fill_time_ms"] or 0.0),
+            "avg_dump_time_ms": float(row["avg_dump_time_ms"] or 0.0),
         }
+
+    def get_job_window_hopper_load_times(
+        self,
+        *,
+        start_utc: str,
+        end_utc: str,
+    ) -> list:
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT fill_time_ms FROM throughput_events "
+                "WHERE timestamp_utc >= ? AND timestamp_utc < ? "
+                "AND dump_type IN ('full','end_of_lot') "
+                "AND fill_time_ms IS NOT NULL "
+                "ORDER BY timestamp_utc ASC;",
+                (start_clean, end_clean),
+            )
+            rows = cur.fetchall()
+        return [int(r["fill_time_ms"]) for r in rows]
+
+    def get_counted_events_in_window(
+        self,
+        *,
+        event_type: str,
+        line_id: str,
+        machine_id: str,
+        start_utc: str,
+        end_utc: str,
+    ) -> list:
+        event_type_clean = self._clean_required_text(event_type, "event_type")
+        line_id_clean = self._clean_required_text(line_id, "line_id")
+        machine_id_clean = self._clean_required_text(machine_id, "machine_id")
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT id, timestamp_utc FROM counted_events "
+                "WHERE event_type = ? AND line_id = ? AND machine_id = ? "
+                "AND timestamp_utc >= ? AND timestamp_utc < ? "
+                "ORDER BY timestamp_utc ASC;",
+                (event_type_clean, line_id_clean, machine_id_clean, start_clean, end_clean),
+            )
+            rows = cur.fetchall()
+        return [{"id": int(r["id"]), "timestamp_utc": str(r["timestamp_utc"])} for r in rows]
 
     def record_counted_event(
         self,
@@ -1430,6 +1485,8 @@ class AppRepository:
         hopper_id: Optional[str] = None,
         target_set_weight_lbs: Optional[float] = None,
         dump_type: Optional[str] = None,
+        fill_time_ms: Optional[int] = None,
+        dump_time_ms: Optional[int] = None,
     ) -> int:
         ts_utc = str(timestamp_utc or _utc_now())
         created_at = _utc_now()
@@ -1438,8 +1495,8 @@ class AppRepository:
             cur = conn.execute(
                 "INSERT INTO throughput_events("
                 "timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, confidence, device_id, "
-                "hopper_id, target_set_weight_lbs, dump_type, created_at"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?);",
+                "hopper_id, target_set_weight_lbs, dump_type, fill_time_ms, dump_time_ms, created_at"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
                 (
                     ts_utc,
                     float(processed_lbs),
@@ -1451,6 +1508,8 @@ class AppRepository:
                     (None if hopper_id is None else str(hopper_id)),
                     (None if target_set_weight_lbs is None else float(target_set_weight_lbs)),
                     (None if dump_type is None else str(dump_type)),
+                    (None if fill_time_ms is None else int(fill_time_ms)),
+                    (None if dump_time_ms is None else int(dump_time_ms)),
                     created_at,
                 ),
             )

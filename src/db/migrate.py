@@ -4,7 +4,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from src.db.schema import DDL_V1, DDL_V2, DDL_V3, DDL_V4, DDL_V5, DDL_V6, DDL_V7, SCHEMA_VERSION
+from src.db.schema import DDL_V1, DDL_V2, DDL_V3, DDL_V4, DDL_V5, DDL_V6, DDL_V7, DDL_V8, SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +105,15 @@ def ensure_db(db_path: Path) -> None:
             log.info("Applying DB schema v7...")
             conn.executescript(DDL_V7)
             _set_version(conn, 7)
+
+        if current < 8:
+            log.info("Applying DB schema v8...")
+            if not _has_column(conn, "throughput_events", "fill_time_ms"):
+                conn.execute("ALTER TABLE throughput_events ADD COLUMN fill_time_ms INTEGER;")
+            if not _has_column(conn, "throughput_events", "dump_time_ms"):
+                conn.execute("ALTER TABLE throughput_events ADD COLUMN dump_time_ms INTEGER;")
+            conn.executescript(DDL_V8)
+            _set_version(conn, 8)
 
         conn.commit()
         final = _get_version(conn)

@@ -6,17 +6,39 @@
 - Workspace path is environment-specific; use the current repo root instead of hardcoded absolute paths.
 - Verify sync state before any future push or deploy.
 
-## Latest Activity (2026-03-24)
+## Latest Activity (2026-03-26)
+
+### Basket Dump Mapping Root Cause — FOUND AND FIXED
+- SSH + DB inspection confirmed `basket_dump_count = 0` root cause: Input 1 (physical wire) was mapped to `TARE`; `basket_dump` action was on Input 4 with nothing wired there.
+- **Fix applied (no code change, no restart):** Settings > Buttons > Input 1 changed from `TARE (Net = 0)` → `Basket Dump Count`. Inputs 2–4 set to `None (Disabled)`. Auto-saved via web UI.
+- `counted_events` table had 0 rows before fix. Next basket dump should write rows with `event_type='basket_dump'`, `source='opto'`, `source_channel=1`.
+
+### Backend / Webhook Investigation — CLEAR
+- Pi `job_completion_outbox` confirmed all webhooks are `status=sent`, `attempt_count=0`, `last_error=null`.
+- Supabase `scale_completion_data` and `completed_jobs` both have data for all recent jobs.
+- The "missing data" observed for jobs 1705706 and 1704575 was a **timing issue**: scale data arrives at `receive-scale-webhook` immediately; `completed_jobs` record isn't created/updated until the downstream FINSP scan occurs (can be hours later). The data was always there — just not yet linked.
+- No code changes required on the backend for this issue.
+
+### No Code Staged Yet
+- The basket dump fix was a Settings UI change only. No Pi source files were modified.
+- The next work (webhook payload update + debounce logic) will require code changes and staging.
+
+## Previous Activity (2026-03-24)
 - Opto input CH1 wired and verified for basket dump detection on PLP6
 - Monitoring script live, capturing transition timestamps and durations
 - See `docs/OPTO_INPUT_MONITORING.md` for full hardware/software details
-- Two signal pulses per dump cycle confirmed — debounce logic needed before integration
+- Two signal pulses per dump cycle confirmed
 
 ## Current Focus
-1. Keep the Mar 18 no-restart hopper bundle documented correctly across local, Pi-staged, and live runtime states.
-2. Preserve the distinction between verified live completed-job webhook behavior and the remaining unvalidated hopper runtime behaviors.
-3. Prepare for the next approved-window restart where the staged hopper updates will become live together.
-4. Record Hopper's role in the next cross-project public machine-kiosk enhancement so Cursor/OpenClaw do not have to rediscover the data flow.
+
+### Next agent task — basket_dump pulse grouping (4-line fix in acquisition.py)
+- `basket_dump_count` is already in the webhook payload end-to-end. The only problem: 2 physical opto pulses per dump → count is 2× reality without grouping.
+- **Fix:** Add `self._last_basket_dump_s: float = -1e9` to `__init__`; add 30-second cooldown check at top of `basket_dump` branch in `_handle_button`. Suppress second pulse. No schema change. No webhook contract change.
+- **File to edit:** `src/services/acquisition.py` — `__init__` (~line 204) and `_handle_button` (~line 2396)
+- **Test:** Add case to `tests/test_counted_events.py` — two edges < 30s = 1 event
+- **Stage:** `pscp -pw depor src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transmitter/src/services/acquisition.py`
+- **Goes live:** Next approved-window restart of `loadcell-transmitter` (same restart activates the Mar 18 bundle)
+- See TODO.md → "Next Code Task" for the exact code to write.
 
 ## Cross-Project Product Context
 Hopper is the scale/runtime side of a three-project manufacturing system:
@@ -64,6 +86,13 @@ Business direction is increasingly job-centric:
 - After restart, validate that HDMI no longer exposes tare and that event logs clearly distinguish web/API tare triggers from opto-input tare triggers.
 - Current cleanup work is documentation/process work; it should not be treated as live Pi activation.
 - Current no-restart prep now includes a single approved-window checklist at `docs/APPROVED_WINDOW_CHECKLIST.md`.
+
+## Database Health — URGENT
+- **Live DB: 4.9 GB** on Pi SD card. WAL file: 36 MB uncheckpointed.
+- Root cause: `events` table (~420k rows, no retention policy) + `config_versions` (~16,937 rows, every auto-save appends full JSON)
+- **Risk:** disk-full crash if left unaddressed
+- **Fix:** Add pruning methods to `repo.py` + periodic maintenance call in acquisition loop. See TODO.md → "Database Maintenance" section.
+- Do NOT `VACUUM` or mass-delete while service is running.
 
 ## Current Blockers
 - Need to document when the production runtime actually became live; current proof comes from Mar 17 observation rather than a logged restart event.

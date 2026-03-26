@@ -4,7 +4,7 @@
 **Component:** Hopper Scale Pi (PLP6)  
 **Target File:** `/opt/loadcell-transmitter/src/services/acquisition.py`  
 **Date:** 2026-03-26  
-**Status:** Ready for Implementation
+**Status:** IMPLEMENTED (2026-03-26) — all code changes staged, 141 tests passing
 
 ---
 
@@ -233,30 +233,30 @@ payload = {
 - This machine is the only one with the smart scale and opto input wired
 - Other machines (PLP7, etc.) may be added later but will require different configurations due to legacy equipment differences
 
-## ⚠️ PREREQUISITE: Threshold Calibration
+## ✅ PREREQUISITE: Threshold Calibration — RESOLVED
 
-**READ `HANDOFF-THRESHOLD-FIX.md` FIRST.**
-
-The Pi's throughput cycle detector is currently misconfigured and not completing cycles. This must be fixed BEFORE adding efficiency enhancements.
-
-**Verification before proceeding:**
-- [ ] Throughput cycles are completing (check `throughput_events` table has data)
-- [ ] Webhooks are being sent (check `job_completion_outbox` table)
-- [ ] Scale completion data appears in Supabase
+`HANDOFF-THRESHOLD-FIX.md` is marked RESOLVED (2026-03-26). Live DB confirmed 4,725 throughput_events rows, 143 webhooks sent. Thresholds are correctly calibrated.
 
 **Once verified, proceed with the changes below.**
 
 ---
 
-## Testing Checklist
+## Implementation Checklist
 
-- [ ] **BEFORE CODING:** Verify Pi service is running and writing data (see Talos forensic report and threshold fix)
-- [ ] Verify `repo.query_events()` method exists (or add it)
-- [ ] Confirm `throughput_events` table schema matches expected fields and is populating
-- [ ] Test with a short job (3-5 baskets) first on PLP6
-- [ ] Verify idle gap detection with a test gap (pause job for 2+ hours)
-- [ ] Check webhook payload in Supabase logs
-- [ ] Verify no performance degradation on Pi (check `htop` during/after job completion)
+- [x] `throughput_cycle.py` — `fill_time_ms` + `dump_time_ms` added to `ThroughputCycleEvent`; `_full_stable_started_s` + `_dumping_started_s` tracked in detector
+- [x] `schema.py` — `SCHEMA_VERSION = 8`, `DDL_V8` adds `fill_time_ms` / `dump_time_ms` indexes
+- [x] `migrate.py` — v8 migration block with `ALTER TABLE` guards
+- [x] `repo.py` — `add_throughput_event` updated; `get_job_window_throughput_summary` returns `avg_fill_time_ms` + `avg_dump_time_ms`; new `get_job_window_hopper_load_times` and `get_counted_events_in_window` methods added
+- [x] `acquisition.py` — 30s basket_dump cooldown; `_persist_throughput_cycle_event` passes new timing fields; `_build_completed_job_payload` updated with all new fields, `schema_version: 2`
+- [x] Tests — 141 passing; new cooldown test + payload field assertions added
+- [x] Staged to Pi — 5 files copied, takes effect on next approved-window restart
+
+## Post-Restart Verification
+
+- [ ] Confirm `throughput_events` rows have non-null `fill_time_ms` and `dump_time_ms` values after first job
+- [ ] Confirm next completed-job webhook has `schema_version: 2`, non-zero `basket_dump_count_raw`, correct `basket_cycle_count`
+- [ ] Confirm `first_basket_dump_utc` and `last_basket_dump_utc` are populated
+- [ ] Confirm `hopper_load_times` array has one entry per qualifying dump cycle
 - [ ] Run for 1 week on PLP6, verify accuracy before considering other machines
 
 ---
