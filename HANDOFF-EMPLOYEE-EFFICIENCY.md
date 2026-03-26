@@ -16,6 +16,28 @@ Enhance the job completion webhook to include additional timing and dump metrics
 
 ---
 
+## Basket Dump Detection (CH1 Opto Input)
+
+**Hardware setup on PLP6:**
+- **CH1** is wired to the basket dump rotation signal
+- **Wiring:** VEX1 = positive, IN1 = negative (REVERSED from schematic)
+- **Signal:** 2 pulses = 1 basket dump
+  - Pulse 1: Basket dumps into paint vat
+  - Pulse 2: Basket returns and dumps after spin to remove excess paint
+
+**Software monitoring:**
+- `_poll_buttons` in `acquisition.py` already monitors CH1
+- Events are logged as `"basket_dump"` type
+- Each pulse increments the count
+- Total count stored in `counted_summary.get("basket_dump")`
+
+**For efficiency calculation:**
+- `basket_dump_count_raw` = total pulses (e.g., 48)
+- `basket_cycle_count` = `basket_dump_count_raw / 2` (e.g., 24 actual cycles)
+- If `basket_dump_count_raw` is odd → `anomaly_detected = True` (incomplete cycle or maintenance test)
+
+---
+
 ## Changes Required
 
 ### 1. Query Basket Dump Events
