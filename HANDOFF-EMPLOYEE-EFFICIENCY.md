@@ -83,6 +83,8 @@ for i in range(len(dump_events) - 1):
 
 **Important:** Do NOT filter by downtime on the Pi. Send ALL gaps ≥2 hours. Supabase will cross-reference with the downtime table.
 
+**Design Decision:** Keep Pi logic simple. No external API calls. Just report what you see. Supabase handles the intelligence.
+
 ---
 
 ### 5. Query Hopper Load Time Data
@@ -203,14 +205,22 @@ payload = {
 
 ---
 
+## Deployment Strategy
+
+**Phase 1: PLP6 Only**
+- This machine is the only one with the smart scale and opto input wired
+- Other machines (PLP7, etc.) may be added later but will require different configurations due to legacy equipment differences
+
 ## Testing Checklist
 
+- [ ] **BEFORE CODING:** Verify Pi service is running and writing data (see Talos forensic report)
 - [ ] Verify `repo.query_events()` method exists (or add it)
-- [ ] Confirm `throughput_events` table schema matches expected fields
-- [ ] Test with a short job (3-5 baskets) first
+- [ ] Confirm `throughput_events` table schema matches expected fields and is populating
+- [ ] Test with a short job (3-5 baskets) first on PLP6
 - [ ] Verify idle gap detection with a test gap (pause job for 2+ hours)
 - [ ] Check webhook payload in Supabase logs
 - [ ] Verify no performance degradation on Pi (check `htop` during/after job completion)
+- [ ] Run for 1 week on PLP6, verify accuracy before considering other machines
 
 ---
 
