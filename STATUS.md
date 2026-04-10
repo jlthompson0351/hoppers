@@ -6,22 +6,32 @@
 - Workspace path is environment-specific; use the current repo root instead of hardcoded absolute paths.
 - Verify sync state before any future push or deploy.
 
-## Latest Activity (2026-03-26)
+## Latest Activity (2026-04-10)
+
+### machine_id Mismatch — FOUND AND FIXED
+- **Root cause:** `counted_events` wrote `machine_id='default_machine'` (env var unset); completed-job webhook queried `machine_id='PLP6'`, returning 0 dumps even when 81 were detected.
+- **Fix:** Added `Environment=LCS_MACHINE_ID=PLP6` to `/etc/systemd/system/loadcell-transmitter.service`. Service restarted 2026-04-10 10:37 EDT (~10s downtime).
+- **Confirmed:** New `counted_events` rows now store `machine_id='PLP6'`. All future completed-job webhooks will carry accurate `basket_dump_count`.
+- **Impact:** Job 1706063 (Apr 9) lost 81 dump records — historical data not recoverable. All jobs after 2026-04-10 10:37 EDT are accurate.
+- Full forensic analysis: `CHANGELOG-PI-FIX-2026-04-10.md`.
+
+### Current State — All Mapping and machine_id Confirmed Correct
+- Input 1 → `Basket Dump Count` (set 2026-03-26). Physical wire on IN1. Confirmed working.
+- `LCS_MACHINE_ID=PLP6` active in systemd. Confirmed correct.
+- `counted_events` writing with correct `event_type`, `source`, `source_channel`, and `machine_id`.
+- Backend (Supabase) and Pi outbox healthy. No open mapping or ID mismatches.
+
+## Previous Activity (2026-03-26)
 
 ### Basket Dump Mapping Root Cause — FOUND AND FIXED
 - SSH + DB inspection confirmed `basket_dump_count = 0` root cause: Input 1 (physical wire) was mapped to `TARE`; `basket_dump` action was on Input 4 with nothing wired there.
 - **Fix applied (no code change, no restart):** Settings > Buttons > Input 1 changed from `TARE (Net = 0)` → `Basket Dump Count`. Inputs 2–4 set to `None (Disabled)`. Auto-saved via web UI.
-- `counted_events` table had 0 rows before fix. Next basket dump should write rows with `event_type='basket_dump'`, `source='opto'`, `source_channel=1`.
 
 ### Backend / Webhook Investigation — CLEAR
 - Pi `job_completion_outbox` confirmed all webhooks are `status=sent`, `attempt_count=0`, `last_error=null`.
 - Supabase `scale_completion_data` and `completed_jobs` both have data for all recent jobs.
 - The "missing data" observed for jobs 1705706 and 1704575 was a **timing issue**: scale data arrives at `receive-scale-webhook` immediately; `completed_jobs` record isn't created/updated until the downstream FINSP scan occurs (can be hours later). The data was always there — just not yet linked.
 - No code changes required on the backend for this issue.
-
-### No Code Staged Yet
-- The basket dump fix was a Settings UI change only. No Pi source files were modified.
-- The next work (webhook payload update + debounce logic) will require code changes and staging.
 
 ## Previous Activity (2026-03-24)
 - Opto input CH1 wired and verified for basket dump detection on PLP6
@@ -32,12 +42,12 @@
 ## Current Focus
 
 ### Next agent task — basket_dump pulse grouping (4-line fix in acquisition.py)
-- `basket_dump_count` is already in the webhook payload end-to-end. The only problem: 2 physical opto pulses per dump → count is 2× reality without grouping.
+- `basket_dump_count` is now flowing end-to-end with the correct `machine_id`. The remaining problem: 2 physical opto pulses per dump → count is 2× reality without grouping.
 - **Fix:** Add `self._last_basket_dump_s: float = -1e9` to `__init__`; add 30-second cooldown check at top of `basket_dump` branch in `_handle_button`. Suppress second pulse. No schema change. No webhook contract change.
 - **File to edit:** `src/services/acquisition.py` — `__init__` (~line 204) and `_handle_button` (~line 2396)
 - **Test:** Add case to `tests/test_counted_events.py` — two edges < 30s = 1 event
 - **Stage:** `pscp -pw depor src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transmitter/src/services/acquisition.py`
-- **Goes live:** Next approved-window restart of `loadcell-transmitter` (same restart activates the Mar 18 bundle)
+- **Goes live:** Next approved-window restart of `loadcell-transmitter` (also activates the Mar 18 bundle)
 - See TODO.md → "Next Code Task" for the exact code to write.
 
 ## Cross-Project Product Context

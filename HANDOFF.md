@@ -30,19 +30,31 @@
   - files already staged on the Pi
   - what is actually live after restart/validation
 
+### What Was Confirmed Live
+
+#### 2026-04-10 — machine_id Fix Confirmed
+- `LCS_MACHINE_ID=PLP6` added to systemd service. Service restarted 2026-04-10 10:37 EDT.
+- All new `counted_events` now write `machine_id='PLP6'`, matching the webhook query.
+- Basket dump pipeline is end-to-end correct: opto IN1 → `basket_dump` action → `counted_events` → webhook `basket_dump_count`.
+- No mapping mismatches remain. Full forensics in `CHANGELOG-PI-FIX-2026-04-10.md`.
+
+#### 2026-03-26 — Button Mapping Fix Confirmed
+- Input 1 mapped to `Basket Dump Count`. Inputs 2–4 disabled. Physical wire on IN1 confirmed.
+- `counted_events` started writing rows after this fix.
+
+#### 2026-03-17 — Webhook / Outbox Confirmed Live
+- Pi DB inspection over Tailscale confirmed completed-job webhook/outbox runtime live for `PLP6`.
+- Outbox row `60` for job `1704584` was marked `sent` at `2026-03-17T23:08:27+00:00`.
+- That live payload included `basket_dump_count` plus the expanded re-zero diagnostic fields.
+- Replay of the last 5 real Pi completed-job payloads to the backend webhook returned HTTP `200`; 4 stored and 1 duplicate ignored correctly.
+
 ### What Still Needs Reality Check
 - the exact production restart/activation moment that made the Mar 6 + Mar 16 runtime live
-- whether basket-dump counts, floor-threshold behavior, and re-zero warning all behave correctly on the live line
+- whether floor-threshold behavior and re-zero warning behave correctly on the live line (dump counts are now confirmed)
 - whether the Mar 18 HDMI tare removal and larger touch controls behave as expected after restart
 - whether the new tare event logging clearly identifies the real source of any unexpected tare trigger
 - whether the latest documented backup/baseline state matches what should be used for the next clone-image capture
 - whether Hopper's current completed-job payload shape fully matches the next frontend machine-kiosk metrics brief
-
-### What Was Confirmed Live
-- On 2026-03-17, Pi DB inspection over Tailscale confirmed completed-job webhook/outbox runtime is live for `PLP6`.
-- Outbox row `60` for job `1704584` was marked `sent` at `2026-03-17T23:08:27+00:00`.
-- That live payload included `basket_dump_count` plus the expanded re-zero diagnostic fields.
-- Replay of the last 5 real Pi completed-job payloads to the backend webhook returned HTTP `200` for all requests; 4 stored and 1 duplicate was ignored correctly.
 
 ### Cross-Project Frontend Brief
 - The next planned frontend change is on the public per-machine kiosk page.
@@ -65,12 +77,18 @@
 - Treat the repo itself as the shared project brain for handoff and continuity
 - Treat the Mar 18 staged-on-Pi bundle as pending runtime activation until `loadcell-transmitter` is restarted
 
-### 2026-03-26 — Basket Dump Root Cause Found and Fixed
+### 2026-04-10 — machine_id Mismatch Found and Fixed (CLOSED)
+- `counted_events` used `machine_id='default_machine'`; webhook queried `machine_id='PLP6'` → returned 0 dumps.
+- Fix: `Environment=LCS_MACHINE_ID=PLP6` added to systemd unit. Restarted 2026-04-10 10:37 EDT.
+- Confirmed: new `counted_events` rows write `machine_id='PLP6'`. Pipeline is clean.
+- Job 1706063 (Apr 9, 81 dumps) is the only job with lost records; not recoverable.
+
+### 2026-03-26 — Basket Dump Root Cause Found and Fixed (CLOSED)
 - SSH inspection of live Pi DB revealed: `opto_actions` had `basket_dump` on Input 4, but physical wire is on Input 1.
 - Input 1 was mapped to `TARE` — every basket dump was silently firing a tare instead of incrementing the count.
 - `counted_events` table had zero rows confirming no dump had ever been counted.
 - **Fix applied:** Settings > Buttons > Input 1 → `Basket Dump Count`. Inputs 2–4 → `None (Disabled)`. Saved via web UI. No code change, no restart needed.
-- Pending verification: next dump should write rows to `counted_events` and next completed-job webhook should carry non-zero `basket_dump_count`.
+- Verified: `counted_events` rows now write correctly after opto pulses.
 
 ### 2026-03-26 — Backend / Supabase Webhook Confirmed Healthy
 - Pi outbox fully healthy: all sent rows have `attempt_count=0`, `last_error=null`.
@@ -97,16 +115,21 @@
 
 ### Next Recommended Steps
 
+#### Current confirmed-good state (as of 2026-04-10)
+- Opto IN1 wired and mapped to `Basket Dump Count`. No mismatch.
+- `LCS_MACHINE_ID=PLP6` active in systemd. No mismatch.
+- `counted_events` writing correctly. Backend healthy.
+
 #### Primary task for the next agent — basket_dump pulse grouping
-The webhook field `basket_dump_count` is already wired end-to-end:
+The webhook field `basket_dump_count` is flowing correctly end-to-end:
 `counted_events` → `repo.get_job_window_counted_events_summary()` → `basket_dump_count` in `_build_completed_job_payload()` (`acquisition.py` ~line 414).
 
-The only missing piece: each physical dump fires **2 opto pulses** (~10–15s apart). Without grouping, the count is 2× the real dump count.
+The only remaining problem: each physical dump fires **2 opto pulses** (~10–15s apart). Without grouping, the count is 2× the real dump count.
 
 **The fix is 4 lines in `src/services/acquisition.py`. No schema change. No webhook contract change.**
 
 1. Add `self._last_basket_dump_s: float = -1e9` to `__init__` (~line 204, after `_last_blocked_tare_log_s`)
-2. In `_handle_button` at the `basket_dump` branch (~line 2396): add a 30-second cooldown check at the top — if `time.monotonic() - self._last_basket_dump_s < 30.0`, log debug and `return`; otherwise set `self._last_basket_dump_s = now` then proceed with the existing `record_counted_event` call.
+2. In `_handle_button` at the `basket_dump` branch (~line 2396): add a 30-second cooldown check — if `time.monotonic() - self._last_basket_dump_s < 30.0`, log debug and `return`; otherwise set `self._last_basket_dump_s = now` then proceed with the existing `record_counted_event` call.
 
 **See TODO.md → "Next Code Task" for the exact code block and full step-by-step.**
 
