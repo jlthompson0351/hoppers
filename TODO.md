@@ -37,12 +37,10 @@
 - **Backend confirmed healthy:** Pi outbox all `sent`, Supabase `scale_completion_data` + `completed_jobs` receiving correctly. "Missing data" on jobs 1705706/1704575 was a FINSP timing gap, not a send failure.
 - **No code staged yet.** The next task requires code changes.
 
-### Next Immediate Action — Verify Live Counting (read-only)
-After the next basket dump on the line, run via SSH:
-```
-sqlite3 /var/lib/loadcell-transmitter/data/app.sqlite3 "SELECT * FROM counted_events ORDER BY id DESC LIMIT 5;"
-```
-Expect rows with `event_type='basket_dump'`, `source='opto'`, `source_channel=1`.
+### Live Counting Confirmed (2026-04-10)
+- `counted_events` rows confirmed writing with `event_type='basket_dump'`, `source='opto'`, `source_channel=1`.
+- `machine_id` mismatch fixed: `LCS_MACHINE_ID=PLP6` now set in systemd. Service restarted 2026-04-10 10:37 EDT.
+- Next completed-job webhook will carry accurate `basket_dump_count`.
 
 ### Next Code Task — basket_dump Pulse Grouping (ONE small change, then stage to Pi)
 
@@ -120,12 +118,13 @@ Confirm rows appear at ~1 per physical dump (not 2).
 
 - [x] ~~Integrate opto CH1 basket dump signal into the main acquisition loop (`counted_events` table)~~ — mapping corrected in Settings 2026-03-26
 - [x] ~~Throughput cycle detector threshold fix~~ — NOT NEEDED, already working
-- [ ] **VERIFY FIRST:** Confirm `counted_events` rows appear after a live dump (Step 1 above)
-- [ ] Add 30-second cooldown to `basket_dump` handler — group double-pulse into 1 logical event (Step 2)
-- [ ] Test: new case in `test_counted_events.py` — two edges < 30s = 1 event (Step 3)
-- [ ] Stage `acquisition.py` to Pi (Step 4)
-- [ ] After restart: verify 1 row per dump in `counted_events` and non-zero `basket_dump_count` on next webhook (Step 5)
-- [ ] Future (after above is verified): correlate opto dump with weight-curve drop for confirmed parts-dump vs empty-rotation detection
+- [x] ~~VERIFY: Confirm `counted_events` rows appear after a live dump~~ — confirmed live 2026-04-10
+- [x] ~~`machine_id` mismatch: `default_machine` vs `PLP6`~~ — fixed via `LCS_MACHINE_ID=PLP6` in systemd, restarted 2026-04-10
+- [ ] Add 30-second cooldown to `basket_dump` handler — group double-pulse into 1 logical event (Step 2 in spec above)
+- [ ] Test: new case in `test_counted_events.py` — two edges < 30s = 1 event
+- [ ] Stage `acquisition.py` to Pi, activate at next approved-window restart
+- [ ] After restart: verify 1 row per dump in `counted_events` and non-zero `basket_dump_count` on next webhook
+- [ ] Future: correlate opto dump with weight-curve drop for confirmed parts-dump vs empty-rotation detection
 
 > **Mechanical Constraints to keep in mind (future work):**
 > 1. **Double-Dump Shake** — handled by the 30s cooldown above
@@ -269,11 +268,7 @@ Confirm rows appear at ~1 per physical dump (not 2).
   - Completed-job payload builder now includes `basket_dump_count`.
   - Added regression tests: `tests/test_counted_events.py` and updated `tests/test_job_completion_webhook.py`.
 
-- [ ] Validate live basket dump counting — mapping fix now live.
-  - Input 1 is now mapped to `Basket Dump Count`. Physical wire confirmed on IN1.
-  - **Watch:** next basket dump should write a row to `counted_events` with `event_type='basket_dump'`, `source='opto'`, `source_channel=1`.
-  - **Watch:** next completed-job webhook should contain non-zero `basket_dump_count`.
-  - Verify via SSH: `SELECT * FROM counted_events ORDER BY id DESC LIMIT 10;`
+- [x] ~~Validate live basket dump counting~~ — confirmed 2026-04-10. Input 1 mapped to `Basket Dump Count`, physical wire on IN1, `counted_events` writing correctly, `machine_id=PLP6` confirmed.
 
 ### 2026-03-05 - Completed job webhook integration
 
