@@ -819,6 +819,40 @@ class AppRepository:
             rows = cur.fetchall()
         return [int(r["fill_time_ms"]) for r in rows]
 
+    def get_job_window_dump_events(
+        self,
+        *,
+        start_utc: str,
+        end_utc: str,
+    ) -> list:
+        """Return per-dump detail rows for qualifying throughput cycles in a job window."""
+        start_clean = str(start_utc or "").strip()
+        end_clean = str(end_utc or "").strip()
+        if not start_clean or not end_clean:
+            raise ValueError("start_utc and end_utc are required")
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT timestamp_utc, processed_lbs, duration_ms, fill_time_ms, "
+                "dump_type, target_set_weight_lbs "
+                "FROM throughput_events "
+                "WHERE timestamp_utc >= ? AND timestamp_utc < ? "
+                "AND dump_type IN ('full','end_of_lot') "
+                "ORDER BY timestamp_utc ASC;",
+                (start_clean, end_clean),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "timestamp_utc": str(r["timestamp_utc"]),
+                "weight_lbs": float(r["processed_lbs"] or 0.0),
+                "cycle_time_ms": int(r["duration_ms"] or 0),
+                "hopper_load_time_ms": int(r["fill_time_ms"]) if r["fill_time_ms"] is not None else None,
+                "dump_type": str(r["dump_type"]) if r["dump_type"] else None,
+                "target_set_weight_lbs": float(r["target_set_weight_lbs"]) if r["target_set_weight_lbs"] is not None else None,
+            }
+            for r in rows
+        ]
+
     def get_counted_events_in_window(
         self,
         *,
@@ -1450,6 +1484,91 @@ class AppRepository:
         with self._conn() as conn:
             conn.execute("DELETE FROM trends_total WHERE ts < ?;", (cutoff,))
             conn.execute("DELETE FROM trends_channels WHERE ts < ?;", (cutoff,))
+
+    def run_maintenance(self, keep_days: int = 7, keep_config_versions: int = 50) -> Dict[str, int]:
+        """Prune old data from append-only tables and checkpoint WAL.
+
+        Supabase is the permanent record; the Pi only needs enough local
+        history to debug recent issues.  Safe to call while the service is
+        running — deletes in small implicit transactions per table.
+
+        Tables pruned by age (keep_days):
+            events, trends_total, trends_channels, throughput_events,
+            production_dumps, counted_events, set_weight_history,
+            job_completion_outbox (sent rows only)
+
+        Tables pruned by count (keep_config_versions):
+            config_versions — keep the N most recent rows
+
+        Never touched:
+            calibration_points, plc_profile_points, set_weight_current,
+            job_lifecycle_state, production_totals, schema_version
+        """
+        days = max(1, int(keep_days))
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        deleted: Dict[str, int] = {}
+
+        age_targets = [
+            ("events", "ts"),
+            ("trends_total", "ts"),
+            ("trends_channels", "ts"),
+            ("throughput_events", "timestamp_utc"),
+            ("production_dumps", "ts"),
+            ("counted_events", "timestamp_utc"),
+            ("set_weight_history", "created_at_utc"),
+        ]
+
+        for table, ts_col in age_targets:
+            try:
+                with self._conn() as conn:
+                    conn.execute(f"DELETE FROM {table} WHERE {ts_col} < ?;", (cutoff,))
+                    row = conn.execute("SELECT changes() AS cnt;").fetchone()
+                    deleted[table] = int(row["cnt"]) if row else 0
+            except Exception:
+                log.exception("maintenance: failed to prune %s", table)
+                deleted[table] = -1
+
+        # Outbox: only prune rows that were successfully sent
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "DELETE FROM job_completion_outbox "
+                    "WHERE status = 'sent' AND sent_at_utc < ?;",
+                    (cutoff,),
+                )
+                row = conn.execute("SELECT changes() AS cnt;").fetchone()
+                deleted["job_completion_outbox"] = int(row["cnt"]) if row else 0
+        except Exception:
+            log.exception("maintenance: failed to prune job_completion_outbox")
+            deleted["job_completion_outbox"] = -1
+
+        # Config versions: keep the most recent N rows by id
+        keep_n = max(5, int(keep_config_versions))
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "DELETE FROM config_versions WHERE id NOT IN "
+                    "(SELECT id FROM config_versions ORDER BY id DESC LIMIT ?);",
+                    (keep_n,),
+                )
+                row = conn.execute("SELECT changes() AS cnt;").fetchone()
+                deleted["config_versions"] = int(row["cnt"]) if row else 0
+        except Exception:
+            log.exception("maintenance: failed to prune config_versions")
+            deleted["config_versions"] = -1
+
+        # WAL checkpoint to flush pending pages back to the main DB file
+        try:
+            with self._conn() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception:
+            log.exception("maintenance: WAL checkpoint failed")
+
+        total = sum(v for v in deleted.values() if v > 0)
+        if total > 0:
+            log.info("maintenance: pruned %d rows total — %s", total, deleted)
+
+        return deleted
 
     # -------- throughput events --------
     @staticmethod

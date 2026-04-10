@@ -151,11 +151,11 @@ Confirm rows appear at ~1 per physical dump (not 2).
 | `config_versions` | ~16,937 | Every Settings auto-save appends full JSON. Only latest row matters at runtime. |
 
 ### What needs to be built (in `src/db/repo.py` + acquisition loop)
-- [ ] Add `prune_old_events(keep_days=30)` to `repo.py` — `DELETE FROM events WHERE ts < ?` with a cutoff timestamp
-- [ ] Add `prune_config_versions(keep_last=50)` to `repo.py` — delete all but the most recent N rows
-- [ ] Call both from acquisition loop on a slow timer (e.g. once per hour, not every tick)
-- [ ] After pruning, run `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL
-- [ ] Add tests covering pruning behavior (correct rows deleted, newest preserved)
+- [x] Add `prune_old_events(keep_days=30)` to `repo.py` — implemented as `run_maintenance(keep_days=N)` which prunes events, trends_total, trends_channels, throughput_events, production_dumps, counted_events, set_weight_history, and sent outbox rows older than N days
+- [x] Add `prune_config_versions(keep_last=50)` to `repo.py` — integrated into `run_maintenance(keep_config_versions=50)`
+- [x] Call both from acquisition loop on a slow timer (e.g. once per hour, not every tick) — `_maybe_run_maintenance()` runs hourly, uses `logging.retention_days` config (default 7)
+- [x] After pruning, run `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL — done inside `run_maintenance()`
+- [x] Add tests covering pruning behavior (correct rows deleted, newest preserved) — 12 tests in `tests/test_db_maintenance.py`
 - [ ] Stage to Pi, activate at next approved-window restart
 - [ ] After restart + pruning runs, schedule a `VACUUM` during an approved window to reclaim disk space
 

@@ -8,6 +8,18 @@
 
 ## Latest Activity (2026-04-10)
 
+### DB Maintenance / Pruning — IMPLEMENTED AND STAGED ON PI
+- **Problem:** Live DB is 4.9 GB on Pi SD card. `events` (~420k rows), `config_versions` (~17k rows), `trends_total` (potentially ~20 Hz writes), and several other append-only tables have no retention policy. Risk of disk-full crash.
+- **Fix:** Added `run_maintenance(keep_days=7)` to `repo.py` — prunes 8 append-only tables by age, keeps last 50 config versions, checkpoints WAL. Wired into acquisition loop via `_maybe_run_maintenance()` on an hourly timer using `logging.retention_days` config (default 7 days). Permanent tables (`production_totals`, `calibration_points`, `set_weight_current`, `job_lifecycle_state`) are never touched. Pending outbox rows are never deleted.
+- **Tests:** 12 new tests in `tests/test_db_maintenance.py`, all passing. Existing test suite (14 tests) unaffected.
+- **Staged on Pi:** `repo.py` and `acquisition.py` copied to `/opt/loadcell-transmitter` on 2026-04-10 12:37 EDT. Not yet running — takes effect on next service restart.
+- **After restart:** First hourly maintenance run will prune rows older than 7 days. A manual `VACUUM` should be scheduled during a downtime window to reclaim disk space from deleted rows.
+
+### Full Production Audit Completed
+- 5-way parallel audit: acquisition loop, DB layer, test coverage, security, config/deployment.
+- 25 findings documented across CRITICAL/HIGH/MEDIUM/LOW severity levels.
+- Key findings beyond DB maintenance: blocking webhook dispatch in acquisition thread, SSH password `depor` in 10+ tracked files, no auth on web UI, repo systemd unit doesn't match production, basket_dump cooldown already in repo but not yet on Pi (the `// 2` payload math is correct for current production).
+
 ### machine_id Mismatch — FOUND AND FIXED
 - **Root cause:** `counted_events` wrote `machine_id='default_machine'` (env var unset); completed-job webhook queried `machine_id='PLP6'`, returning 0 dumps even when 81 were detected.
 - **Fix:** Added `Environment=LCS_MACHINE_ID=PLP6` to `/etc/systemd/system/loadcell-transmitter.service`. Service restarted 2026-04-10 10:37 EDT (~10s downtime).
@@ -97,12 +109,12 @@ Business direction is increasingly job-centric:
 - Current cleanup work is documentation/process work; it should not be treated as live Pi activation.
 - Current no-restart prep now includes a single approved-window checklist at `docs/APPROVED_WINDOW_CHECKLIST.md`.
 
-## Database Health — URGENT
+## Database Health — FIX STAGED, PENDING RESTART
 - **Live DB: 4.9 GB** on Pi SD card. WAL file: 36 MB uncheckpointed.
-- Root cause: `events` table (~420k rows, no retention policy) + `config_versions` (~16,937 rows, every auto-save appends full JSON)
-- **Risk:** disk-full crash if left unaddressed
-- **Fix:** Add pruning methods to `repo.py` + periodic maintenance call in acquisition loop. See TODO.md → "Database Maintenance" section.
-- Do NOT `VACUUM` or mass-delete while service is running.
+- Root cause: `events` table (~420k rows, no retention policy) + `config_versions` (~16,937 rows) + `trends_total` (potentially ~20 Hz writes with no cleanup call)
+- **Fix implemented:** `run_maintenance(keep_days=7)` in `repo.py` prunes all append-only tables hourly. Staged on Pi 2026-04-10 12:37 EDT.
+- **Activates on next restart.** After first prune cycle, schedule a `VACUUM` during approved downtime to reclaim SD card space.
+- Do NOT run manual `VACUUM` while the service is running.
 
 ## Current Blockers
 - Need to document when the production runtime actually became live; current proof comes from Mar 17 observation rather than a logged restart event.

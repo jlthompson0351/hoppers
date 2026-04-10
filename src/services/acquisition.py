@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -126,6 +127,7 @@ class _Cfg:
     completed_job_webhook_dispatch_interval_s: float
     completed_job_webhook_retry_min_s: float
     completed_job_webhook_retry_max_s: float
+    log_retention_days: int
     # (no empty_reset_lb / empty_confirm_s — output is pure threshold, no timers)
 
 
@@ -217,6 +219,7 @@ class AcquisitionService:
         self._job_event_id_order: deque[str] = deque()
         self._job_event_id_limit = 1000
         self._job_outbox_last_dispatch_s = 0.0
+        self._last_maintenance_s = 0.0
         self._restore_persisted_job_control_state()
 
     # ── Lifecycle ─────────────────────────────────────────────────
@@ -432,6 +435,12 @@ class AcquisitionService:
             except (ValueError, TypeError):
                 pass
 
+        # Per-dump detail events from throughput_events
+        dump_events_raw = self.repo.get_job_window_dump_events(
+            start_utc=lifecycle_state.active_job_started_record_time_set_utc,
+            end_utc=closed_at_record_time_set_utc,
+        )
+
         # Hopper timing from throughput_events
         hopper_load_times = self.repo.get_job_window_hopper_load_times(
             start_utc=lifecycle_state.active_job_started_record_time_set_utc,
@@ -442,8 +451,23 @@ class AcquisitionService:
             if hopper_load_times else 0
         )
 
+        # Pi timezone and clock diagnostics
+        try:
+            raw_cfg = self.repo.get_latest_config()
+            ui_cfg = raw_cfg.get("ui") if isinstance(raw_cfg, dict) else {}
+            tz_name = str((ui_cfg or {}).get("timezone", "UTC") or "UTC").strip() or "UTC"
+        except Exception:
+            tz_name = "UTC"
+        now_utc = datetime.now(timezone.utc)
+        try:
+            local_tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, KeyError):
+            local_tz = timezone.utc
+            tz_name = "UTC"
+        now_local = now_utc.astimezone(local_tz)
+
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "job_id": lifecycle_state.active_job_id,
             "line_id": lifecycle_state.line_id,
             "machine_id": lifecycle_state.machine_id,
@@ -489,6 +513,10 @@ class AcquisitionService:
             ),
             "post_dump_rezero_applied": bool(self._job_post_dump_rezero_applied),
             "post_dump_rezero_last_apply_utc": self._job_post_dump_rezero_last_apply_utc,
+            "dump_events": dump_events_raw,
+            "timezone": tz_name,
+            "pi_system_time_utc": now_utc.isoformat(timespec="seconds"),
+            "pi_local_time": now_local.strftime("%Y-%m-%dT%H:%M:%S"),
             "completed_at_utc": _utc_now(),
         }
 
@@ -706,6 +734,25 @@ class AcquisitionService:
                         "next_retry_at_utc": next_retry_at,
                     },
                 )
+
+    _MAINTENANCE_INTERVAL_S = 3600.0  # once per hour
+
+    def _maybe_run_maintenance(self, *, now_s: float, retention_days: int) -> None:
+        if (now_s - self._last_maintenance_s) < self._MAINTENANCE_INTERVAL_S:
+            return
+        self._last_maintenance_s = now_s
+        try:
+            result = self.repo.run_maintenance(keep_days=retention_days)
+            total = sum(v for v in result.values() if v > 0)
+            if total > 0:
+                self.repo.log_event(
+                    level="INFO",
+                    code="DB_MAINTENANCE",
+                    message=f"Pruned {total} old rows from local DB.",
+                    details=result,
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("DB maintenance failed: %s", e)
 
     def _restore_persisted_job_control_state(self) -> None:
         restored_weight = 0.0
@@ -1082,6 +1129,7 @@ class AcquisitionService:
         job_control = c.get("job_control") or {}
         range_cfg = c.get("range") or {}
         display = c.get("display") or {}
+        logging_cfg = c.get("logging") or {}
 
         # Zero offset: mV is canonical (applied in signal domain), lbs is derived for compatibility
         zero_offset_mv_raw = scale.get("zero_offset_mv", scale.get("zero_offset_signal", 0.0))
@@ -1326,6 +1374,7 @@ class AcquisitionService:
             completed_job_webhook_dispatch_interval_s=completed_job_webhook_dispatch_interval_s,
             completed_job_webhook_retry_min_s=completed_job_webhook_retry_min_s,
             completed_job_webhook_retry_max_s=completed_job_webhook_retry_max_s,
+            log_retention_days=max(1, int(logging_cfg.get("retention_days", 7) or 7)),
         )
 
     # ── Hardware reconnect ────────────────────────────────────────
@@ -2272,6 +2321,8 @@ class AcquisitionService:
                     self._dispatch_job_completion_outbox(cfg=cfg, now_s=t)
                 except Exception as outbox_err:  # noqa: BLE001
                     log.warning("Job completion outbox dispatch failed: %s", outbox_err)
+
+                self._maybe_run_maintenance(now_s=t, retention_days=cfg.log_retention_days)
 
             except Exception as e:
                 log.error("Acquisition loop error: %s", e)

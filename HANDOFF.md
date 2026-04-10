@@ -113,12 +113,32 @@
 - Full details: `docs/OPTO_INPUT_MONITORING.md`
 - Raw pulses now counting in `counted_events` (after 2026-03-26 mapping fix). Debounce/correlation logic not yet built.
 
+### 2026-04-10 — DB Maintenance Staged on Pi (PENDING RESTART)
+- `run_maintenance()` added to `repo.py`: prunes 8 append-only tables (events, trends_total, trends_channels, throughput_events, production_dumps, counted_events, set_weight_history, sent outbox) older than `logging.retention_days` (default 7). Keeps last 50 config_versions. Checkpoints WAL.
+- `_maybe_run_maintenance()` added to acquisition loop: runs once per hour. Logs `DB_MAINTENANCE` event with per-table row counts.
+- 12 tests in `tests/test_db_maintenance.py`, all passing.
+- **Staged on Pi** at `/opt/loadcell-transmitter` on 2026-04-10 12:37 EDT. **Not live until service restart.**
+- After restart, first prune will remove anything older than 7 days from all target tables.
+- **After the first prune runs**, schedule `VACUUM` during a downtime window to reclaim SD card space.
+
+### 2026-04-10 — Full Production Audit Findings
+- Audit found 25 issues across 5 areas. DB maintenance (above) addresses the most critical one.
+- Other notable findings still open:
+  - Blocking `urllib.request.urlopen()` in acquisition thread stalls DAQ during webhook dispatch
+  - SSH password `depor` hardcoded in 10+ tracked files
+  - No authentication on web UI or most API endpoints (accepted risk on closed LAN)
+  - Repo systemd unit (`systemd/loadcell-transmitter.service`) doesn't match production Pi
+  - Outbox retries have no max attempts / dead-letter
+  - Swallowed `except Exception: pass` in opto polling (`_poll_buttons`)
+- basket_dump 30s cooldown IS in the local repo working copy but NOT on the Pi yet. The `basket_cycle_count = raw // 2` in the payload builder is correct for current production (2 DB rows per physical dump). When cooldown is deployed, `// 2` must be removed.
+
 ### Next Recommended Steps
 
 #### Current confirmed-good state (as of 2026-04-10)
 - Opto IN1 wired and mapped to `Basket Dump Count`. No mismatch.
 - `LCS_MACHINE_ID=PLP6` active in systemd. No mismatch.
 - `counted_events` writing correctly. Backend healthy.
+- DB maintenance staged, pending restart.
 
 #### Primary task for the next agent — basket_dump pulse grouping
 The webhook field `basket_dump_count` is flowing correctly end-to-end:
