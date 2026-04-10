@@ -1,5 +1,13 @@
 # TODO
 
+## 🐛 Bug: Zero Offset Adds to Production Totals (2026-04-10)
+- **Problem:** When operator zeros the scale with weight on it (e.g. 60 lbs), the system records a "dump" of that weight — adds it to `production_totals` and `throughput_events` as if product was processed.
+- **Root cause:** Zero operation resets offset but the cycle detector sees the weight drop as a dump event.
+- **Impact:** Daily/weekly/monthly production lbs totals are inflated by every manual zero. Efficiency calculations are skewed.
+- **Fix needed:** Suppress cycle detection during and immediately after a manual zero operation. Tag any cycle triggered by a zero as `dump_type = zero_artifact` and exclude from production totals.
+- **Priority:** Medium — fix after efficiency audit is complete.
+
+
 ## Current Cross-Project Feature Support
 - [ ] Support the next public machine-kiosk enhancement across the linked manufacturing system.
 - [ ] Confirm the completed-job webhook payload and downstream storage still expose the manager-facing metrics needed by the frontend kiosk:
