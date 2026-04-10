@@ -1,2 +1,3 @@
 - 2026-03-16: Root handoff docs can drift away from the actual checked-out branch, so branch claims should be verified from git state instead of copied forward in documentation.
 - 2026-03-16: For this project, the most important documentation distinction is between changes that are staged on the Pi and changes that are actually live after an approved restart and validation.
+- 2026-04-10: `counted_events` were written with `machine_id` from `LCS_MACHINE_ID` defaulting to `default_machine`, while job-completion webhooks queried by ERP id (`PLP6`), so dump counts could be zero in Supabase even when the opto saw many dumps; setting `Environment=LCS_MACHINE_ID=PLP6` on the Pi systemd unit aligns storage with the webhook query.
