@@ -10,16 +10,25 @@
 ## 🟢 Current Context
 <!-- AI_CONTEXT_START -->
 <status>
-Live Production - v3.4 deployed on Pi with external webhook ingress active (Tailscale Funnel).
+Live Production - deployed on Pi 2026-04-11 02:28 UTC. Fill time detection fixed, zero artifact suppression active, fill outlier filtering live.
 </status>
 
 <current_goals>
-- [ ] Monitor first live production cycles (set weight -> fill -> trigger -> PLC stop -> dump)
-- [ ] Investigate mode auto-switch bug (`legacy_weight_mapping` switching back unexpectedly)
-- [ ] Implement and verify mode persistence across startup/reboot
-- [ ] Create a fresh full OS image backup with latest add-ons and fixes
-- [ ] Tune pretrigger offset per material/fill dynamics
+- [ ] Monitor first real production cycles tomorrow — verify fill times are now 30–90+ seconds
+- [ ] Audit Supabase efficiency calculations using clean post-fix data
+- [ ] Rebuild job_efficiency report with accurate fill time + basket cycle data
+- [ ] Fix re-zero always skipping (zero_target_lb = 0 but empty hopper weighs ~70 lbs) — needs Justin approval
+- [ ] Create fresh full OS image backup after tonight's changes confirmed good
 - [ ] Rotate webhook token after go-live validation window
+- [x] Fix fill time detection: full_stability_s 0.4→5.0, empty_confirm_s 0.3→2.0 (2026-04-11)
+- [x] Add dynamic fill threshold: full_pct_of_target=0.80 (80% of ERP set weight = full)
+- [x] Fix zero operation inflating production totals: zero_artifact suppression (2026-04-11)
+- [x] Add fill time outlier filtering: <30sec excluded from avg_hopper_load_time_ms (2026-04-11)
+- [x] Add valid_fill_count + excluded_fill_count to webhook payload (2026-04-11)
+- [x] Forensic audit of Pi SQLite DB — all tables, configs, event codes documented
+- [x] Delete 7.2GB stale backup (app.sqlite3.backup-20260410-213849) — all data already in Supabase
+- [x] Logged zero-offset-inflates-production-totals bug to TODO.md
+- [x] Monitor first live production cycles (set weight -> fill -> trigger -> PLC stop -> dump)
 - [x] Update HDMI UI layout (move Job Target to left, Zero/Tare data to right, add Settings button)
 - [x] Persist job target set weight across restart/power cycle
 - [x] Implement Job Target Signal Mode (webhook-driven PLC output)
@@ -38,6 +47,13 @@ Live Production - v3.4 deployed on Pi with external webhook ingress active (Tail
 </current_goals>
 
 <recent_decisions>
+- 2026-04-11: full_stability_s raised to 5.0s (was 0.4s). Conveyor belt fill minimum is 30 sec in real world; 0.4s was triggering on first belt trickle.
+- 2026-04-11: empty_confirm_s raised to 2.0s (was 0.3s). Physical dump cycle needs time to complete.
+- 2026-04-11: Added full_pct_of_target=0.80 — hopper declared full when weight reaches 80% of ERP set weight. Handles variable job sizes correctly.
+- 2026-04-11: Zero artifact suppression — manual zero now arms a 30-second window during which any completed cycle is tagged dump_type=zero_artifact and excluded from production_totals.
+- 2026-04-11: Fill time outlier filtering — fill times <30sec excluded from avg_hopper_load_time_ms. valid_fill_count + excluded_fill_count now in webhook payload.
+- 2026-04-11: Forensic Pi DB audit complete. 13 tables confirmed. DB path: /var/lib/loadcell-transmitter/data/app.sqlite3. Schema v8.
+- 2026-04-11: Deleted 7.2GB stale backup (created by Talos during accidental DB wipe). All 239 webhooks were already sent to Supabase before wipe.
 - Job Target Signal Mode: output is binary (0V or trigger voltage), not proportional. Scale tells PLC when to stop filling.
 - Trigger signal value selected from PLC profile points dropdown (not a raw number input). Operator picks a known voltage/weight pair.
 - Webhook contract switched to external backend format: `{event, jobId, machineKey, loadSize, idempotencyKey, timestamp}`.

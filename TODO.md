@@ -1,11 +1,23 @@
 # TODO
 
-## 🐛 Bug: Zero Offset Adds to Production Totals (2026-04-10)
-- **Problem:** When operator zeros the scale with weight on it (e.g. 60 lbs), the system records a "dump" of that weight — adds it to `production_totals` and `throughput_events` as if product was processed.
-- **Root cause:** Zero operation resets offset but the cycle detector sees the weight drop as a dump event.
-- **Impact:** Daily/weekly/monthly production lbs totals are inflated by every manual zero. Efficiency calculations are skewed.
-- **Fix needed:** Suppress cycle detection during and immediately after a manual zero operation. Tag any cycle triggered by a zero as `dump_type = zero_artifact` and exclude from production totals.
-- **Priority:** Medium — fix after efficiency audit is complete.
+## ✅ Fixed: Zero Offset Adds to Production Totals (2026-04-10 → Fixed 2026-04-11)
+- **Fix applied:** `suppress_next_cycle_as_zero_artifact(window_s=30.0)` called from `api_zero` endpoint.
+- Any cycle completing within 30 seconds of a manual zero is tagged `dump_type = zero_artifact`.
+- `production_totals` skips `zero_artifact` cycles entirely.
+- `zero_artifact` cycles still written to `throughput_events` for audit trail.
+
+## 🐛 Bug: Re-Zero Always Skipping (logged 2026-04-11)
+- **Problem:** `zero_target_lb: 0.0` in config but empty hopper weighs ~70 lbs. Post-dump re-zero computes drift as 68-70 lbs every time, exceeds max_correction_lb (10 lb), always skips.
+- **Impact:** Re-zero never applies. Scale can drift over a shift without auto-correction.
+- **Fix needed:** Set `zero_target_lb` to actual empty hopper weight (~70 lbs), OR make PDRZ compute drift relative to last known stable empty reading, not absolute 0.
+- **Caution:** Touches live calibration. Do NOT fix without Justin's explicit approval.
+- **Priority:** Medium — schedule separately.
+
+## 🐛 Known: Historical Fill Time Data is Invalid (logged 2026-04-11)
+- All `hopper_load_times` / `avg_hopper_load_time_ms` data before 2026-04-11 02:28 UTC restart is garbage.
+- Root cause: `full_stability_s` was 0.4s (should be 5.0s). Fill times showed 450-800ms, physically impossible.
+- **Action needed:** In Supabase efficiency report, exclude or flag all fill time data before this cutoff.
+- Cutoff timestamp: `2026-04-11T02:28:06+00:00`
 
 
 ## Current Cross-Project Feature Support
