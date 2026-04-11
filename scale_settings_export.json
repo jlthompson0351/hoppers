@@ -1,0 +1,77 @@
+{
+  "filter": {
+    "use_kalman": true,
+    "kalman_process_noise": 10.0,
+    "kalman_measurement_noise": 25.0,
+    "stability_window": 20,
+    "stability_stddev_lb": 10.0,
+    "stability_slope_lbs": 25.0
+  },
+
+  "zero_tracking": {
+    "enabled": true,
+    "range_lb": 0.05,
+    "deadband_lb": 0.02,
+    "hold_s": 1.0,
+    "rate_lbs": 0.05,
+    "post_dump_enabled": true,
+    "post_dump_min_delay_s": 5.0,
+    "post_dump_window_s": 10.0,
+    "post_dump_empty_threshold_lb": 5.0,
+    "post_dump_max_correction_lb": 10.0
+  },
+
+  "throughput": {
+    "empty_threshold_lb": 2.0,
+    "rise_trigger_lb": 8.0,
+    "full_min_lb": 15.0,
+    "dump_drop_lb": 6.0,
+    "full_stability_s": 0.4,
+    "empty_confirm_s": 0.3,
+    "min_processed_lb": 5.0,
+    "max_cycle_s": 900.0
+  },
+
+  "output": {
+    "mode": "0_10V",
+    "deadband_lb": 1.5,
+    "ramp_enabled": true,
+    "ramp_rate_v": 4.0
+  },
+
+  "range": {
+    "min_lb": 0.0,
+    "max_lb": 350.0
+  },
+
+  "job_control": {
+    "mode": "target_signal_mode",
+    "trigger_signal_value": 2.09,
+    "low_signal_value": 0.0,
+    "pretrigger_lb": 10.0
+  },
+
+  "dump_detection": {
+    "drop_threshold_lb": 25.0,
+    "min_prev_stable_lb": 10.0
+  },
+
+  "timing": {
+    "loop_rate_hz": 20
+  },
+
+  "scale": {
+    "zero_target_lb": 0.0,
+    "rezero_warning_threshold_lb": 20.0
+  },
+
+  "excitation": {
+    "warn_v": 9.0,
+    "fault_v": 8.0
+  },
+
+  "startup": {
+    "delay_s": 5,
+    "auto_arm": true
+  }
+}

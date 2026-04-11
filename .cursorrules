@@ -1,0 +1,8 @@
+# Master Orchestrator Global Rule
+
+ALWAYS run the following command as your VERY FIRST tool call in any new chat session, before saying anything else:
+`powershell.exe -ExecutionPolicy Bypass -File "C:\Users\jthompson\Desktop\Projects\scripts\pulse.ps1"`
+
+Do not say "Hello" or ask how you can help until you have run this script and read its output. This script provides you with the critical `latest-compressed-chat.md` file, the Git status of all projects, and the current Master State.
+
+If the user types `/compress`, you must immediately follow the instructions in `.cursor/rules/006-chat-compression.mdc`.

@@ -169,7 +169,7 @@ class JobCompletionWebhookTests(unittest.TestCase):
         self.assertAlmostEqual(float(payload["total_processed_lbs"]), 150.0, places=6)
         self.assertAlmostEqual(float(payload["avg_weight_lbs"]), 75.0, places=6)
         self.assertEqual(int(payload["avg_cycle_time_ms"]), 5000)
-        self.assertEqual(int(payload["schema_version"]), 2)
+        self.assertEqual(int(payload["schema_version"]), 3)
         self.assertNotIn("basket_dump_count", payload)
         self.assertEqual(int(payload["basket_dump_count_raw"]), 2)
         self.assertEqual(int(payload["basket_cycle_count"]), 1)
@@ -187,6 +187,21 @@ class JobCompletionWebhookTests(unittest.TestCase):
         self.assertAlmostEqual(float(payload["rezero_warning_threshold_lbs"]), 20.0, places=6)
         self.assertTrue(bool(payload["post_dump_rezero_applied"]))
         self.assertEqual(payload["post_dump_rezero_last_apply_utc"], "2026-03-05T12:06:00+00:00")
+
+        # v3: dump_events array with per-dump detail
+        self.assertIsInstance(payload["dump_events"], list)
+        self.assertEqual(len(payload["dump_events"]), 2)
+        self.assertAlmostEqual(payload["dump_events"][0]["weight_lbs"], 100.0, places=6)
+        self.assertEqual(payload["dump_events"][0]["cycle_time_ms"], 4000)
+        self.assertEqual(payload["dump_events"][0]["timestamp_utc"], "2026-03-05T12:01:00+00:00")
+        self.assertAlmostEqual(payload["dump_events"][1]["weight_lbs"], 50.0, places=6)
+        self.assertEqual(payload["dump_events"][1]["cycle_time_ms"], 6000)
+
+        # v3: timezone diagnostics
+        self.assertIn("timezone", payload)
+        self.assertIsInstance(payload["timezone"], str)
+        self.assertIn("pi_system_time_utc", payload)
+        self.assertIn("pi_local_time", payload)
 
         lifecycle_state = repo.get_job_lifecycle_state(line_id=line_id, machine_id=machine_id)
         self.assertIsNotNone(lifecycle_state)

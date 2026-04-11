@@ -56,4 +56,22 @@ if (Test-Path "HANDOFF.md") {
     Write-Host "HANDOFF.md not found." -ForegroundColor DarkGray
 }
 Write-Host ""
+
+# 4. Recent Chat Compressions (Last 2 hours)
+Write-Host "--- ACTIVE TRAIN OF THOUGHT ---" -ForegroundColor Yellow
+$compressedPath = Join-Path (Get-Location) ".cursor\memory\sessions\latest-compressed-chat.md"
+if (Test-Path $compressedPath) {
+    $lastWrite = (Get-Item $compressedPath).LastWriteTime
+    if ($lastWrite -gt (Get-Date).AddHours(-2)) {
+        Write-Host "[🔔 RECENT COMPRESSED CHAT FOUND]" -ForegroundColor Magenta
+        Write-Host "File: $compressedPath" -ForegroundColor White
+        Write-Host "Last Updated: $($lastWrite.ToString('HH:mm'))" -ForegroundColor Gray
+        Write-Host "-> The agent should read this file immediately to resume the exact train of thought." -ForegroundColor Cyan
+    } else {
+        Write-Host "No active compressed chats in the last 2 hours." -ForegroundColor DarkGray
+    }
+} else {
+    Write-Host "No active compressed chats." -ForegroundColor DarkGray
+}
+Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan

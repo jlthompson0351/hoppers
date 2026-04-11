@@ -1,9 +1,71 @@
-# HANDOFF — New Webhook Data (schema_version 2)
+# HANDOFF — New Webhook Data (schema_version 2 → 3)
 
-**Date:** 2026-03-26  
+**Date:** 2026-03-30 (v3), 2026-03-26 (v2)  
 **Scope:** Supabase backend — edge function + table updates  
 **Pi changes:** Already staged, takes effect on next `loadcell-transmitter` restart  
 **Status:** Ready for backend implementation
+
+---
+
+## What Changed in v3 (2026-03-30)
+
+### Five New Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `dump_events` | json array | Per-dump detail for every qualifying cycle — see structure below |
+| `timezone` | string | Pi's configured IANA timezone (e.g. `"America/Chicago"`) |
+| `pi_system_time_utc` | string (ISO 8601) | Pi's UTC clock at payload build time |
+| `pi_local_time` | string (ISO 8601 no tz) | Pi's local time at payload build time (using configured timezone) |
+
+### `dump_events` Array Structure
+
+Each element:
+```json
+{
+  "timestamp_utc": "2026-03-28T15:55:14+00:00",
+  "weight_lbs": 98.5,
+  "cycle_time_ms": 112000,
+  "hopper_load_time_ms": 2711,
+  "dump_type": "full",
+  "target_set_weight_lbs": 100.0
+}
+```
+
+- One entry per qualifying throughput cycle (`full` or `end_of_lot`) in the job window
+- `hopper_load_time_ms` may be `null` if fill timing was not captured for that cycle
+- `dump_type` distinguishes normal dumps from end-of-lot short dumps
+- `target_set_weight_lbs` shows the active set weight at the time of that dump (useful for detecting overrides)
+
+### Why `dump_events` was added
+
+Previously the payload only contained aggregates (avg weight, avg cycle time, total lbs). The backend needs per-dump granularity to:
+
+- Measure time from job start to first dump (setup/startup time)
+- Detect gaps between dumps (idle time, breaks, slowdowns)
+- Track whether cycles speed up or slow down through a job
+- Identify which specific dumps occurred after set-weight overrides
+- `first_basket_dump_utc` and `last_basket_dump_utc` (already in v2) serve as convenience timestamps so the array doesn't need to be parsed every time
+
+### Why timezone fields were added
+
+Pi timestamps are always sent as UTC, but we need to verify the Pi's clock/timezone is configured correctly. These fields let the backend:
+
+- Verify the Pi is converting to UTC correctly
+- Catch if the Pi's clock has drifted
+- Debug timestamp mismatches between scale data and ERP data
+
+### Backward Compatibility
+
+| `schema_version` | `dump_events` present | `timezone` present | Action |
+|---|---|---|---|
+| 1 or missing | no | no | Map `basket_dump_count` → `basket_dump_count_raw`, set new fields to null |
+| 2 | no | no | Read v2 fields directly, set v3 fields to null |
+| 3 | yes | yes | Read all fields directly |
+
+### `idle_gaps` note
+
+`idle_gaps` has been in the payload since v2 and IS populated — it detects gaps ≥ 2 hours between consecutive basket dump opto events. If it appears empty, it means no 2+ hour gaps occurred during that job. The threshold can be adjusted if shorter gap detection is needed.
 
 ---
 
@@ -55,11 +117,11 @@ One entry per qualifying hopper fill cycle in the job window.
 
 ---
 
-## Full v2 Payload Example
+## Full v3 Payload Example
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "job_id": "1704575",
   "line_id": "PLP6",
   "machine_id": "PLP6",
@@ -91,6 +153,13 @@ One entry per qualifying hopper fill cycle in the job window.
   "rezero_warning_threshold_lbs": null,
   "post_dump_rezero_applied": false,
   "post_dump_rezero_last_apply_utc": null,
+  "dump_events": [
+    {"timestamp_utc": "2026-03-26T08:12:30+00:00", "weight_lbs": 324.5, "cycle_time_ms": 148000, "hopper_load_time_ms": 18500, "dump_type": "full", "target_set_weight_lbs": 325.0},
+    {"timestamp_utc": "2026-03-26T08:15:02+00:00", "weight_lbs": 326.1, "cycle_time_ms": 152000, "hopper_load_time_ms": 17200, "dump_type": "full", "target_set_weight_lbs": 325.0}
+  ],
+  "timezone": "America/Chicago",
+  "pi_system_time_utc": "2026-03-26T12:10:50+00:00",
+  "pi_local_time": "2026-03-26T07:10:50",
   "completed_at_utc": "2026-03-26T12:10:50+00:00"
 }
 ```
@@ -102,6 +171,7 @@ One entry per qualifying hopper fill cycle in the job window.
 These columns need to be added to the raw canonical table.
 
 ```sql
+-- v2 columns
 ALTER TABLE scale_completion_data
   ADD COLUMN IF NOT EXISTS schema_version          integer,
   ADD COLUMN IF NOT EXISTS basket_dump_count_raw   integer,
@@ -113,6 +183,13 @@ ALTER TABLE scale_completion_data
   ADD COLUMN IF NOT EXISTS avg_hopper_load_time_ms integer,
   ADD COLUMN IF NOT EXISTS avg_dump_time_ms        integer,
   ADD COLUMN IF NOT EXISTS hopper_load_times       jsonb DEFAULT '[]'::jsonb;
+
+-- v3 columns
+ALTER TABLE scale_completion_data
+  ADD COLUMN IF NOT EXISTS dump_events             jsonb DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS pi_timezone             text,
+  ADD COLUMN IF NOT EXISTS pi_system_time_utc      timestamptz,
+  ADD COLUMN IF NOT EXISTS pi_local_time           text;
 ```
 
 ---
@@ -128,9 +205,10 @@ The edge function needs to:
 3. **Store all new fields** into `scale_completion_data`:
 
 ```typescript
-const isV2 = payload.schema_version === 2;
+const isV2Plus = (payload.schema_version ?? 1) >= 2;
+const isV3 = (payload.schema_version ?? 1) >= 3;
 
-const basketDumpCountRaw = isV2
+const basketDumpCountRaw = isV2Plus
   ? payload.basket_dump_count_raw
   : payload.basket_dump_count ?? null;
 
@@ -146,6 +224,11 @@ await supabase.from('scale_completion_data').upsert({
   avg_hopper_load_time_ms: payload.avg_hopper_load_time_ms ?? null,
   avg_dump_time_ms:        payload.avg_dump_time_ms ?? null,
   hopper_load_times:       payload.hopper_load_times ?? [],
+  // v3 fields
+  dump_events:             isV3 ? (payload.dump_events ?? []) : [],
+  pi_timezone:             isV3 ? (payload.timezone ?? null) : null,
+  pi_system_time_utc:      isV3 ? (payload.pi_system_time_utc ?? null) : null,
+  pi_local_time:           isV3 ? (payload.pi_local_time ?? null) : null,
 }, { onConflict: 'idempotency_key' });
 ```
 
@@ -156,6 +239,7 @@ await supabase.from('scale_completion_data').upsert({
 Pull these through from `scale_completion_data` when linking a job:
 
 ```sql
+-- v2 columns
 ALTER TABLE completed_jobs
   ADD COLUMN IF NOT EXISTS basket_dump_count_raw   integer,
   ADD COLUMN IF NOT EXISTS basket_cycle_count      integer,
@@ -166,6 +250,13 @@ ALTER TABLE completed_jobs
   ADD COLUMN IF NOT EXISTS avg_hopper_load_time_ms integer,
   ADD COLUMN IF NOT EXISTS avg_dump_time_ms        integer,
   ADD COLUMN IF NOT EXISTS hopper_load_times       jsonb DEFAULT '[]'::jsonb;
+
+-- v3 columns
+ALTER TABLE completed_jobs
+  ADD COLUMN IF NOT EXISTS dump_events             jsonb DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS pi_timezone             text,
+  ADD COLUMN IF NOT EXISTS pi_system_time_utc      timestamptz,
+  ADD COLUMN IF NOT EXISTS pi_local_time           text;
 ```
 
 ---
@@ -220,12 +311,13 @@ efficiency_pct      = (basket_cycle_count × machine_theoretical_cycle_min) / ac
 
 ## Backward Compatibility Rules
 
-| `schema_version` | `basket_dump_count` present | `basket_dump_count_raw` present | Action |
-|---|---|---|---|
-| 1 or missing | yes | no | Map `basket_dump_count` → `basket_dump_count_raw`, set new fields to null |
-| 2 | no | yes | Read all fields directly |
+| `schema_version` | `basket_dump_count` present | `basket_dump_count_raw` present | `dump_events` present | Action |
+|---|---|---|---|---|
+| 1 or missing | yes | no | no | Map `basket_dump_count` → `basket_dump_count_raw`, set v2+v3 fields to null |
+| 2 | no | yes | no | Read v2 fields directly, set v3 fields to null |
+| 3 | no | yes | yes | Read all fields directly |
 
-Do not reject v1 payloads — the Pi may still send v1 until restarted.
+Do not reject v1 or v2 payloads — the Pi may still send older versions until restarted.
 
 ---
 
@@ -253,7 +345,7 @@ Once Pi is restarted and a job completes, replay test via PowerShell:
 ```powershell
 $uri = "https://yvpkeqfqwxuacncvzhwc.supabase.co/functions/v1/receive-scale-webhook"
 $payload = @{
-  schema_version             = 2
+  schema_version             = 3
   job_id                     = "TEST-001"
   line_id                    = "PLP6"
   machine_id                 = "PLP6"
@@ -278,6 +370,13 @@ $payload = @{
   override_seen              = $false
   override_count             = 0
   rezero_warning_seen        = $false
+  dump_events                = @(
+    @{timestamp_utc="2026-03-26T08:12:30+00:00"; weight_lbs=324.5; cycle_time_ms=148000; hopper_load_time_ms=18500; dump_type="full"; target_set_weight_lbs=325.0},
+    @{timestamp_utc="2026-03-26T08:15:02+00:00"; weight_lbs=326.1; cycle_time_ms=152000; hopper_load_time_ms=17200; dump_type="full"; target_set_weight_lbs=325.0}
+  )
+  timezone                   = "America/Chicago"
+  pi_system_time_utc         = "2026-03-26T12:10:50+00:00"
+  pi_local_time              = "2026-03-26T07:10:50"
   completed_at_utc           = "2026-03-26T12:10:50+00:00"
 }
 Invoke-WebRequest -Method Post -Uri $uri -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress -Depth 5)
@@ -285,5 +384,6 @@ Invoke-WebRequest -Method Post -Uri $uri -ContentType "application/json" -Body (
 
 Verify in Supabase:
 - `scale_completion_data` row has non-null `basket_dump_count_raw`, `hopper_load_times`, etc.
-- `completed_jobs` row is linked and mirrors the new columns
+- `scale_completion_data` row has non-empty `dump_events` array and non-null `pi_timezone`
+- `completed_jobs` row is linked and mirrors the new columns (including v3 fields)
 - `job_efficiency` row is created with `active_time_minutes` and `efficiency_pct` populated

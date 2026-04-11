@@ -1,0 +1,19 @@
+---
+description: Defines the /compress slash command for instant chat context compaction.
+globs: *
+---
+# Chat Compression Rule (/compress)
+
+When the user types `/compress`, the chat context has become too bloated and needs to be reset. You must immediately execute the following steps without asking for confirmation:
+
+1. **Analyze the Current Train of Thought:** Review the recent messages to understand exactly what you are currently in the middle of doing (e.g., debugging a specific error, writing a specific function).
+2. **Write the Sticky Note:** Create or overwrite the file `.cursor/memory/sessions/latest-compressed-chat.md` with a dense, highly compressed markdown summary.
+   
+   It MUST include:
+   - **Current Goal:** What were we specifically trying to achieve right now?
+   - **What We Just Tried:** What code did we just write or what commands did we just run?
+   - **The Error/Blocker:** If we are stuck, what is the exact error message or unexpected behavior?
+   - **The Immediate Next Step:** What exact file and line of code were we about to change next?
+
+3. **Respond to the User:** Once the file is written, respond EXACTLY with:
+   *"✅ Chat compressed and saved to `latest-compressed-chat.md`. Please hit **Ctrl+L** to start a fresh chat, and say 'hi' so I can run the pulse script and resume our train of thought!"*
