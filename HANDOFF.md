@@ -162,3 +162,8 @@ pscp -pw depor src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transm
 1. During an approved production window, restart `loadcell-transmitter` once — activates the Mar 18 bundle AND the basket_dump cooldown together.
 2. Use `docs/APPROVED_WINDOW_CHECKLIST.md` to validate floor-threshold, basket-dump, re-zero-warning, HDMI tare removal, and tare-source tracing.
 3. After validation, capture a fresh baseline bundle and cloneable image.
+# #   2 0 2 6 - 0 4 - 1 1      T h r o u g h p u t C y c l e D e t e c t o r   F i x   S t a g e d   ( P E N D I N G   R E S T A R T )  
+ -   R e d u c e d   f u l l _ s t a b i l i t y _ s   d e f a u l t   f r o m   5 . 0   t o   1 . 5   t o   p r e v e n t   c y c l e   t i m e o u t s .  
+ -   A d d e d   B A S K E T _ D U M P _ C Y C L E _ M I S M A T C H   d i a g n o s t i c   l o g   i n   a c q u i s i t i o n . p y .  
+ -   S t a g e d   o n   P i   a t   / o p t / l o a d c e l l - t r a n s m i t t e r   o n   2 0 2 6 - 0 4 - 1 1   0 8 : 0 0   E D T .   N o t   l i v e   u n t i l   s e r v i c e   r e s t a r t .  
+ 

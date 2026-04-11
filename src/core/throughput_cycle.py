@@ -33,6 +33,11 @@ class ThroughputCycleDetector:
     def __init__(self) -> None:
         self.reset()
 
+    @property
+    def state(self) -> str:
+        """Read-only access to the current detector state."""
+        return self._state
+
     def reset(self) -> None:
         self._state = "EMPTY_STABLE"
         self._state_started_s = 0.0

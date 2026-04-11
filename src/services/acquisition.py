@@ -1359,7 +1359,7 @@ class AcquisitionService:
             ),
             throughput_full_stability_s=max(
                 0.0,
-                float(throughput.get("full_stability_s", 5.0) or 5.0),
+                float(throughput.get("full_stability_s", 1.5) or 1.5),
             ),
             throughput_empty_confirm_s=max(
                 0.0,
@@ -2540,6 +2540,17 @@ class AcquisitionService:
                 log.debug("basket_dump suppressed (double-pulse cooldown)")
                 return
             self._last_basket_dump_s = now
+            
+            # Diagnostic: warn if throughput cycle state is unexpected
+            cycle_state = self._throughput_cycle.state
+            if cycle_state not in ('DUMPING', 'EMPTY_STABLE'):
+                self.repo.log_event(
+                    level="WARNING",
+                    code="BASKET_DUMP_CYCLE_MISMATCH",
+                    message=f"Basket dump detected while cycle state is {cycle_state}",
+                    details={"cycle_state": cycle_state},
+                )
+            
             line_id, machine_id = self._normalize_scope_ids(None, None)
             event_id = self.repo.record_counted_event(
                 event_type="basket_dump",
