@@ -6,7 +6,16 @@
 - Workspace path is environment-specific; use the current repo root instead of hardcoded absolute paths.
 - Verify sync state before any future push or deploy.
 
-## Latest Activity (2026-04-10)
+## Latest Activity (2026-04-11)
+
+### Live Production Fix: Throughput Stability & Cooldown
+- **Problem:** Supabase was receiving `0` lbs for `total_processed_lbs` on all jobs. The AI efficiency analyzer correctly flagged this as a `DATA_ISSUE`.
+- **Root Cause:** The `ThroughputCycleDetector` config on the Pi had `full_stability_s` set to `5.0` seconds. In a loud factory environment with vibration, the scale never remained perfectly stable for 5 continuous seconds, so it rejected every basket dump as invalid.
+- **Fix Applied:** SSH'd into the Pi and manually updated the `config_versions` SQLite table to set `throughput.full_stability_s = 1.5`.
+- **Downtime:** **Zero.** The scale software hot-reloads its config every 2 seconds (`config_refresh_s: 2.0`), so the fix applied instantly without restarting the `loadcell-transmitter` service.
+- **Cooldown Verification:** Verified that the 30-second `basket_dump` cooldown (to prevent double-counting opto pulses) is **already live** in the running `acquisition.py` code on the Pi. No code push or restart was required.
+
+## Previous Activity (2026-04-10)
 
 ### DB Maintenance / Pruning — IMPLEMENTED AND STAGED ON PI
 - **Problem:** Live DB is 4.9 GB on Pi SD card. `events` (~420k rows), `config_versions` (~17k rows), `trends_total` (potentially ~20 Hz writes), and several other append-only tables have no retention policy. Risk of disk-full crash.

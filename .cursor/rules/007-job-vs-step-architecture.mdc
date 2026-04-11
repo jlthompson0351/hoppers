@@ -1,0 +1,18 @@
+---
+description: Critical architectural rule defining the difference between Jobs and Job Steps, and how efficiency is calculated.
+globs: *
+---
+# Job vs. Job Step Architecture
+
+You are working in a manufacturing system where the distinction between a "Job" and a "Job Step" is critical. If you confuse the two, you will break the efficiency tracking and quality control logic.
+
+## The Physical Reality
+1. **A Full Job:** A job (e.g., 7,000 lbs of parts) consists of multiple **Job Steps** (e.g., Base Coat, Top Coat, FINSP).
+2. **A Machine's Role:** A single machine (like PLP6) will only ever run **ONE step** for a specific job. Once that step is done, the physical parts are moved to a completely different machine for the next step.
+
+## The Data Rules
+- **Scale Data = Step Data:** The data coming from the Pi scales (weights, dump counts, fill times) represents the efficiency of the *specific step* that occurred on that specific machine. It does NOT represent the entire job.
+- **NEVER Wait for FINSP:** Do not wait for the `FINSP` (Final Inspection) step or the `completed_jobs` table to calculate efficiency. Efficiency must be calculated immediately after the machine finishes its specific step, using the time window from the `job_steps` table.
+- **Downtime Correlation:** The database has two foundational parts: 1) Downtime (Breakdowns -> MaintainX) and 2) Jobs. To calculate active time, you must subtract the downtime (`completed_events`) that occurred *strictly within the time window of that specific job step*.
+
+**CRITICAL:** Never write code that assumes a machine runs an entire job from start to finish. Always scope logic to the `job_steps` row for that specific `job_id` and `machine_id`.

@@ -140,10 +140,10 @@ Confirm rows appear at ~1 per physical dump (not 2).
 - [x] ~~Throughput cycle detector threshold fix~~ — NOT NEEDED, already working
 - [x] ~~VERIFY: Confirm `counted_events` rows appear after a live dump~~ — confirmed live 2026-04-10
 - [x] ~~`machine_id` mismatch: `default_machine` vs `PLP6`~~ — fixed via `LCS_MACHINE_ID=PLP6` in systemd, restarted 2026-04-10
-- [ ] Add 30-second cooldown to `basket_dump` handler — group double-pulse into 1 logical event (Step 2 in spec above)
-- [ ] Test: new case in `test_counted_events.py` — two edges < 30s = 1 event
-- [ ] Stage `acquisition.py` to Pi, activate at next approved-window restart
-- [ ] After restart: verify 1 row per dump in `counted_events` and non-zero `basket_dump_count` on next webhook
+- [x] Add 30-second cooldown to `basket_dump` handler — group double-pulse into 1 logical event (Step 2 in spec above)
+- [x] Test: new case in `test_counted_events.py` — two edges < 30s = 1 event
+- [x] Stage `acquisition.py` to Pi, activate at next approved-window restart
+- [x] After restart: verify 1 row per dump in `counted_events` and non-zero `basket_dump_count` on next webhook
 - [ ] Future: correlate opto dump with weight-curve drop for confirmed parts-dump vs empty-rotation detection
 
 > **Mechanical Constraints to keep in mind (future work):**
