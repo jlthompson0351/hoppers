@@ -1302,8 +1302,9 @@ class AppRepository:
                 "rise_trigger_lb": 8.0,
                 "full_min_lb": 15.0,
                 "dump_drop_lb": 6.0,
-                "full_stability_s": 0.4,
-                "empty_confirm_s": 0.3,
+                "full_stability_s": 5.0,   # was 0.4 — conveyor belt fill takes 30-90+ sec minimum
+                "empty_confirm_s": 2.0,    # was 0.3 — dump needs time to physically complete
+                "full_pct_of_target": 0.80, # dynamic: declare full at 80% of ERP set weight
                 "min_processed_lb": 5.0,
                 "max_cycle_s": 900.0,
             },
@@ -1897,8 +1898,8 @@ class AppRepository:
                 ),
             )
 
-            if dump_type == "empty":
-                return
+            if dump_type in ("empty", "zero_artifact"):
+                return  # zero_artifact: manual zero triggered a fake dump — never count it
 
             d = datetime.now(timezone.utc).date()
             for period_type in ("day", "week", "month", "year"):

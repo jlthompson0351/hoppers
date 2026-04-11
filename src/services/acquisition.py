@@ -198,6 +198,7 @@ class AcquisitionService:
         self._pending_zero_tracking_delta_lbs = 0.0
         self._last_zero_tracking_persist_utc: Optional[str] = None
         self._manual_zero_seen_since_boot = False
+        self._zero_artifact_suppress_until_s: float = 0.0  # suppress next cycle after manual zero
         self._auto_zero_gate_lock = threading.Lock()
 
         # Opto button debounce
@@ -441,14 +442,23 @@ class AcquisitionService:
             end_utc=closed_at_record_time_set_utc,
         )
 
-        # Hopper timing from throughput_events
-        hopper_load_times = self.repo.get_job_window_hopper_load_times(
+        # Hopper timing from throughput_events — filter out physically impossible fill times
+        # Minimum valid fill time: 30 seconds (30,000 ms). Anything under 5 seconds is invalid.
+        # End-of-lot cycles are excluded from fill time averages (kept in weight totals).
+        FILL_TIME_INVALID_MS = 5_000    # < 5 sec: impossible, exclude entirely
+        FILL_TIME_SUSPECT_MS = 30_000   # < 30 sec: suspicious, exclude from avg
+        hopper_load_times_raw = self.repo.get_job_window_hopper_load_times(
             start_utc=lifecycle_state.active_job_started_record_time_set_utc,
             end_utc=closed_at_record_time_set_utc,
         )
+        hopper_load_times_valid = [t for t in hopper_load_times_raw if t >= FILL_TIME_SUSPECT_MS]
+        hopper_load_times_excluded = [t for t in hopper_load_times_raw if t < FILL_TIME_SUSPECT_MS]
+        hopper_load_times = hopper_load_times_valid  # only valid times in the payload array
+        valid_fill_count = len(hopper_load_times_valid)
+        excluded_fill_count = len(hopper_load_times_excluded)
         avg_hopper_load_time_ms = (
-            int(round(sum(hopper_load_times) / len(hopper_load_times)))
-            if hopper_load_times else 0
+            int(round(sum(hopper_load_times_valid) / len(hopper_load_times_valid)))
+            if hopper_load_times_valid else 0
         )
 
         # Pi timezone and clock diagnostics
@@ -491,6 +501,8 @@ class AcquisitionService:
             "avg_hopper_load_time_ms": avg_hopper_load_time_ms,
             "avg_dump_time_ms": int(round(float(throughput_summary.get("avg_dump_time_ms", 0.0) or 0.0))),
             "hopper_load_times": hopper_load_times,
+            "valid_fill_count": valid_fill_count,
+            "excluded_fill_count": excluded_fill_count,
             "override_seen": override_count > 0,
             "override_count": override_count,
             "final_set_weight_lbs": (
@@ -1101,6 +1113,12 @@ class AcquisitionService:
         with self._auto_zero_gate_lock:
             return self._manual_zero_seen_since_boot
 
+    def suppress_next_cycle_as_zero_artifact(self, window_s: float = 30.0) -> None:
+        """Call after a manual zero to prevent the next weight-drop from being counted as a real dump."""
+        import time as _time
+        self._zero_artifact_suppress_until_s = _time.monotonic() + window_s
+        log.info("Zero artifact suppression armed for %.1f seconds", window_s)
+
     def mark_manual_zero_seen(self, source: str = "manual_zero") -> None:
         with self._auto_zero_gate_lock:
             already_armed = self._manual_zero_seen_since_boot
@@ -1340,11 +1358,15 @@ class AcquisitionService:
             ),
             throughput_full_stability_s=max(
                 0.0,
-                float(throughput.get("full_stability_s", 0.4) or 0.4),
+                float(throughput.get("full_stability_s", 5.0) or 5.0),
             ),
             throughput_empty_confirm_s=max(
                 0.0,
-                float(throughput.get("empty_confirm_s", 0.3) or 0.3),
+                float(throughput.get("empty_confirm_s", 2.0) or 2.0),
+            ),
+            throughput_full_pct_of_target=max(
+                0.5,
+                min(0.99, float(throughput.get("full_pct_of_target", 0.80) or 0.80)),
             ),
             throughput_min_processed_lb=max(
                 0.0,
@@ -1421,7 +1443,13 @@ class AcquisitionService:
         processed_lbs = float(throughput_evt.processed_lbs)
         min_processed_lb = max(0.0, float(getattr(cfg, "throughput_min_processed_lb", 5.0) or 5.0))
 
-        if target_set_weight_lbs is not None and target_set_weight_lbs > 0.0:
+        # Check if this cycle should be tagged as a zero artifact (triggered by manual zero)
+        import time as _time_persist
+        is_zero_artifact = _time_persist.monotonic() < self._zero_artifact_suppress_until_s
+        if is_zero_artifact:
+            dump_type = "zero_artifact"
+            log.info("Throughput cycle tagged as zero_artifact (manual zero suppression active)")
+        elif target_set_weight_lbs is not None and target_set_weight_lbs > 0.0:
             if processed_lbs >= target_set_weight_lbs * 0.65:
                 dump_type = "full"
             elif processed_lbs >= min_processed_lb:
@@ -1669,9 +1697,13 @@ class AcquisitionService:
                 if cfg.throughput_enabled:
                     # Throughput detector now runs on target-relative weight.
                     # Keep full_min behavior aligned with the original absolute threshold.
-                    throughput_full_min_relative_lb = max(
-                        0.5, float(cfg.throughput_full_min_lb - cfg.zero_target_lb)
-                    )
+                    # Dynamic full_min_lb: use % of set weight if configured, else fixed threshold.
+                    import time as _time_tp
+                    active_sw = float(self._job_set_weight) if self._job_set_weight > 0.0 else 0.0
+                    full_pct = max(0.5, min(0.99, float(getattr(cfg, 'throughput_full_pct_of_target', 0.80) or 0.80)))
+                    fixed_full_min = max(0.5, float(cfg.throughput_full_min_lb - cfg.zero_target_lb))
+                    dynamic_full_min = max(fixed_full_min, active_sw * full_pct - cfg.zero_target_lb) if active_sw > 0.0 else fixed_full_min
+                    throughput_full_min_relative_lb = dynamic_full_min
                     throughput_cfg = ThroughputCycleConfig(
                         empty_threshold_lb=cfg.throughput_empty_threshold_lb,
                         rise_trigger_lb=cfg.throughput_rise_trigger_lb,

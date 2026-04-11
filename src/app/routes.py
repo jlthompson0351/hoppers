@@ -1677,6 +1677,11 @@ def api_zero() -> Response:
             svc.mark_manual_zero_seen(source="api_zero")
         except Exception:
             pass
+    if svc is not None and hasattr(svc, "suppress_next_cycle_as_zero_artifact"):
+        try:
+            svc.suppress_next_cycle_as_zero_artifact(window_s=30.0)
+        except Exception:
+            pass
     repo.log_event(
         level="INFO",
         code="SCALE_ZEROED",
