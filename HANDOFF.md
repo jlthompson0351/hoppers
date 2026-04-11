@@ -166,4 +166,5 @@ pscp -pw depor src/services/acquisition.py pi@172.16.190.25:/opt/loadcell-transm
  -   R e d u c e d   f u l l _ s t a b i l i t y _ s   d e f a u l t   f r o m   5 . 0   t o   1 . 5   t o   p r e v e n t   c y c l e   t i m e o u t s .  
  -   A d d e d   B A S K E T _ D U M P _ C Y C L E _ M I S M A T C H   d i a g n o s t i c   l o g   i n   a c q u i s i t i o n . p y .  
  -   S t a g e d   o n   P i   a t   / o p t / l o a d c e l l - t r a n s m i t t e r   o n   2 0 2 6 - 0 4 - 1 1   0 8 : 0 0   E D T .   N o t   l i v e   u n t i l   s e r v i c e   r e s t a r t .  
+ # #   2 0 2 6 - 0 4 - 1 1   -   A d d e d   l o c a l   p u l s e . p s 1   s c r i p t   f o r   a g e n t   h a n d o f f   a n d   s i t u a t i o n a l   a w a r e n e s s .  
  
