@@ -111,6 +111,7 @@ class _Cfg:
     throughput_dump_drop_lb: float
     throughput_full_stability_s: float
     throughput_empty_confirm_s: float
+    throughput_full_pct_of_target: float
     throughput_min_processed_lb: float
     throughput_max_cycle_s: float
     range_max_lb: float
