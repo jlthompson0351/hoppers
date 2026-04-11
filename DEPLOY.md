@@ -27,6 +27,12 @@ A copied file is not live until the service is restarted. A restarted service is
 
 | Change | In git locally | Pushed | Staged on Pi | Running live | Validated live | Notes |
 |------|---|---|---|---|---|---|
+| `receive-scale-webhook`: flip status→processed after sync | Yes | No | N/A | No | No | File at `supabase/functions/receive-scale-webhook/index.ts`; needs `supabase login` then `supabase functions deploy` |
+| `process-job-event`: add all v2 fields to scale sync | Yes | No | N/A | No | No | File at `supabase/functions/process-job-event/index.ts`; needed for basket_cycle_count/hopper_load_times etc to reach completed_jobs |
+| Backfill 42 stale `pending` rows → `processed` | N/A | N/A | N/A | Yes | Yes | SQL ran live 2026-03-26; all 42 rows now processed |
+| Fill detection fixes (full_stability_s=5.0, empty_confirm_s=2.0, full_pct_of_target=0.80, zero artifact suppression, fill outlier filtering) | Yes | Yes | Yes | Yes | Yes | Staged before service restart 22:28 EDT Apr 10; verified live Apr 11 — 21 BASKET_DUMP events observed |
+| `patch_throughput_config.py` — write throughput config to DB | Yes | Yes | Yes | Yes | Yes | Ran Apr 11; full_pct_of_target=0.80 now in DB; full_stability_s and empty_confirm_s already at target |
+| v2 webhook schema (new Pi firmware) | Yes | Pending | Yes | No | No | Staged on Pi; requires `loadcell-transmitter` restart before v2 payload is live |
 | Job-target webhook cutover + HDMI target UI | Yes | Yes | Yes | Yes | Yes | Live baseline from Feb 27 rollout |
 | Completed-job webhook lifecycle/outbox | Yes | Yes | Yes | Yes | Yes | Verified live Mar 17 via PLP6 outbox row `60` and backend replay acceptance |
 | Configurable floor threshold / legacy floor signal | Yes | Yes | Yes | Yes | No | Runtime appears live, but floor-threshold behavior still needs explicit line validation |

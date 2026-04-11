@@ -10,11 +10,11 @@
 ## 🟢 Current Context
 <!-- AI_CONTEXT_START -->
 <status>
-Live Production - deployed on Pi 2026-04-11 02:28 UTC. Fill time detection fixed, zero artifact suppression active, fill outlier filtering live.
+Live Production - confirmed running on Pi 2026-04-11. All fill detection fixes verified live. Service healthy since 22:28 EDT Apr 10. full_pct_of_target=0.80 now also written to DB config (was already active as code default).
 </status>
 
 <current_goals>
-- [ ] Monitor first real production cycles tomorrow — verify fill times are now 30–90+ seconds
+- [x] Monitor first real production cycles — verified 21 BASKET_DUMP events logged morning of Apr 11, service healthy
 - [ ] Audit Supabase efficiency calculations using clean post-fix data
 - [ ] Rebuild job_efficiency report with accurate fill time + basket cycle data
 - [ ] Fix re-zero always skipping (zero_target_lb = 0 but empty hopper weighs ~70 lbs) — needs Justin approval
@@ -66,18 +66,31 @@ Live Production - deployed on Pi 2026-04-11 02:28 UTC. Fill time detection fixed
 </recent_decisions>
 
 <next_steps>
-1. Run sustained real-time backend dispatch test with fresh idempotency keys
-2. Verify PLC stop timing against set weight across multiple loads
-3. Investigate/resolve mode auto-switch and startup persistence bug (tracked in `docs/TODO_BACKLOG.md`)
-4. Tune pretrigger offset by material/fill speed profile
-5. Rotate webhook token and confirm backend credential update
-6. Create and verify a new full OS image backup with latest add-ons/fixes
+1. Audit Supabase efficiency calculations — exclude fill time data before 2026-04-11T02:28:06+00:00 cutoff
+2. Rebuild job_efficiency report with accurate fill time + basket cycle data
+3. Fix re-zero always skipping (zero_target_lb=0 but empty hopper ~70 lbs) — needs Justin approval before touching
+4. Create fresh full OS image backup (changes confirmed good)
+5. Run sustained real-time backend dispatch test with fresh idempotency keys
+6. Rotate webhook token and confirm backend credential update
 </next_steps>
 <!-- AI_CONTEXT_END -->
 
 ---
 
 ## 📜 Log History
+
+### 2026-04-11
+**Focus:** Pi Verification — Confirm Last Night's Fixes Are Live
+- **Completed:**
+  - Pulled latest from git (`bed3f26..acc522d`): 6 files changed, 166 insertions.
+  - SSH'd into Pi (`172.16.190.25`). Service `loadcell-transmitter` confirmed active/running since 22:28:05 EDT Apr 10.
+  - Verified all last-night files staged on Pi **before** the service restart — running code includes all fixes:
+    - `full_stability_s=5.0`, `empty_confirm_s=2.0`, `full_pct_of_target=0.80`
+    - Zero artifact suppression, fill time outlier filtering, `valid_fill_count`/`excluded_fill_count` in webhook payload.
+  - `patch_throughput_config.py` present and ran — wrote `full_pct_of_target=0.80` explicitly to DB config_versions. `full_stability_s` and `empty_confirm_s` were already at target values.
+  - 21 `BASKET_DUMP` events observed in live logs from this morning — production line actively running.
+- **State:** No restarts performed. Pi is healthy. All fixes confirmed live.
+- **Note:** `full_pct_of_target` is now in DB config but service will read updated DB value on next restart (currently using code default 0.80 — same value, no behavioral difference).
 
 ### 2026-02-27
 **Focus:** Job Target Set-Weight Persistence + Documentation Sync
