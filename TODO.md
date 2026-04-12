@@ -13,11 +13,19 @@
 - **Caution:** Touches live calibration. Do NOT fix without Justin's explicit approval.
 - **Priority:** Medium — schedule separately.
 
-## 🐛 Known: Historical Fill Time Data is Invalid (logged 2026-04-11)
-- All `hopper_load_times` / `avg_hopper_load_time_ms` data before 2026-04-11 02:28 UTC restart is garbage.
-- Root cause: `full_stability_s` was 0.4s (should be 5.0s). Fill times showed 450-800ms, physically impossible.
+## ✅ Fixed: ThroughputCycleDetector Rebound Bug (2026-04-12)
+- **Fix applied:** Added `_dump_seen_near_empty` flag to `DUMPING` state in `src/core/throughput_cycle.py`. Once near-empty is seen, mechanical bounce no longer cancels the empty-confirm timer or triggers rebound-to-FILLING.
+- Also reduced `empty_confirm_s: 2.0 → 0.5` in Pi config (hot-reloaded).
+- Service restarted `2026-04-12T11:49:35Z`. Fix is live.
+- **Expected:** `dump_events`, `hopper_load_times`, `total_processed_lbs` will be non-zero on next job.
+- **Starvation detection:** `avg_hopper_load_time_ms` baseline is ~114,000ms (1.9 min). If it climbs to 3–4 min, machine is starving for parts upstream.
+
+## 🐛 Known: Historical Fill Time Data is Invalid (logged 2026-04-11, updated 2026-04-12)
+- All `hopper_load_times` / `avg_hopper_load_time_ms` data before `2026-04-12T11:49:35Z` (service restart) is invalid.
+- Original root cause: `full_stability_s` was wrong → fill times showed ~500ms (physically impossible for ~1.9 min cycle).
+- Secondary root cause: rebound bug in `DUMPING` state reset `_fill_started_s` on every bounce.
+- Both now fixed. Cutoff timestamp for valid fill time data: `2026-04-12T11:49:35+00:00`
 - **Action needed:** In Supabase efficiency report, exclude or flag all fill time data before this cutoff.
-- Cutoff timestamp: `2026-04-11T02:28:06+00:00`
 
 
 ## Current Cross-Project Feature Support

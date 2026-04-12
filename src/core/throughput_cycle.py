@@ -51,6 +51,7 @@ class ThroughputCycleDetector:
         self._full_candidate_s: Optional[float] = None
         self._empty_confirm_started_s: Optional[float] = None
         self._dump_min_lbs: Optional[float] = None
+        self._dump_seen_near_empty: bool = False
 
     def _transition(self, new_state: str, now_s: float) -> None:
         self._state = new_state
@@ -136,6 +137,9 @@ class ThroughputCycleDetector:
             # Empty confirm is based on dwell time below threshold; no strict stability requirement.
             # Violent machines often rebound/sway and never satisfy external "stable" logic in time.
             if gross_lbs <= cfg.empty_threshold_lb:
+                # Once we've seen near-empty, commit to this dump cycle — don't allow
+                # mechanical bounce above threshold to cancel the confirmation.
+                self._dump_seen_near_empty = True
                 if self._empty_confirm_started_s is None:
                     self._empty_confirm_started_s = now_s
                 elif (now_s - self._empty_confirm_started_s) >= cfg.empty_confirm_s:
@@ -149,7 +153,7 @@ class ThroughputCycleDetector:
                     # not overcount processed weight because of this transient.
                     raw_empty_lbs = gross_lbs
                     empty_lbs = max(raw_empty_lbs, self._empty_baseline_lbs)
-                    
+
                     # If empty weight is negative (drift), ignore it for the processed total
                     # so we don't inflate the dump size. We still report the negative empty_lbs
                     # for diagnostics and auto-zero tracking.
@@ -180,24 +184,31 @@ class ThroughputCycleDetector:
                         dump_time_ms=dump_time_ms,
                     )
             else:
-                self._empty_confirm_started_s = None
+                # Only reset the confirm timer if we have NOT yet seen near-empty.
+                # Once near-empty has been seen, brief mechanical bounces above the threshold
+                # do not cancel the cycle — we stay committed to completing this dump.
+                if not self._dump_seen_near_empty:
+                    self._empty_confirm_started_s = None
 
-            # If weight rebounds strongly after making dump progress, treat as a new fill.
-            # This avoids falsely restarting while the weight is still descending.
-            dump_min = self._dump_min_lbs if self._dump_min_lbs is not None else gross_lbs
-            rebound_trigger = dump_min + cfg.rise_trigger_lb
-            near_empty_trigger = self._empty_baseline_lbs + cfg.rise_trigger_lb
-            if gross_lbs >= max(rebound_trigger, near_empty_trigger):
-                self._fill_started_s = now_s
-                self._full_stable_started_s = None
-                self._dumping_started_s = None
-                self._peak_lbs = gross_lbs
-                self._full_lbs = None
-                self._last_stable_full_lbs = None
-                self._full_candidate_s = None
-                self._empty_confirm_started_s = None
-                self._dump_min_lbs = None
-                self._transition("FILLING", now_s)
+            # Only allow rebound-to-FILLING if we have NOT yet seen near-empty.
+            # This prevents post-dump mechanical bounce (e.g. -78 lb spike → +83 lb rebound)
+            # from resetting _fill_started_s before the cycle is emitted, which would produce
+            # fill_time_ms of ~500ms instead of the true ~60,000–114,000ms fill duration.
+            if not self._dump_seen_near_empty:
+                dump_min = self._dump_min_lbs if self._dump_min_lbs is not None else gross_lbs
+                rebound_trigger = dump_min + cfg.rise_trigger_lb
+                near_empty_trigger = self._empty_baseline_lbs + cfg.rise_trigger_lb
+                if gross_lbs >= max(rebound_trigger, near_empty_trigger):
+                    self._fill_started_s = now_s
+                    self._full_stable_started_s = None
+                    self._dumping_started_s = None
+                    self._peak_lbs = gross_lbs
+                    self._full_lbs = None
+                    self._last_stable_full_lbs = None
+                    self._full_candidate_s = None
+                    self._empty_confirm_started_s = None
+                    self._dump_min_lbs = None
+                    self._transition("FILLING", now_s)
             return None
 
         # Defensive fallback.

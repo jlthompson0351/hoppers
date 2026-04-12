@@ -132,9 +132,35 @@
   - Swallowed `except Exception: pass` in opto polling (`_poll_buttons`)
 - basket_dump 30s cooldown IS in the local repo working copy but NOT on the Pi yet. The `basket_cycle_count = raw // 2` in the payload builder is correct for current production (2 DB rows per physical dump). When cooldown is deployed, `// 2` must be removed.
 
+### 2026-04-12 — ThroughputCycleDetector Rebound Bug Fixed (LIVE)
+
+**Problem diagnosed:** Load cell throughput detector was recording zero dump cycles on all jobs since the hopper was raised (no longer physically hits the basket on dump). The brief empty window (~1–2 seconds) after each dump was being cancelled by mechanical bounce (-78 lb spike → +83 lb rebound), which reset the 2-second empty-confirm timer and transitioned the detector back to FILLING before the cycle could be emitted. This also caused `fill_time_ms` to record ~500ms instead of the true ~1.9 minutes.
+
+**Root cause:** Two bugs in `DUMPING` state of `src/core/throughput_cycle.py`:
+1. `_empty_confirm_started_s` was reset on any bounce above threshold (even after near-empty was seen)
+2. Rebound-to-FILLING check fired unconditionally regardless of whether near-empty had been observed
+
+**Fix applied (`src/core/throughput_cycle.py`):**
+- Added `_dump_seen_near_empty: bool = False` flag to `reset()`
+- Once weight touches ≤ `empty_threshold_lb`, flag is set → rebound check and timer reset are both suppressed
+- Detector now commits to completing the cycle once near-empty is seen, ignoring mechanical bounce
+- `fill_time_ms` now correctly anchored to true empty, giving ~60,000–114,000ms (1–1.9 min) instead of ~500ms
+
+**Config change (hot-reloaded, no restart needed):**
+- `empty_confirm_s`: `2.0` → `0.5` — catches brief 0.5–1.5s empty windows
+
+**Outbox cleanup:**
+- Deleted stuck test row `id=11` from `job_completion_outbox` (was retrying 257 times with HTTP 400)
+
+**Deployed and live:** Service restarted at `2026-04-12T11:49:35Z`. New `.pyc` compiled and running.
+
+**Expected result on next job:** `dump_events`, `hopper_load_times`, `total_processed_lbs`, `avg_weight_lbs`, `avg_cycle_time_ms` will all be non-zero. `avg_hopper_load_time_ms` will be ~114,000ms (1.9 min) when machine is running well; longer if starving for parts.
+
+---
+
 ### Next Recommended Steps
 
-#### Current confirmed-good state (as of 2026-04-10)
+#### Current confirmed-good state (as of 2026-04-12)
 - Opto IN1 wired and mapped to `Basket Dump Count`. No mismatch.
 - `LCS_MACHINE_ID=PLP6` active in systemd. No mismatch.
 - `counted_events` writing correctly. Backend healthy.

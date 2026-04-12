@@ -14,6 +14,7 @@
 - **Fix Applied:** SSH'd into the Pi and manually updated the `config_versions` SQLite table to set `throughput.full_stability_s = 1.5`.
 - **Downtime:** **Zero.** The scale software hot-reloads its config every 2 seconds (`config_refresh_s: 2.0`), so the fix applied instantly without restarting the `loadcell-transmitter` service.
 - **Cooldown Verification:** Verified that the 30-second `basket_dump` cooldown (to prevent double-counting opto pulses) is **already live** in the running `acquisition.py` code on the Pi. No code push or restart was required.
+- **Pipeline Verification:** Injected mock data into the Pi's SQLite database to trigger a webhook. Verified end-to-end data flow to Supabase. Safely deleted all mock data from both the Pi and Supabase afterward.
 
 ## Previous Activity (2026-04-10)
 
