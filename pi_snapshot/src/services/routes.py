@@ -1314,8 +1314,6 @@ def throughput_events() -> Response:
                 "hopper_id": row["hopper_id"],
                 "target_set_weight_lbs": row.get("target_set_weight_lbs"),
                 "dump_type": row.get("dump_type"),
-                "fill_time_ms": row.get("fill_time_ms"),
-                "dump_time_ms": row.get("dump_time_ms"),
             }
             for row in events
         ],
@@ -1452,10 +1450,6 @@ def throughput_events_csv() -> Response:
             "confidence",
             "device_id",
             "hopper_id",
-            "target_set_weight_lbs",
-            "dump_type",
-            "fill_time_ms",
-            "dump_time_ms",
             "created_at",
         ]
     )
@@ -1471,10 +1465,6 @@ def throughput_events_csv() -> Response:
                 row["confidence"],
                 row["device_id"],
                 row["hopper_id"],
-                row.get("target_set_weight_lbs"),
-                row.get("dump_type"),
-                row.get("fill_time_ms"),
-                row.get("dump_time_ms"),
                 row["created_at"],
             ]
         )

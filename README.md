@@ -2,8 +2,10 @@
 
 Single startup document for this repo. If a human, Cursor, or OpenClaw session starts cold, begin here.
 
-**Production Pi:** `172.16.190.25` (`hoppers.tail840434.ts.net`)  
-**Dashboard:** `http://172.16.190.25:8080`  
+**Production Pi (LAN):** `172.16.190.25`  
+**Production Pi (Tailscale):** `100.114.238.54` / MagicDNS `hoppers.tail840434.ts.net`  
+**Dashboard (LAN):** `http://172.16.190.25:8080`  
+**Dashboard (Funnel / off-LAN):** `https://hoppers.tail840434.ts.net`  
 **Service:** `loadcell-transmitter`  
 **Runtime Path:** `/opt/loadcell-transmitter`
 

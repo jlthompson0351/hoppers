@@ -13,30 +13,35 @@
 - **Caution:** Touches live calibration. Do NOT fix without Justin's explicit approval.
 - **Priority:** Medium — schedule separately.
 
+## ✅ Fixed: ThroughputCycleDetector — Simplified to Opto-Only (2026-04-13)
+- **Root cause found:** `dump_drop_lb = 6.0` triggered false DUMPING transitions on normal machine vibration (~6-10 lb oscillations). State machine left FULL_STABLE prematurely; real dump found detector in FILLING state → aborted. Zero throughput_events recorded.
+- **Decision:** Disable hopper fill tracking entirely (`throughput.enabled = false`). Use opto timestamps for all cycle metrics.
+- **Staged on Pi:** `throughput_cycle.py` rewritten, `acquisition.py` updated, `dump_drop_lb = 25.0`, `throughput.enabled = false` in config. **Activates on Pi restart.**
+- **avg_cycle_time_ms** now = `(last_dump_utc - first_dump_utc) / (basket_dump_count_raw - 1)` — from opto, reliable.
+- **basket_cycle_count** = `basket_dump_count_raw` (removed ÷2 — 30s cooldown already deduplicates).
+
 ## ✅ Fixed: ThroughputCycleDetector Rebound Bug (2026-04-12)
 - **Fix applied:** Added `_dump_seen_near_empty` flag to `DUMPING` state in `src/core/throughput_cycle.py`. Once near-empty is seen, mechanical bounce no longer cancels the empty-confirm timer or triggers rebound-to-FILLING.
 - Also reduced `empty_confirm_s: 2.0 → 0.5` in Pi config (hot-reloaded).
 - Service restarted `2026-04-12T11:49:35Z`. Fix is live.
-- **Expected:** `dump_events`, `hopper_load_times`, `total_processed_lbs` will be non-zero on next job.
-- **Starvation detection:** `avg_hopper_load_time_ms` baseline is ~114,000ms (1.9 min). If it climbs to 3–4 min, machine is starving for parts upstream.
 
-## 🐛 Known: Historical Fill Time Data is Invalid (logged 2026-04-11, updated 2026-04-12)
-- All `hopper_load_times` / `avg_hopper_load_time_ms` data before `2026-04-12T11:49:35Z` (service restart) is invalid.
-- Original root cause: `full_stability_s` was wrong → fill times showed ~500ms (physically impossible for ~1.9 min cycle).
-- Secondary root cause: rebound bug in `DUMPING` state reset `_fill_started_s` on every bounce.
-- Both now fixed. Cutoff timestamp for valid fill time data: `2026-04-12T11:49:35+00:00`
-- **Action needed:** In Supabase efficiency report, exclude or flag all fill time data before this cutoff.
+## 🐛 Known: Historical Fill Time Data is Invalid (throughput disabled as of 2026-04-13)
+- Hopper fill time tracking (`throughput_events`) has been disabled. `avg_hopper_load_time_ms`, `hopper_load_times`, `dump_events` will all be 0/[] going forward.
+- If fill time tracking is re-enabled in the future, all data before `2026-04-13` restart should be treated as invalid.
+- **Line starvation is now detected via `avg_cycle_time_ms` from opto.** Baseline ~103,000 ms (~1:43 min). Flag if > 130,000 ms.
 
 
 ## Current Cross-Project Feature Support
-- [ ] Support the next public machine-kiosk enhancement across the linked manufacturing system.
-- [ ] Confirm the completed-job webhook payload and downstream storage still expose the manager-facing metrics needed by the frontend kiosk:
-  - [ ] average basket weight
-  - [ ] set weight
-  - [ ] average cycle time
-  - [ ] weight drift warning
-- [ ] Verify naming/units for the fields mirrored downstream into Supabase `completed_jobs`.
-- [ ] Keep the distinction clear between Hopper as the scale/runtime source and Supabase as the broader backend/storage layer.
+- [x] avg_cycle_time_ms now flowing correctly from opto signal (staged, live after restart)
+- [x] basket_cycle_count = correct count (no ÷2) (staged, live after restart)
+- [ ] After restart: verify Supabase `scale_completion_data` has `avg_cycle_time_ms > 0`
+- [ ] After restart: consider Supabase-side alert if `avg_cycle_time_ms > baseline * 1.3` (line starving)
+- [ ] Confirm completed-job webhook payload and downstream storage expose the manager-facing metrics:
+  - [x] average cycle time (avg_cycle_time_ms — from opto)
+  - [x] basket dump count (basket_dump_count_raw / basket_cycle_count)
+  - [x] set weight (final_set_weight_lbs)
+  - [x] weight drift warning (rezero_warning_seen)
+  - [ ] average basket weight (avg_weight_lbs — disabled with throughput)
 
 ## Data / Product Alignment
 - [ ] Document Hopper's role in the three-project chain: ERP/job context + machine set weight flow + scale completion output → Supabase → Frontend kiosk/dashboard views.

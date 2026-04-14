@@ -10,24 +10,18 @@
 ## 🟢 Current Context
 <!-- AI_CONTEXT_START -->
 <status>
-Live Production - confirmed running on Pi 2026-04-11. All fill detection fixes verified live. Service healthy since 22:28 EDT Apr 10. full_pct_of_target=0.80 now also written to DB config (was already active as code default).
+STAGED, PENDING PI RESTART — 2026-04-13. Architecture simplified: opto ISO signal is sole source of cycle metrics. Hopper fill tracking disabled. avg_cycle_time_ms now from opto timestamps. basket_cycle_count = raw count (no ÷2). All files staged on Pi disk. Service still running old code. Pi restart will make everything live.
 </status>
 
 <current_goals>
-- [x] Monitor first real production cycles — verified 21 BASKET_DUMP events logged morning of Apr 11, service healthy
-- [ ] Audit Supabase efficiency calculations using clean post-fix data
-- [ ] Rebuild job_efficiency report with accurate fill time + basket cycle data
-- [ ] Fix re-zero always skipping (zero_target_lb = 0 but empty hopper weighs ~70 lbs) — needs Justin approval
-- [ ] Create fresh full OS image backup after tonight's changes confirmed good
-- [ ] Rotate webhook token after go-live validation window
-- [x] Fix fill time detection: full_stability_s 0.4→5.0, empty_confirm_s 0.3→2.0 (2026-04-11)
-- [x] Add dynamic fill threshold: full_pct_of_target=0.80 (80% of ERP set weight = full)
-- [x] Fix zero operation inflating production totals: zero_artifact suppression (2026-04-11)
-- [x] Add fill time outlier filtering: <30sec excluded from avg_hopper_load_time_ms (2026-04-11)
-- [x] Add valid_fill_count + excluded_fill_count to webhook payload (2026-04-11)
-- [x] Forensic audit of Pi SQLite DB — all tables, configs, event codes documented
-- [x] Delete 7.2GB stale backup (app.sqlite3.backup-20260410-213849) — all data already in Supabase
-- [x] Logged zero-offset-inflates-production-totals bug to TODO.md
+- [x] Fix avg_cycle_time_ms — now calculated from opto timestamps (last-first)/(count-1)
+- [x] Fix basket_cycle_count — removed incorrect ÷2 (30s cooldown already deduplicates)
+- [x] Disable hopper fill tracking (throughput.enabled=false, dump_drop_lb=25 staged)
+- [x] Stage all files on Pi — acquisition.py, throughput_cycle.py, repo.py, routes.py, config
+- [ ] RESTART PI — activates all staged changes
+- [ ] Verify first post-restart job webhook: avg_cycle_time_ms ~103,000, basket_cycle_count correct
+- [ ] Schedule VACUUM during next downtime window (after DB maintenance first prune runs)
+- [ ] Audit Supabase efficiency calculations using clean post-restart data
 - [x] Monitor first live production cycles (set weight -> fill -> trigger -> PLC stop -> dump)
 - [x] Update HDMI UI layout (move Job Target to left, Zero/Tare data to right, add Settings button)
 - [x] Persist job target set weight across restart/power cycle
@@ -47,6 +41,10 @@ Live Production - confirmed running on Pi 2026-04-11. All fill detection fixes v
 </current_goals>
 
 <recent_decisions>
+- 2026-04-13: ARCHITECTURE DECISION — opto ISO signal is sole source of cycle metrics. Hopper weight cycle tracking disabled (throughput.enabled=false). Reason: dump_drop_lb=6 was too sensitive to machine vibration (~6-10 lb oscillations on full hopper triggered false DUMPING transitions). Simpler and more reliable to use opto timestamps directly.
+- 2026-04-13: basket_cycle_count = basket_dump_count_raw (removed ÷2). The 30-second cooldown already deduplicates double-fire opto signals — each counted_event is one basket rotation cycle.
+- 2026-04-13: avg_cycle_time_ms now calculated from opto timestamps: (last_dump_utc - first_dump_utc) / (basket_dump_count_raw - 1). No longer sourced from throughput_events.
+- 2026-04-13: dump_drop_lb raised to 25.0 in config (was 6.0). 25 lb threshold ignores vibration, catches real dumps. Staged in config_versions DB ready if throughput re-enabled.
 - 2026-04-11: full_stability_s raised to 5.0s (was 0.4s). Conveyor belt fill minimum is 30 sec in real world; 0.4s was triggering on first belt trickle.
 - 2026-04-11: empty_confirm_s raised to 2.0s (was 0.3s). Physical dump cycle needs time to complete.
 - 2026-04-11: Added full_pct_of_target=0.80 — hopper declared full when weight reaches 80% of ERP set weight. Handles variable job sizes correctly.

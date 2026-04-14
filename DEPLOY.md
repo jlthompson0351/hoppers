@@ -1,9 +1,12 @@
 # DEPLOY
 
 ## Production target
-- **Pi:** `172.16.190.25`
-- **Tailscale/Funnel URL:** `https://hoppers.tail840434.ts.net`
-- **Dashboard:** `http://172.16.190.25:8080`
+- **Pi (plant LAN):** `172.16.190.25`
+- **Pi (Tailscale IPv4):** `100.114.238.54`
+- **Pi (MagicDNS):** `hoppers` / `hoppers.tail840434.ts.net`
+- **Dashboard (LAN):** `http://172.16.190.25:8080`
+- **Dashboard (Tailscale Funnel, HTTPS):** `https://hoppers.tail840434.ts.net`
+- **SSH (off-site, tailnet):** `pi@100.114.238.54` or `pi@hoppers.tail840434.ts.net` (same user as LAN; use your usual Pi password)
 - **Service:** `loadcell-transmitter`
 - **Runtime path:** `/opt/loadcell-transmitter`
 

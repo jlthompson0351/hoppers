@@ -400,8 +400,7 @@ class AcquisitionService:
         final_set_weight_unit = set_weight_summary.get("final_set_weight_unit")
         if final_set_weight_unit in (None, ""):
             final_set_weight_unit = lifecycle_state.last_set_weight_unit
-        # avg_cycle_time_ms is derived from opto basket dumps below (not throughput_events)
-        avg_cycle_time_ms = 0.0
+        avg_cycle_time_ms = float(throughput_summary.get("avg_cycle_time_ms", 0.0) or 0.0)
 
         # Basket dump metrics from opto counted_events
         basket_dump_events = self.repo.get_counted_events_in_window(
@@ -412,28 +411,14 @@ class AcquisitionService:
             end_utc=closed_at_record_time_set_utc,
         )
         basket_dump_count_raw = int(counted_summary.get("basket_dump", 0) or 0)
-        # Each counted_event is already one full basket rotation cycle —
-        # the 30-second cooldown suppresses the second fire of each double-shake.
-        basket_cycle_count = basket_dump_count_raw
-        anomaly_detected = False
+        basket_cycle_count = basket_dump_count_raw // 2
+        anomaly_detected = (basket_dump_count_raw % 2 != 0)
 
         first_basket_dump_utc: Optional[str] = None
         last_basket_dump_utc: Optional[str] = None
         if basket_dump_events:
             first_basket_dump_utc = basket_dump_events[0]["timestamp_utc"]
             last_basket_dump_utc = basket_dump_events[-1]["timestamp_utc"]
-
-        # Avg cycle time from opto signal: (last_dump - first_dump) / (count - 1)
-        # This is the true basket rotation cycle time, independent of hopper weight tracking.
-        if basket_dump_count_raw >= 2 and first_basket_dump_utc and last_basket_dump_utc:
-            try:
-                _t_first = datetime.fromisoformat(first_basket_dump_utc)
-                _t_last = datetime.fromisoformat(last_basket_dump_utc)
-                avg_cycle_time_ms = (
-                    (_t_last - _t_first).total_seconds() * 1000.0
-                ) / (basket_dump_count_raw - 1)
-            except (ValueError, TypeError):
-                avg_cycle_time_ms = 0.0
 
         # Idle gap detection: gaps >= 2 hours between consecutive basket dumps
         idle_gaps: list = []
@@ -1131,7 +1116,8 @@ class AcquisitionService:
 
     def suppress_next_cycle_as_zero_artifact(self, window_s: float = 30.0) -> None:
         """Call after a manual zero to prevent the next weight-drop from being counted as a real dump."""
-        self._zero_artifact_suppress_until_s = time.monotonic() + window_s
+        import time as _time
+        self._zero_artifact_suppress_until_s = _time.monotonic() + window_s
         log.info("Zero artifact suppression armed for %.1f seconds", window_s)
 
     def mark_manual_zero_seen(self, source: str = "manual_zero") -> None:
@@ -1368,8 +1354,8 @@ class AcquisitionService:
                 float(throughput.get("full_min_lb", 15.0) or 15.0),
             ),
             throughput_dump_drop_lb=max(
-                10.0,
-                float(throughput.get("dump_drop_lb", 25.0) or 25.0),
+                0.5,
+                float(throughput.get("dump_drop_lb", 6.0) or 6.0),
             ),
             throughput_full_stability_s=max(
                 0.0,
@@ -1459,7 +1445,8 @@ class AcquisitionService:
         min_processed_lb = max(0.0, float(getattr(cfg, "throughput_min_processed_lb", 5.0) or 5.0))
 
         # Check if this cycle should be tagged as a zero artifact (triggered by manual zero)
-        is_zero_artifact = time.monotonic() < self._zero_artifact_suppress_until_s
+        import time as _time_persist
+        is_zero_artifact = _time_persist.monotonic() < self._zero_artifact_suppress_until_s
         if is_zero_artifact:
             dump_type = "zero_artifact"
             log.info("Throughput cycle tagged as zero_artifact (manual zero suppression active)")
@@ -1644,8 +1631,6 @@ class AcquisitionService:
                     raw_mv = float(self.hw.daq.read_differential_mv(cfg.channel))
                     self._daq_online = True
                 except Exception:
-                    if self._daq_online:
-                        log.warning("DAQ read failed, marking offline", exc_info=True)
                     self._daq_online = False
 
                 # 1b. STARTUP CHECK (used by zero tracker and output logic)
@@ -1714,6 +1699,7 @@ class AcquisitionService:
                     # Throughput detector now runs on target-relative weight.
                     # Keep full_min behavior aligned with the original absolute threshold.
                     # Dynamic full_min_lb: use % of set weight if configured, else fixed threshold.
+                    import time as _time_tp
                     active_sw = float(self._job_set_weight) if self._job_set_weight > 0.0 else 0.0
                     full_pct = max(0.5, min(0.99, float(getattr(cfg, 'throughput_full_pct_of_target', 0.80) or 0.80)))
                     fixed_full_min = max(0.5, float(cfg.throughput_full_min_lb - cfg.zero_target_lb))
@@ -2229,7 +2215,6 @@ class AcquisitionService:
                         else:
                             self.hw.megaind.write_analog_out_v(cfg.ao_channel_v, out_cmd.value)
                     except Exception:
-                        log.warning("MegaIND write failed, marking offline", exc_info=True)
                         self._megaind_online = False
 
                 # 9. POLL opto buttons
@@ -2239,8 +2224,12 @@ class AcquisitionService:
                 # 10. UPDATE state for UI
                 self._loop_count += 1
                 
-                # --- Trend Logging (1 Hz) ---
-                if self._loop_count % 20 == 0:
+                # --- High-Res Logging for PLC Lag Diagnosis ---
+                # Log every loop iteration (20 Hz) to trends_total for detailed analysis.
+                # This captures: timestamp, current weight, stability, output mode, and output command.
+                # Only log if current time is after Monday 6:00 AM (2026-02-23 06:00:00 UTC-5)
+                # Hardcoded start time: 1771844400 (Monday Feb 23 2026 06:00:00 EST)
+                if self._loop_count % 1 == 0 and time.time() >= 1771844400:  # Log every sample (20Hz) after Monday 6am
                     try:
                         self.repo.add_total_sample(
                             total_lbs=net_lbs,
@@ -2248,8 +2237,10 @@ class AcquisitionService:
                             output_mode=cfg.output_mode,
                             output_cmd=out_cmd.value,
                         )
-                    except Exception:
-                        log.debug("Failed to write trend sample")
+                    except Exception as log_err:
+                        # Don't crash loop on logging failure
+                        pass
+                # ----------------------------------------------
 
                 io_live = self._daq_online and self._megaind_online
                 fault_state = (not self._daq_online) or (not self._megaind_online)
@@ -2435,7 +2426,7 @@ class AcquisitionService:
 
                 self._opto_last[ch] = is_pressed
         except Exception:
-            log.warning("Opto poll/handler error", exc_info=True)
+            pass
 
     def _handle_button(
         self,

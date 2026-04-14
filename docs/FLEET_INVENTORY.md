@@ -1,14 +1,14 @@
 # Fleet Inventory
 
-**Last Updated**: 2026-03-16
+**Last Updated**: 2026-04-13
 
 This document tracks all deployed Pi systems running the Load Cell Scale Transmitter software.
 
 ## Active Sites
 
-| Site Name | Pi IP | Hostname | Version | Hopper Type | Capacity | Installed | Last Update | Status |
-|-----------|-------|----------|---------|-------------|----------|-----------|-------------|--------|
-| Site A - Line 1 | 172.16.190.25 | Hoppers | Feb 27 live baseline + Mar 5/6/16 staged runtime updates pending restart | 4-leg | 300 lb | 2025-01-15 | 2026-03-16 | ✅ Operational |
+| Site Name | Pi IP (LAN) | Tailscale | Hostname | Version | Hopper Type | Capacity | Installed | Last Update | Status |
+|-----------|-------------|-----------|----------|---------|-------------|----------|-----------|-------------|--------|
+| Site A - Line 1 | 172.16.190.25 | 100.114.238.54 / hoppers.tail840434.ts.net | Hoppers | Feb 27 live baseline + Mar 5/6/16 staged runtime updates pending restart | 4-leg | 300 lb | 2025-01-15 | 2026-04-13 | ✅ Operational |
 
 ## Planned Sites
 
@@ -24,10 +24,14 @@ This document tracks all deployed Pi systems running the Load Cell Scale Transmi
 
 | Property | Value |
 |----------|-------|
-| **Pi IP** | 172.16.190.25 |
+| **Pi IP (LAN)** | 172.16.190.25 |
+| **Pi IP (Tailscale)** | 100.114.238.54 |
+| **MagicDNS** | hoppers / hoppers.tail840434.ts.net |
 | **Hostname** | Hoppers |
 | **Location** | [Update with physical location] |
-| **Dashboard URL** | http://172.16.190.25:8080 |
+| **Dashboard URL (LAN)** | http://172.16.190.25:8080 |
+| **Dashboard URL (Funnel)** | https://hoppers.tail840434.ts.net |
+| **SSH (tailnet)** | `pi@100.114.238.54` or `pi@hoppers.tail840434.ts.net` |
 | **Install Date** | 2025-01-15 |
 | **Commissioned By** | jthompson |
 

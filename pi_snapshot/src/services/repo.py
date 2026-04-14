@@ -1660,8 +1660,7 @@ class AppRepository:
 
             cur = conn.execute(
                 "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
-                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, "
-                "fill_time_ms, dump_time_ms, created_at "
+                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, created_at "
                 f"FROM throughput_events{where_sql} "
                 "ORDER BY timestamp_utc DESC, id DESC LIMIT ? OFFSET ?;",
                 tuple(where_params + [page_size, offset]),
@@ -1686,8 +1685,6 @@ class AppRepository:
                             else float(row["target_set_weight_lbs"])
                         ),
                         "dump_type": row["dump_type"],
-                        "fill_time_ms": (None if row["fill_time_ms"] is None else int(row["fill_time_ms"])),
-                        "dump_time_ms": (None if row["dump_time_ms"] is None else int(row["dump_time_ms"])),
                         "created_at": row["created_at"],
                     }
                 )
@@ -1706,8 +1703,7 @@ class AppRepository:
         with self._conn() as conn:
             cur = conn.execute(
                 "SELECT id, timestamp_utc, processed_lbs, full_lbs, empty_lbs, duration_ms, "
-                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, "
-                "fill_time_ms, dump_time_ms, created_at "
+                "confidence, device_id, hopper_id, target_set_weight_lbs, dump_type, created_at "
                 f"FROM throughput_events{where_sql} "
                 f"ORDER BY timestamp_utc {order_sql}, id {order_sql};",
                 tuple(where_params),
@@ -1731,8 +1727,6 @@ class AppRepository:
                             else float(row["target_set_weight_lbs"])
                         ),
                         "dump_type": row["dump_type"],
-                        "fill_time_ms": (None if row["fill_time_ms"] is None else int(row["fill_time_ms"])),
-                        "dump_time_ms": (None if row["dump_time_ms"] is None else int(row["dump_time_ms"])),
                         "created_at": row["created_at"],
                     }
                 )
